@@ -1,0 +1,85 @@
+.fate-extra-page {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  padding: 14px;
+}
+
+.fate-extra-page__intro,
+.fate-extra-page__report {
+  padding: 14px;
+}
+
+.fate-extra-page__fields {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+.fate-extra-page__field {
+  display: grid;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.fate-extra-page__field-control,
+.fate-extra-page__actions,
+.fate-extra-page__metrics,
+.fate-extra-page__font-report {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fate-extra-page__field-control input {
+  font-family: var(--font-mono);
+}
+
+.fate-extra-page__actions,
+.fate-extra-page__metrics,
+.fate-extra-page__font-report {
+  flex-wrap: wrap;
+}
+
+.fate-extra-page__error,
+.fate-extra-page__feedback {
+  margin: 0;
+  border-radius: var(--ui-radius-card);
+  padding: 9px 12px;
+  font-size: 12px;
+}
+
+.fate-extra-page__error {
+  background: color-mix(in srgb, var(--destructive) 12%, transparent);
+  color: var(--destructive);
+}
+
+.fate-extra-page__feedback {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+  color: var(--foreground);
+}
+
+.fate-extra-page__issues {
+  max-height: 240px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--destructive);
+  font-size: 11px;
+}
+
+.fate-extra-page__font-report {
+  padding: 14px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+@media (max-width: 900px) {
+  .fate-extra-page__field {
+    grid-template-columns: 1fr;
+  }
+}

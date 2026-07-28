@@ -41,6 +41,8 @@ import { QualityRulePresetReader } from "../quality/quality-rule-preset-reader";
 import { QualityService } from "../quality/quality-service";
 import { TaskService } from "../engine/task-service";
 import { ToolboxTsConversionExportService } from "../toolbox/toolbox-ts-conversion-export-service";
+import { FateExtraFontService } from "../toolbox/fate-extra-font-service";
+import { FateExtraService } from "../toolbox/fate-extra-service";
 import { resolve_app_locale } from "../../domain/app-language";
 import { create_text_resolver, type TextResolver } from "../../shared/i18n";
 import type { SystemProxySnapshot } from "../network/system-proxy-dispatcher";
@@ -98,6 +100,8 @@ export interface BackendTranslationServices {
 
 export interface BackendToolboxServices {
   tsConversion: ToolboxTsConversionExportService;
+  fateExtra: FateExtraService;
+  fateExtraFont: FateExtraFontService;
 }
 
 export interface BackendEngineServices {
@@ -130,6 +134,8 @@ export class BackendServices {
   private readonly proofreading_query_service: ProofreadingQueryService;
   private readonly quality_statistics_service: QualityStatisticsService;
   private readonly ts_conversion_service: ToolboxTsConversionExportService;
+  private readonly fate_extra_font_service: FateExtraFontService;
+  private readonly fate_extra_service: FateExtraService;
   private readonly model_service: ModelService;
   private readonly project_lifecycle_service: ProjectLifecycleService;
   private readonly project_operation_gate: ProjectOperationGate;
@@ -298,6 +304,19 @@ export class BackendServices {
       presetReader: new QualityRulePresetReader(this.paths),
       fileExportService: this.file_export_service,
     });
+    this.fate_extra_font_service = new FateExtraFontService(
+      this.paths,
+      this.database,
+      this.project_session_state,
+    );
+    this.fate_extra_service = new FateExtraService(
+      this.paths,
+      this.database,
+      this.project_session_state,
+      this.project_operation_gate,
+      this.project_write_store,
+      this.fate_extra_font_service,
+    );
     this.quality_service = new QualityService(
       this.paths,
       this.app_setting_service,
@@ -335,6 +354,8 @@ export class BackendServices {
     };
     this.toolbox = {
       tsConversion: this.ts_conversion_service,
+      fateExtra: this.fate_extra_service,
+      fateExtraFont: this.fate_extra_font_service,
     };
     this.engine = { tasks: this.task_service };
     this.logs = { manager: this.log_manager };

@@ -76,3 +76,25 @@ project, files, items, quality, prompts, analysis, proofreading
 ## 6. 更新条件
 
 公开路由、响应壳、错误载荷、SSE、状态所有权、写入/失败语义、任务快照、worker / LLM 边界、数据库 workflow、migration 或 `.lg` 物理格式变化时更新本文；前端消费方式只更新 [`FRONTEND.md`](FRONTEND.md)。
+
+## 7. Fate/Extra API 与事务语义
+
+FE 百宝箱公开以下项目 API：
+
+```text
+POST /api/toolbox/fate-extra/scan
+POST /api/toolbox/fate-extra/apply
+POST /api/toolbox/fate-extra/font/scan
+POST /api/toolbox/fate-extra/font/sync
+POST /api/toolbox/fate-extra/export
+```
+
+`scan` 只读六份索引原稿、旧译文和外置分类 SQLite，并返回可复核报告。`apply` 在 gate
+持有期间再次验证源文件身份，先备份 `.lg`，再于一个数据库事务内替换 files/items、
+写入 `fate_extra.adapter.v1`、更新 section revision 并发布 canonical project change。
+结构或分类匹配不可靠时不得进入事务。
+
+`font/sync` 和 `export` 以独立 helper 处理 CPU/IO 密集字库生成。普通 FE QA 警告不阻止
+导出；字库同步失败、编码槽耗尽、索引结构损坏和输出不可写属于系统错误。项目元数据
+只记录语料、manifest 哈希及剩余槽数，不把分类数据库、译文或字体生成临时目录写入
+`.lg`。

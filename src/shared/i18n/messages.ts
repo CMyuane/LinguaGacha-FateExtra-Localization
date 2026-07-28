@@ -3,6 +3,8 @@ import { de_de_app } from "./resources/de-DE/app";
 import { de_de_basic_settings_page } from "./resources/de-DE/basic-settings-page";
 import { de_de_custom_prompt_page } from "./resources/de-DE/custom-prompt-page";
 import { de_de_expert_settings_page } from "./resources/de-DE/expert-settings-page";
+import { de_de_fate_extra_page } from "./resources/de-DE/fate-extra-page";
+import { de_de_fate_extra_preview_page } from "./resources/de-DE/fate-extra-preview-page";
 import { de_de_glossary_page } from "./resources/de-DE/glossary-page";
 import { de_de_laboratory_page } from "./resources/de-DE/laboratory-page";
 import { de_de_log_window_page } from "./resources/de-DE/log-window-page";
@@ -22,6 +24,8 @@ import { en_us_app } from "./resources/en-US/app";
 import { en_us_basic_settings_page } from "./resources/en-US/basic-settings-page";
 import { en_us_custom_prompt_page } from "./resources/en-US/custom-prompt-page";
 import { en_us_expert_settings_page } from "./resources/en-US/expert-settings-page";
+import { en_us_fate_extra_page } from "./resources/en-US/fate-extra-page";
+import { en_us_fate_extra_preview_page } from "./resources/en-US/fate-extra-preview-page";
 import { en_us_glossary_page } from "./resources/en-US/glossary-page";
 import { en_us_laboratory_page } from "./resources/en-US/laboratory-page";
 import { en_us_log_window_page } from "./resources/en-US/log-window-page";
@@ -41,6 +45,8 @@ import { zh_cn_app } from "./resources/zh-CN/app";
 import { zh_cn_basic_settings_page } from "./resources/zh-CN/basic-settings-page";
 import { zh_cn_custom_prompt_page } from "./resources/zh-CN/custom-prompt-page";
 import { zh_cn_expert_settings_page } from "./resources/zh-CN/expert-settings-page";
+import { zh_cn_fate_extra_page } from "./resources/zh-CN/fate-extra-page";
+import { zh_cn_fate_extra_preview_page } from "./resources/zh-CN/fate-extra-preview-page";
 import { zh_cn_glossary_page } from "./resources/zh-CN/glossary-page";
 import { zh_cn_laboratory_page } from "./resources/zh-CN/laboratory-page";
 import { zh_cn_log_window_page } from "./resources/zh-CN/log-window-page";
@@ -63,6 +69,8 @@ export const zh_cn_messages = {
   basic_settings_page: zh_cn_basic_settings_page,
   custom_prompt_page: zh_cn_custom_prompt_page,
   expert_settings_page: zh_cn_expert_settings_page,
+  fate_extra_page: zh_cn_fate_extra_page,
+  fate_extra_preview_page: zh_cn_fate_extra_preview_page,
   glossary_page: zh_cn_glossary_page,
   laboratory_page: zh_cn_laboratory_page,
   log_window_page: zh_cn_log_window_page,
@@ -85,6 +93,8 @@ export const en_us_messages = {
   basic_settings_page: en_us_basic_settings_page,
   custom_prompt_page: en_us_custom_prompt_page,
   expert_settings_page: en_us_expert_settings_page,
+  fate_extra_page: en_us_fate_extra_page,
+  fate_extra_preview_page: en_us_fate_extra_preview_page,
   glossary_page: en_us_glossary_page,
   laboratory_page: en_us_laboratory_page,
   log_window_page: en_us_log_window_page,
@@ -107,6 +117,8 @@ export const de_de_messages = {
   basic_settings_page: de_de_basic_settings_page,
   custom_prompt_page: de_de_custom_prompt_page,
   expert_settings_page: de_de_expert_settings_page,
+  fate_extra_page: de_de_fate_extra_page,
+  fate_extra_preview_page: de_de_fate_extra_preview_page,
   glossary_page: de_de_glossary_page,
   laboratory_page: de_de_laboratory_page,
   log_window_page: de_de_log_window_page,

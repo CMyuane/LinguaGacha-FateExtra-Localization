@@ -376,7 +376,7 @@ describe("desktop-api", () => {
     const update = await check_github_release_update("1.2.3");
 
     expect(fetch_mock).toHaveBeenCalledWith(
-      "https://api.github.com/repos/neavo/LinguaGacha/releases/latest",
+      "https://api.github.com/repos/CMyuane/LinguaGacha-FateExtra-Localization/releases/latest",
       expect.objectContaining({
         method: "GET",
       }),

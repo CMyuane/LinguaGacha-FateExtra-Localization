@@ -90,7 +90,10 @@ export class PromptBuilder {
   ): Promise<PromptBuildResult> {
     const messages: LLMMessage[] = [];
     const console_log: string[] = [];
-    const instruction_text = await this.build_main(mode);
+    const instruction_text = await this.build_main(
+      mode,
+      lines.some((line) => line.fate_extra === true),
+    );
     const user_parts: string[] = [];
 
     const preceding = this.build_preceding(precedings);
@@ -126,12 +129,16 @@ export class PromptBuilder {
   /**
    * 生成 SakuraLLM 固定提示词，保持旧模型专用语义
    */
-  public generate_prompt_sakura(srcs: string[]): PromptBuildResult {
+  public generate_prompt_sakura(srcs: string[], fate_extra = false): PromptBuildResult {
     const messages: LLMMessage[] = [
       {
         role: "system",
-        content:
+        content: [
           "你是一个轻小说翻译模型，可以流畅通顺地以日本轻小说的风格将日文翻译成简体中文，并联系上下文正确使用人称代词，不擅自添加原文中没有的代词。",
+          fate_extra ? this.read_fate_extra_rules() : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       },
     ];
     const console_log: string[] = [];
@@ -165,7 +172,10 @@ export class PromptBuilder {
   /**
    * 翻译主提示词从自定义快照或资源模板读取
    */
-  public async build_main(mode: TranslationPromptMode = "text"): Promise<string> {
+  public async build_main(
+    mode: TranslationPromptMode = "text",
+    fate_extra = false,
+  ): Promise<string> {
     const context = this.resolve_prompt_context();
     const prompt = Prompt.translation();
     const prefix = await this.read_prompt_text(
@@ -186,13 +196,34 @@ export class PromptBuilder {
       context.prompt_language,
       "suffix.txt",
     );
-    return this.join_prompt_sections(prefix, base, thinking, suffix)
+    const localized_base = [base, fate_extra ? this.read_fate_extra_rules() : ""]
+      .filter(Boolean)
+      .join("\n\n");
+    return this.join_prompt_sections(prefix, localized_base, thinking, suffix)
       .replaceAll("{source_language}", context.source_language)
       .replaceAll("{target_language}", context.target_language)
       .replaceAll(
         "{translation_output_format}",
         build_translation_output_format(mode, context.prompt_language),
       );
+  }
+
+  private read_fate_extra_rules(): string {
+    const cache_key = `${this.app_root}\u0000fate-extra-rules`;
+    const cached = PromptBuilder.template_cache.get(cache_key);
+    if (cached !== undefined) {
+      return cached;
+    }
+    const rules_path = path.join(
+      this.app_root,
+      "resource",
+      "fate-extra",
+      "rules",
+      "translation-prompt.md",
+    );
+    const text = default_native_fs.read_text_file(rules_path).trim();
+    PromptBuilder.template_cache.set(cache_key, text);
+    return text;
   }
 
   /**

@@ -9,5 +9,10 @@ export const de_de_toolbox_page = {
       description:
         "Konvertieren Sie den Zieltext oder Zeichennamen stapelweise zwischen traditionellem und vereinfachtem Chinesisch mit Textschutz",
     },
+    fate_extra: {
+      title: "Fate/Extra-Lokalisierungsadapter",
+      description:
+        "Indizes und Klassifikation verbinden, Übersetzungen migrieren, PSP-Schriften synchronisieren und Reimportdaten exportieren",
+    },
   },
 } satisfies LocaleMessageSchema<typeof zh_cn_toolbox_page>;

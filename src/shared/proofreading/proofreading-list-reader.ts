@@ -230,6 +230,7 @@ function normalize_reader_item(record: unknown): ProofreadingItemRecord | null {
     status: String(candidate.status ?? ""),
     text_type: String(candidate.text_type ?? "NONE"),
     retry_count: Number(candidate.retry_count ?? 0),
+    extra_field: (candidate.extra_field ?? "") as ProofreadingItemRecord["extra_field"],
   };
 }
 

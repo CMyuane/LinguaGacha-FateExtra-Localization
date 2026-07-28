@@ -19,7 +19,7 @@ afterEach(() => {
 });
 
 describe("AppMetadataService", () => {
-  it("读取 version.txt 后缓存版本并生成 LinguaGacha User-Agent", () => {
+  it("读取 version.txt 后缓存版本并生成 LinguaGacha FE User-Agent", () => {
     const app_root = create_temp_root("linguagacha-metadata-");
     fs.writeFileSync(path.join(app_root, "version.txt"), "1.2.3\n", "utf-8");
     const service = new AppMetadataService(new AppPathService({ appRoot: app_root }));
@@ -29,7 +29,7 @@ describe("AppMetadataService", () => {
 
     expect(service.read_version()).toBe("1.2.3");
     expect(service.build_linguagacha_user_agent()).toBe(
-      "LinguaGacha/v1.2.3 (https://github.com/neavo/LinguaGacha)",
+      "LinguaGacha-FE/v1.2.3 (https://github.com/CMyuane/LinguaGacha-FateExtra-Localization)",
     );
   });
 
@@ -38,7 +38,7 @@ describe("AppMetadataService", () => {
     const service = new AppMetadataService(new AppPathService({ appRoot: app_root }));
 
     expect(service.build_linguagacha_user_agent()).toBe(
-      "LinguaGacha/v0.0.0 (https://github.com/neavo/LinguaGacha)",
+      "LinguaGacha-FE/v0.0.0 (https://github.com/CMyuane/LinguaGacha-FateExtra-Localization)",
     );
     expect(() => service.read_version()).toThrow();
   });

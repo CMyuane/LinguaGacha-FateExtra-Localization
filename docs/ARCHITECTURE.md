@@ -45,3 +45,11 @@ flowchart LR
 ## 4. 更新条件
 
 只有进程拓扑、产品入口分发、Bootstrap / Gateway 关系、worker 执行方式或跨层依赖方向变化时更新本文；命令、协议、状态、存储、页面或验证细节只更新对应专题文档。
+
+## 5. Fate/Extra 定制边界
+
+- `src/shared/fate-extra` 保存无状态的索引解析、元数据协议和 PSP 布局规则，可由后端、校对器和 renderer 共同使用。
+- `src/backend/toolbox/fate-extra-service.ts` 拥有扫描、迁移、事务应用和导出编排；外置分类 SQLite 始终以只读方式打开。
+- `src/backend/toolbox/fate-extra-font-service.ts` 负责语料收集与 helper 进程边界。字库生成器只读内置基线并写入用户选定的导出目录，不修改 `.lg` 条目。
+- FE 项目状态继续存放在现有 `meta` 和 `extra_field` 中，不增加 `text_type`。普通项目不会进入 FE 提示、校对、预览或导出路径。
+- 大型扫描与字库生成必须保持可移出主事件循环的服务边界；数据库替换及 revision 更新仍由单一项目事务提交。

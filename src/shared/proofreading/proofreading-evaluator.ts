@@ -26,6 +26,8 @@ import {
   read_item_source_text_parts,
   read_item_translation_text_parts,
 } from "../item-text";
+import { has_fate_extra_psp_overflow } from "../fate-extra/fate-extra-layout";
+import { read_fate_extra_item_metadata } from "../fate-extra/fate-extra-types";
 
 // 跳过类状态仍要进入筛选统计，但不参与警告计算。
 const PROOFREADING_SKIPPED_WARNING_STATUSES = new Set([
@@ -80,6 +82,14 @@ export function evaluateProofreadingItem(args: {
   const failed_terms: ProofreadingGlossaryTerm[] = [];
   const applied_terms: ProofreadingGlossaryTerm[] = [];
   const sample_rule_cache_key = `${args.item.text_type}:${args.quality.text_preserve.mode}:${args.quality.text_preserve.revision}`;
+  const fate_extra_metadata = read_fate_extra_item_metadata(args.item.extra_field);
+  if (
+    fate_extra_metadata !== null &&
+    args.item.status !== "EXCLUDED" &&
+    has_fate_extra_psp_overflow(args.item.dst === "" ? args.item.src : args.item.dst)
+  ) {
+    warnings.push("FE_PSP_OVERFLOW");
+  }
   let sample_rule = args.sample_rule_cache.get(sample_rule_cache_key);
   if (sample_rule === undefined) {
     sample_rule = createQualityTextPreserveRule({

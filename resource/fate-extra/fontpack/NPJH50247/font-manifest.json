@@ -1,0 +1,199 @@
+{
+  "schema_version": 1,
+  "game_id": "NPJH50247",
+  "generator": "LinguaGacha FE font-builder fe.1",
+  "corpus_sha256": "b2519d4386d9e26fab5dfa043f5ee08a3b5ddbfd3921a7ff14b302e4550f6569",
+  "font_sha256": "2c76254f6fc379fddfce0a7e84fb5385bb135d3e399294f6eeb6680d0365b74b",
+  "main_character_count": 2848,
+  "ruby_character_count": 783,
+  "added_main_glyphs": 171,
+  "reused_native_glyphs": 77,
+  "added_ruby_glyphs": 738,
+  "remaining_extension_slots": 168,
+  "main_page_count": 19,
+  "ruby_page_count": 8,
+  "missing_main_glyphs": [],
+  "missing_ruby_glyphs": [],
+  "files": [
+    {
+      "path": "chinese-glyph-codec.json",
+      "size": 458220,
+      "sha256": "882c1b761425cc459ba53c908203116dcef14aca3857fd76567115308bfbfe3b"
+    },
+    {
+      "path": "font/page-00.png",
+      "size": 17935,
+      "sha256": "1934643c9752b145a1b5edeb9e6ca9e00443f37f7d4904ee8da019940022bfe4"
+    },
+    {
+      "path": "font/page-01.png",
+      "size": 27409,
+      "sha256": "54941bf2d7511eaa475d3d4eb19343d0ad5a262bc44d6903008af3b6a353db52"
+    },
+    {
+      "path": "font/page-02.png",
+      "size": 34449,
+      "sha256": "16aefbab2609e53323d9717a1f1ea769cd5597c4fd766d78df18a7d31eebe452"
+    },
+    {
+      "path": "font/page-03.png",
+      "size": 34761,
+      "sha256": "35ef32c66975409194da94cb3f0c5c9c0ea807334b1510da30788235fd9f0213"
+    },
+    {
+      "path": "font/page-04.png",
+      "size": 34007,
+      "sha256": "cb33d15c80c9487efadd21d452693dff6879f572ea75e43fd8ef93a051b37649"
+    },
+    {
+      "path": "font/page-05.png",
+      "size": 35318,
+      "sha256": "cc9b0056680021d7fcda34361e1710496755a85ced0d0c4fc3527de3b9b837ee"
+    },
+    {
+      "path": "font/page-06.png",
+      "size": 34733,
+      "sha256": "5e879d22fcd12b98a10478b1c6a50c7c4f1339b64abccc136a137775814bcff2"
+    },
+    {
+      "path": "font/page-07.png",
+      "size": 35352,
+      "sha256": "4dd0a2484cf2ed6fe71b64442bad0da5b6660deac6078bf7c95957e6279c05b8"
+    },
+    {
+      "path": "font/page-08.png",
+      "size": 34088,
+      "sha256": "e110ad7c521bc0b94dde34fbc2529b1e92f6198fb4d6e83b0e3fd6c1c2120674"
+    },
+    {
+      "path": "font/page-09.png",
+      "size": 34070,
+      "sha256": "e1680df31a1b2f4a045fcf709d40dcd42691b0035d49335ee71ae5a72cc926b9"
+    },
+    {
+      "path": "font/page-10.png",
+      "size": 36244,
+      "sha256": "64671726ac3e019b5d49a836d18e6424202855bfb258b18509e6bb4403d8a682"
+    },
+    {
+      "path": "font/page-11.png",
+      "size": 37177,
+      "sha256": "d139cee31f83055d706fa61831b8d3a6b7ede7224446f6b1746276585fc8b18f"
+    },
+    {
+      "path": "font/page-12.png",
+      "size": 34035,
+      "sha256": "49bcea24a46dbdc56ef2f61bfa6246b42ea650ddd3f3695555d4a2a62d0847cc"
+    },
+    {
+      "path": "font/page-13.png",
+      "size": 36947,
+      "sha256": "881bde22a323775af0a00d327cb875f7ec8c568504d573ca6b0c91b7cb5ad15e"
+    },
+    {
+      "path": "font/page-14.png",
+      "size": 38768,
+      "sha256": "671976f656b707f8aa5dc05d212876f18b63188dc67cabccacdfa935cc7b9974"
+    },
+    {
+      "path": "font/page-15.png",
+      "size": 38769,
+      "sha256": "c10e1590c20623b42723ff08e9167e75aaaa83e89d4a8ebcf4bd8514d2c40be0"
+    },
+    {
+      "path": "font/page-16.png",
+      "size": 36693,
+      "sha256": "7c90a4c1b7f1a2d191c87ddf51bba73d8ecec70cf5f96c0b50b0af85da460446"
+    },
+    {
+      "path": "font/page-17.png",
+      "size": 39723,
+      "sha256": "801299c3d8c2d418da867ca7fe694ec8943a93e6e1ace6a4e626619258933d66"
+    },
+    {
+      "path": "font/page-18.png",
+      "size": 37457,
+      "sha256": "a29ff42002be3aebc48c4daf9b5829b098532ca6f0adc03fd062387bb8c73fa5"
+    },
+    {
+      "path": "jp-font-map.json",
+      "size": 339161,
+      "sha256": "5e011213e0bab8093bf8c129cf8757e41d0a2fb8085764719bae46c3c4165b65"
+    },
+    {
+      "path": "kanzi.bin",
+      "size": 28528,
+      "sha256": "79f15689a6a9980263e6a243a783b054c46664f757e4f9a3882c2eab3dc1183b"
+    },
+    {
+      "path": "required-glyphs.txt",
+      "size": 8809,
+      "sha256": "453747da5a69a2ecd2581b81ed0610c8949c0f35332ed94c5d871d2e7e11b624"
+    },
+    {
+      "path": "required-ruby-glyphs.txt",
+      "size": 2285,
+      "sha256": "559475220509da42a0742ff608bde9983254ea46c159e2737978e30ae306fccb"
+    },
+    {
+      "path": "required-visible-glyphs.txt",
+      "size": 8437,
+      "sha256": "a0952bfa58f7deb5ef6fa6c16c17b3c2c5cd7d082fccdcc137a79fa5ba0de717"
+    },
+    {
+      "path": "ruby/0.png",
+      "size": 7640,
+      "sha256": "79d119948e18b872387e96e0d8e16fae07f708cb12bc127d7c00241ab65c2515"
+    },
+    {
+      "path": "ruby/1.png",
+      "size": 4006,
+      "sha256": "60cd5d33824da16d273c331825938cb3743f202bbf70c27c75087f5ee69502a0"
+    },
+    {
+      "path": "ruby/2.png",
+      "size": 12122,
+      "sha256": "eafb6b4084d304ff7dc11b2757d6ee6024edeafdde9703825548753ac3aa663a"
+    },
+    {
+      "path": "ruby/3.png",
+      "size": 13180,
+      "sha256": "125e8f0c5f9aa2a18e74332aa3677deb8778684bb4c53b1654fac8226aa3d93c"
+    },
+    {
+      "path": "ruby/4.png",
+      "size": 13869,
+      "sha256": "4ca4c620c167a45a116ad88f833a0cec9f74c832a6fc0db3c95857dbd1682c00"
+    },
+    {
+      "path": "ruby/5.png",
+      "size": 14254,
+      "sha256": "78bc7f4ffa00f5307c3243811c355751c301f445641bb98219becc835642f27c"
+    },
+    {
+      "path": "ruby/6.png",
+      "size": 14079,
+      "sha256": "a5717d332a2b2ac07ef62743f8a477d478875b52b2a3032304d6702cea629c58"
+    },
+    {
+      "path": "ruby/7.png",
+      "size": 8379,
+      "sha256": "0fe376b712f15b0c2559179105289fc99bcd614ea49946bfff3ef7a6acd4424e"
+    },
+    {
+      "path": "ruby-font-map.json",
+      "size": 105084,
+      "sha256": "82caf52426be50239bb1585d96ed5f9b89b44e0afda640a17a0fa7f2f98cce2b"
+    },
+    {
+      "path": "ruby.bin",
+      "size": 5824,
+      "sha256": "af03cbd19288eb37aa140a675072df5f7202d538f8657ecb183b48d0b6d6d4e7"
+    },
+    {
+      "path": "textures.ini",
+      "size": 1813,
+      "sha256": "efb31cfb5044050dd7f704dbe6cb3b72c67540d2dbd4ef3fae6dc8a4bfc14c06"
+    }
+  ]
+}

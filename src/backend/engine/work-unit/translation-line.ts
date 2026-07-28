@@ -13,6 +13,7 @@ export interface TranslationLine {
   line_index: number;
   text_src: string;
   actor_src: TranslationActor;
+  fate_extra?: boolean;
 }
 
 /**

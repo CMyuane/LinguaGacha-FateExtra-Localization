@@ -72,7 +72,7 @@ const THEME_STORAGE_KEY = "lg-theme-mode";
 // FONT FAMILY STORAGE KEY 是持久化或快捷键契约，集中保存避免调用点散落魔术字符串。
 const FONT_FAMILY_STORAGE_KEY = "lg-base-font-mode";
 const LOG_WINDOW_APP_LANGUAGE_STORAGE_KEY = "lg-log-window-app-language"; // 日志窗口不启动主运行态，首屏语言用独立缓存兜底
-const GITHUB_REPOSITORY_URL = "https://github.com/neavo/LinguaGacha";
+const GITHUB_REPOSITORY_URL = "https://github.com/CMyuane/LinguaGacha-FateExtra-Localization";
 
 type UpdateDialogState =
   | { phase: "idle" }
@@ -95,6 +95,8 @@ const PROJECT_DEPENDENT_ROUTE_IDS: ReadonlySet<RouteId> = new Set([
   "analysis-prompt",
   "laboratory",
   "toolbox",
+  "fate-extra",
+  "fate-extra-preview",
 ]);
 
 // ROUTE IDS DISABLED WHEN PROJECT UNLOADED 是模块级稳定契约，集中维护避免调用点散落魔术值。
@@ -107,6 +109,8 @@ const ROUTE_IDS_DISABLED_WHEN_PROJECT_UNLOADED: ReadonlySet<RouteId> = new Set([
   "analysis-prompt",
   "laboratory",
   "toolbox",
+  "fate-extra",
+  "fate-extra-preview",
 ]);
 
 /**

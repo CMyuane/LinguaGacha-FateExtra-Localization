@@ -19,7 +19,9 @@ export type RouteId =
   | "analysis-prompt"
   | "laboratory"
   | "toolbox"
-  | "ts-conversion";
+  | "ts-conversion"
+  | "fate-extra"
+  | "fate-extra-preview";
 
 type NavigationNode = {
   id: RouteId;

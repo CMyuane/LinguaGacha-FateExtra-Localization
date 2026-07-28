@@ -44,3 +44,10 @@
 ## 5. 更新条件
 
 宿主契约、传输入口、共享状态所有权与生命周期、事件恢复、页面 query / 写入边界、导航入口或样式消费落点变化时更新本文；后端协议更新 [`BACKEND.md`](BACKEND.md)，单纯视觉方向变化不触发本文更新。
+
+## 6. Fate/Extra 页面
+
+- “Fate/Extra 汉化适配”位于百宝箱，只在已打开项目时可用。页面先展示扫描报告，再允许通过共享 `commit_project_write` 提交转换。
+- `fate-extra-preview` 是项目依赖路由，侧边栏显示“PSP 画面预览”。页面经 `/api/toolbox/fate-extra/items` 分页读取当前项目条目，不在 renderer 复制完整项目事实。
+- 预览 Canvas 固定为 480×272；共享布局器提供 432 px、3 行、Ruby、颜色、变量、图标、字号、偏移和条件分支计算。renderer 只负责绘制与局部筛选。
+- `FE_PSP_OVERFLOW` 是后端/共享规则产生的校对状态，界面显示“溢出”。缺字和不可编码字符不属于校对状态；未同步字符以同尺寸 Noto Sans CJK 临时字形显示。

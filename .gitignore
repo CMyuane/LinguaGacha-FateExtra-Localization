@@ -1,6 +1,8 @@
 # node
 /build
 /node_modules
+__pycache__/
+*.py[cod]
 /dist
 /dist-electron
 /release
@@ -33,6 +35,15 @@ lerna-debug.log*
 /userdata
 
 *.lg
+*.lg-*
+*.sqlite
+*.sqlite-*
+*.iso
+*.cso
+**/EBOOT.BIN
+**/EBOOT.OLD
+.env
+.env.*
 /*.log
 /*.xlsx
 /*.json

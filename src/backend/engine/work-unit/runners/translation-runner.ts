@@ -280,7 +280,10 @@ export class TranslationWorkUnitRunner {
     const mode = api_format === "SakuraLLM" ? "text" : resolve_translation_prompt_mode(lines);
     const prompt_result =
       api_format === "SakuraLLM"
-        ? prompt_builder.generate_prompt_sakura(read_translation_text_srcs(lines))
+        ? prompt_builder.generate_prompt_sakura(
+            read_translation_text_srcs(lines),
+            lines.some((line) => line.fate_extra === true),
+          )
         : await prompt_builder.generate_prompt(lines, mode, samples, precedings);
     return {
       done: false,

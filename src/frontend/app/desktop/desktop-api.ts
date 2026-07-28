@@ -71,7 +71,8 @@ const BACKEND_API_HEALTH_PATH = "/api/health";
 const BACKEND_API_SERVICE_NAME = "linguagacha-backend";
 // CORE API PROBE TIMEOUT MS 是运行时节流或容量阈值，集中保存便于评估性能影响。
 const BACKEND_API_PROBE_TIMEOUT_MS = 300;
-const GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/neavo/LinguaGacha/releases/latest";
+const GITHUB_LATEST_RELEASE_URL =
+  "https://api.github.com/repos/CMyuane/LinguaGacha-FateExtra-Localization/releases/latest";
 
 let cached_backend_api_base_url: string | null = null;
 let cached_backend_metadata: BackendMetadata | null = null;

@@ -48,9 +48,9 @@ describe("AppPathService", () => {
     );
   });
 
-  it("打包态或不可写应用根把可写数据落到用户 LinguaGacha 根", () => {
+  it("打包态或不可写应用根把可写数据落到用户 LinguaGachaFE 根", () => {
     const app_root = create_temp_root("linguagacha-path-fallback-");
-    const home_data_root = path.join(os.homedir(), "LinguaGacha");
+    const home_data_root = path.join(os.homedir(), "LinguaGachaFE");
     const appimage_service = new AppPathService({
       appRoot: app_root,
       env: { APPIMAGE: "/tmp/LinguaGacha.AppImage" },

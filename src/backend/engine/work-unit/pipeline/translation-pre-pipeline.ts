@@ -83,10 +83,25 @@ export class TranslationPrePipeline {
         line_index,
         text_src: src,
         actor_src,
+        fate_extra: this.is_fate_extra_item(item),
       });
       context.valid_line_indexes.add(line_index);
     }
     return context;
+  }
+
+  private is_fate_extra_item(item: TextTaskItemRecord): boolean {
+    const extra = item.extra_field;
+    if (typeof extra !== "object" || extra === null || Array.isArray(extra)) {
+      return false;
+    }
+    const metadata = extra["__linguagacha_fe_v1"];
+    return (
+      typeof metadata === "object" &&
+      metadata !== null &&
+      !Array.isArray(metadata) &&
+      metadata["schema_version"] === 1
+    );
   }
 
   /**

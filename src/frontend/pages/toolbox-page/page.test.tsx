@@ -22,6 +22,8 @@ vi.mock("@frontend/app/locale/locale-provider", () => {
     "toolbox_page.entries.ts_conversion.title": "繁简转换",
     "toolbox_page.entries.ts_conversion.description":
       "对当前项目的译文或角色名称进行批量繁简转换，支持文本保护",
+    "toolbox_page.entries.fate_extra.title": "Fate/Extra 汉化适配",
+    "toolbox_page.entries.fate_extra.description": "扫描索引并接入 PSP 本地化工作流",
   };
 
   return {
@@ -50,7 +52,7 @@ describe("ToolboxPage", () => {
     navigate_to_route_mock.mockClear();
   });
 
-  it("只展示繁简转换卡片并在点击后进入对应页面", async () => {
+  it("展示繁简转换和 Fate/Extra 卡片并进入对应页面", async () => {
     await render_page();
 
     const cards = Array.from(container?.querySelectorAll(".toolbox-page__card") ?? []);
@@ -59,15 +61,22 @@ describe("ToolboxPage", () => {
       throw new Error("缺少百宝箱卡片。");
     }
 
-    expect(cards).toHaveLength(1);
+    expect(cards).toHaveLength(2);
     expect(container?.textContent).toContain("繁简转换");
     expect(container?.textContent).toContain("对当前项目的译文或角色名称进行批量繁简转换");
+    expect(container?.textContent).toContain("Fate/Extra 汉化适配");
 
     await act(async () => {
       card.click();
     });
 
     expect(navigate_to_route_mock).toHaveBeenCalledWith("ts-conversion");
+
+    await act(async () => {
+      (cards[1] as HTMLElement).click();
+    });
+
+    expect(navigate_to_route_mock).toHaveBeenCalledWith("fate-extra");
   });
 
   async function render_page(): Promise<void> {

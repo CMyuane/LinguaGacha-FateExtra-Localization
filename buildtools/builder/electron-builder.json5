@@ -1,9 +1,9 @@
 // @see - https://www.electron.build/configuration/configuration
 {
   $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
-  appId: "me.neavo.linguagacha",
+  appId: "io.github.cmyuane.linguagacha.fe",
   asar: true,
-  productName: "LinguaGacha",
+  productName: "LinguaGacha FE",
   directories: {
     buildResources: "public",
     output: "build/release/${version}",
@@ -15,8 +15,8 @@
   ],
   win: {
     target: ["zip"],
-    artifactName: "${productName}_v${version}_Windows_${arch}.${ext}",
-    executableName: "app",
+    artifactName: "LinguaGacha-FE-v${version}-win-${arch}.${ext}",
+    executableName: "LinguaGacha-FE",
     icon: "icon.png",
     extraFiles: [
       { from: "resource", to: "resource" },

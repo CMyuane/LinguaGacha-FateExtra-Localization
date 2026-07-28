@@ -1,8 +1,8 @@
 import { AppPathService } from "./app-path-service";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 
-const REPO_URL = "https://github.com/neavo/LinguaGacha";
-const USER_AGENT_NAME = "LinguaGacha";
+const REPO_URL = "https://github.com/CMyuane/LinguaGacha-FateExtra-Localization";
+const USER_AGENT_NAME = "LinguaGacha-FE";
 const DEFAULT_VERSION = "0.0.0";
 
 /**

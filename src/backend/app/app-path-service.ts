@@ -10,7 +10,7 @@ export interface AppPathServiceOptions {
   nativeFs?: NativeFs;
 }
 
-const HOME_DATA_ROOT_NAME = "LinguaGacha";
+const HOME_DATA_ROOT_NAME = "LinguaGachaFE";
 const RESOURCE_DIR_NAME = "resource";
 const USER_DATA_DIR_NAME = "userdata";
 const BERSERKER_DIR_NAME = "berserker";

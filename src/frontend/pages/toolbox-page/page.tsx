@@ -23,6 +23,12 @@ const TOOLBOX_ENTRIES: readonly ToolboxEntry[] = [
     description_key: "toolbox_page.entries.ts_conversion.description",
     route_id: "ts-conversion",
   },
+  {
+    id: "fate-extra",
+    title_key: "toolbox_page.entries.fate_extra.title",
+    description_key: "toolbox_page.entries.fate_extra.description",
+    route_id: "fate-extra",
+  },
 ];
 
 const DESCRIPTION_COMPONENT_MAP: RichTextComponentMap = {

@@ -1,0 +1,5820 @@
+{
+  "schema_version": 1,
+  "source_sha256": "44cf29cf91281af62db607f2e4d809ef289900383bb4009b1315732db2e68598",
+  "records": [
+    {
+      "slot": 0,
+      "char": "・",
+      "encoded_hex": "8145",
+      "source": "native"
+    },
+    {
+      "slot": 1,
+      "char": "ー",
+      "encoded_hex": "815B",
+      "source": "native"
+    },
+    {
+      "slot": 2,
+      "char": "Ａ",
+      "encoded_hex": "8260",
+      "source": "native"
+    },
+    {
+      "slot": 3,
+      "char": "Ｂ",
+      "encoded_hex": "8261",
+      "source": "native"
+    },
+    {
+      "slot": 4,
+      "char": "Ｃ",
+      "encoded_hex": "8262",
+      "source": "native"
+    },
+    {
+      "slot": 5,
+      "char": "Ｄ",
+      "encoded_hex": "8263",
+      "source": "native"
+    },
+    {
+      "slot": 6,
+      "char": "Ｅ",
+      "encoded_hex": "8264",
+      "source": "native"
+    },
+    {
+      "slot": 7,
+      "char": "Ｆ",
+      "encoded_hex": "8265",
+      "source": "native"
+    },
+    {
+      "slot": 8,
+      "char": "Ｇ",
+      "encoded_hex": "8266",
+      "source": "native"
+    },
+    {
+      "slot": 9,
+      "char": "Ｈ",
+      "encoded_hex": "8267",
+      "source": "native"
+    },
+    {
+      "slot": 10,
+      "char": "Ｉ",
+      "encoded_hex": "8268",
+      "source": "native"
+    },
+    {
+      "slot": 11,
+      "char": "Ｊ",
+      "encoded_hex": "8269",
+      "source": "native"
+    },
+    {
+      "slot": 12,
+      "char": "Ｋ",
+      "encoded_hex": "826A",
+      "source": "native"
+    },
+    {
+      "slot": 13,
+      "char": "Ｌ",
+      "encoded_hex": "826B",
+      "source": "native"
+    },
+    {
+      "slot": 14,
+      "char": "Ｍ",
+      "encoded_hex": "826C",
+      "source": "native"
+    },
+    {
+      "slot": 15,
+      "char": "Ｎ",
+      "encoded_hex": "826D",
+      "source": "native"
+    },
+    {
+      "slot": 16,
+      "char": "Ｏ",
+      "encoded_hex": "826E",
+      "source": "native"
+    },
+    {
+      "slot": 17,
+      "char": "Ｐ",
+      "encoded_hex": "826F",
+      "source": "native"
+    },
+    {
+      "slot": 18,
+      "char": "Ｑ",
+      "encoded_hex": "8270",
+      "source": "native"
+    },
+    {
+      "slot": 19,
+      "char": "Ｒ",
+      "encoded_hex": "8271",
+      "source": "native"
+    },
+    {
+      "slot": 20,
+      "char": "Ｓ",
+      "encoded_hex": "8272",
+      "source": "native"
+    },
+    {
+      "slot": 21,
+      "char": "Ｔ",
+      "encoded_hex": "8273",
+      "source": "native"
+    },
+    {
+      "slot": 22,
+      "char": "Ｕ",
+      "encoded_hex": "8274",
+      "source": "native"
+    },
+    {
+      "slot": 23,
+      "char": "Ｖ",
+      "encoded_hex": "8275",
+      "source": "native"
+    },
+    {
+      "slot": 24,
+      "char": "Ｗ",
+      "encoded_hex": "8276",
+      "source": "native"
+    },
+    {
+      "slot": 25,
+      "char": "Ｘ",
+      "encoded_hex": "8277",
+      "source": "native"
+    },
+    {
+      "slot": 26,
+      "char": "Ｙ",
+      "encoded_hex": "8278",
+      "source": "native"
+    },
+    {
+      "slot": 27,
+      "char": "Ｚ",
+      "encoded_hex": "8279",
+      "source": "native"
+    },
+    {
+      "slot": 28,
+      "char": "ａ",
+      "encoded_hex": "8281",
+      "source": "native"
+    },
+    {
+      "slot": 29,
+      "char": "ｂ",
+      "encoded_hex": "8282",
+      "source": "native"
+    },
+    {
+      "slot": 30,
+      "char": "ｃ",
+      "encoded_hex": "8283",
+      "source": "native"
+    },
+    {
+      "slot": 31,
+      "char": "ｄ",
+      "encoded_hex": "8284",
+      "source": "native"
+    },
+    {
+      "slot": 32,
+      "char": "ｅ",
+      "encoded_hex": "8285",
+      "source": "native"
+    },
+    {
+      "slot": 33,
+      "char": "ｆ",
+      "encoded_hex": "8286",
+      "source": "native"
+    },
+    {
+      "slot": 34,
+      "char": "ｇ",
+      "encoded_hex": "8287",
+      "source": "native"
+    },
+    {
+      "slot": 35,
+      "char": "ｈ",
+      "encoded_hex": "8288",
+      "source": "native"
+    },
+    {
+      "slot": 36,
+      "char": "ｉ",
+      "encoded_hex": "8289",
+      "source": "native"
+    },
+    {
+      "slot": 37,
+      "char": "ｊ",
+      "encoded_hex": "828A",
+      "source": "native"
+    },
+    {
+      "slot": 38,
+      "char": "ｋ",
+      "encoded_hex": "828B",
+      "source": "native"
+    },
+    {
+      "slot": 39,
+      "char": "ｌ",
+      "encoded_hex": "828C",
+      "source": "native"
+    },
+    {
+      "slot": 40,
+      "char": "ｍ",
+      "encoded_hex": "828D",
+      "source": "native"
+    },
+    {
+      "slot": 41,
+      "char": "ｎ",
+      "encoded_hex": "828E",
+      "source": "native"
+    },
+    {
+      "slot": 42,
+      "char": "ｏ",
+      "encoded_hex": "828F",
+      "source": "native"
+    },
+    {
+      "slot": 43,
+      "char": "ｐ",
+      "encoded_hex": "8290",
+      "source": "native"
+    },
+    {
+      "slot": 44,
+      "char": "ｑ",
+      "encoded_hex": "8291",
+      "source": "native"
+    },
+    {
+      "slot": 45,
+      "char": "ｒ",
+      "encoded_hex": "8292",
+      "source": "native"
+    },
+    {
+      "slot": 46,
+      "char": "ｓ",
+      "encoded_hex": "8293",
+      "source": "native"
+    },
+    {
+      "slot": 47,
+      "char": "ｔ",
+      "encoded_hex": "8294",
+      "source": "native"
+    },
+    {
+      "slot": 48,
+      "char": "ｕ",
+      "encoded_hex": "8295",
+      "source": "native"
+    },
+    {
+      "slot": 49,
+      "char": "ｖ",
+      "encoded_hex": "8296",
+      "source": "native"
+    },
+    {
+      "slot": 50,
+      "char": "ｗ",
+      "encoded_hex": "8297",
+      "source": "native"
+    },
+    {
+      "slot": 51,
+      "char": "ｘ",
+      "encoded_hex": "8298",
+      "source": "native"
+    },
+    {
+      "slot": 52,
+      "char": "ｙ",
+      "encoded_hex": "8299",
+      "source": "native"
+    },
+    {
+      "slot": 53,
+      "char": "ｚ",
+      "encoded_hex": "829A",
+      "source": "native"
+    },
+    {
+      "slot": 54,
+      "char": "あ",
+      "encoded_hex": "82A0",
+      "source": "native"
+    },
+    {
+      "slot": 55,
+      "char": "い",
+      "encoded_hex": "82A2",
+      "source": "native"
+    },
+    {
+      "slot": 56,
+      "char": "う",
+      "encoded_hex": "82A4",
+      "source": "native"
+    },
+    {
+      "slot": 57,
+      "char": "え",
+      "encoded_hex": "82A6",
+      "source": "native"
+    },
+    {
+      "slot": 58,
+      "char": "お",
+      "encoded_hex": "82A8",
+      "source": "native"
+    },
+    {
+      "slot": 59,
+      "char": "か",
+      "encoded_hex": "82A9",
+      "source": "native"
+    },
+    {
+      "slot": 60,
+      "char": "が",
+      "encoded_hex": "82AA",
+      "source": "native"
+    },
+    {
+      "slot": 61,
+      "char": "き",
+      "encoded_hex": "82AB",
+      "source": "native"
+    },
+    {
+      "slot": 62,
+      "char": "ぎ",
+      "encoded_hex": "82AC",
+      "source": "native"
+    },
+    {
+      "slot": 63,
+      "char": "く",
+      "encoded_hex": "82AD",
+      "source": "native"
+    },
+    {
+      "slot": 64,
+      "char": "ぐ",
+      "encoded_hex": "82AE",
+      "source": "native"
+    },
+    {
+      "slot": 65,
+      "char": "け",
+      "encoded_hex": "82AF",
+      "source": "native"
+    },
+    {
+      "slot": 66,
+      "char": "げ",
+      "encoded_hex": "82B0",
+      "source": "native"
+    },
+    {
+      "slot": 67,
+      "char": "こ",
+      "encoded_hex": "82B1",
+      "source": "native"
+    },
+    {
+      "slot": 68,
+      "char": "ご",
+      "encoded_hex": "82B2",
+      "source": "native"
+    },
+    {
+      "slot": 69,
+      "char": "さ",
+      "encoded_hex": "82B3",
+      "source": "native"
+    },
+    {
+      "slot": 70,
+      "char": "ざ",
+      "encoded_hex": "82B4",
+      "source": "native"
+    },
+    {
+      "slot": 71,
+      "char": "し",
+      "encoded_hex": "82B5",
+      "source": "native"
+    },
+    {
+      "slot": 72,
+      "char": "じ",
+      "encoded_hex": "82B6",
+      "source": "native"
+    },
+    {
+      "slot": 73,
+      "char": "す",
+      "encoded_hex": "82B7",
+      "source": "native"
+    },
+    {
+      "slot": 74,
+      "char": "ず",
+      "encoded_hex": "82B8",
+      "source": "native"
+    },
+    {
+      "slot": 75,
+      "char": "せ",
+      "encoded_hex": "82B9",
+      "source": "native"
+    },
+    {
+      "slot": 76,
+      "char": "ぜ",
+      "encoded_hex": "82BA",
+      "source": "native"
+    },
+    {
+      "slot": 77,
+      "char": "そ",
+      "encoded_hex": "82BB",
+      "source": "native"
+    },
+    {
+      "slot": 78,
+      "char": "ぞ",
+      "encoded_hex": "82BC",
+      "source": "native"
+    },
+    {
+      "slot": 79,
+      "char": "た",
+      "encoded_hex": "82BD",
+      "source": "native"
+    },
+    {
+      "slot": 80,
+      "char": "だ",
+      "encoded_hex": "82BE",
+      "source": "native"
+    },
+    {
+      "slot": 81,
+      "char": "ち",
+      "encoded_hex": "82BF",
+      "source": "native"
+    },
+    {
+      "slot": 82,
+      "char": "ぢ",
+      "encoded_hex": "82C0",
+      "source": "native"
+    },
+    {
+      "slot": 83,
+      "char": "つ",
+      "encoded_hex": "82C2",
+      "source": "native"
+    },
+    {
+      "slot": 84,
+      "char": "づ",
+      "encoded_hex": "82C3",
+      "source": "native"
+    },
+    {
+      "slot": 85,
+      "char": "て",
+      "encoded_hex": "82C4",
+      "source": "native"
+    },
+    {
+      "slot": 86,
+      "char": "で",
+      "encoded_hex": "82C5",
+      "source": "native"
+    },
+    {
+      "slot": 87,
+      "char": "と",
+      "encoded_hex": "82C6",
+      "source": "native"
+    },
+    {
+      "slot": 88,
+      "char": "ど",
+      "encoded_hex": "82C7",
+      "source": "native"
+    },
+    {
+      "slot": 89,
+      "char": "な",
+      "encoded_hex": "82C8",
+      "source": "native"
+    },
+    {
+      "slot": 90,
+      "char": "に",
+      "encoded_hex": "82C9",
+      "source": "native"
+    },
+    {
+      "slot": 91,
+      "char": "ぬ",
+      "encoded_hex": "82CA",
+      "source": "native"
+    },
+    {
+      "slot": 92,
+      "char": "ね",
+      "encoded_hex": "82CB",
+      "source": "native"
+    },
+    {
+      "slot": 93,
+      "char": "の",
+      "encoded_hex": "82CC",
+      "source": "native"
+    },
+    {
+      "slot": 94,
+      "char": "は",
+      "encoded_hex": "82CD",
+      "source": "native"
+    },
+    {
+      "slot": 95,
+      "char": "ば",
+      "encoded_hex": "82CE",
+      "source": "native"
+    },
+    {
+      "slot": 96,
+      "char": "ひ",
+      "encoded_hex": "82D0",
+      "source": "native"
+    },
+    {
+      "slot": 97,
+      "char": "び",
+      "encoded_hex": "82D1",
+      "source": "native"
+    },
+    {
+      "slot": 98,
+      "char": "ふ",
+      "encoded_hex": "82D3",
+      "source": "native"
+    },
+    {
+      "slot": 99,
+      "char": "ぶ",
+      "encoded_hex": "82D4",
+      "source": "native"
+    },
+    {
+      "slot": 100,
+      "char": "へ",
+      "encoded_hex": "82D6",
+      "source": "native"
+    },
+    {
+      "slot": 101,
+      "char": "べ",
+      "encoded_hex": "82D7",
+      "source": "native"
+    },
+    {
+      "slot": 102,
+      "char": "ほ",
+      "encoded_hex": "82D9",
+      "source": "native"
+    },
+    {
+      "slot": 103,
+      "char": "ぼ",
+      "encoded_hex": "82DA",
+      "source": "native"
+    },
+    {
+      "slot": 104,
+      "char": "ま",
+      "encoded_hex": "82DC",
+      "source": "native"
+    },
+    {
+      "slot": 105,
+      "char": "み",
+      "encoded_hex": "82DD",
+      "source": "native"
+    },
+    {
+      "slot": 106,
+      "char": "む",
+      "encoded_hex": "82DE",
+      "source": "native"
+    },
+    {
+      "slot": 107,
+      "char": "め",
+      "encoded_hex": "82DF",
+      "source": "native"
+    },
+    {
+      "slot": 108,
+      "char": "も",
+      "encoded_hex": "82E0",
+      "source": "native"
+    },
+    {
+      "slot": 109,
+      "char": "ゃ",
+      "encoded_hex": "82E1",
+      "source": "native"
+    },
+    {
+      "slot": 110,
+      "char": "や",
+      "encoded_hex": "82E2",
+      "source": "native"
+    },
+    {
+      "slot": 111,
+      "char": "ゅ",
+      "encoded_hex": "82E3",
+      "source": "native"
+    },
+    {
+      "slot": 112,
+      "char": "ゆ",
+      "encoded_hex": "82E4",
+      "source": "native"
+    },
+    {
+      "slot": 113,
+      "char": "ょ",
+      "encoded_hex": "82E5",
+      "source": "native"
+    },
+    {
+      "slot": 114,
+      "char": "よ",
+      "encoded_hex": "82E6",
+      "source": "native"
+    },
+    {
+      "slot": 115,
+      "char": "ら",
+      "encoded_hex": "82E7",
+      "source": "native"
+    },
+    {
+      "slot": 116,
+      "char": "り",
+      "encoded_hex": "82E8",
+      "source": "native"
+    },
+    {
+      "slot": 117,
+      "char": "る",
+      "encoded_hex": "82E9",
+      "source": "native"
+    },
+    {
+      "slot": 118,
+      "char": "れ",
+      "encoded_hex": "82EA",
+      "source": "native"
+    },
+    {
+      "slot": 119,
+      "char": "ろ",
+      "encoded_hex": "82EB",
+      "source": "native"
+    },
+    {
+      "slot": 120,
+      "char": "わ",
+      "encoded_hex": "82ED",
+      "source": "native"
+    },
+    {
+      "slot": 121,
+      "char": "を",
+      "encoded_hex": "82F0",
+      "source": "native"
+    },
+    {
+      "slot": 122,
+      "char": "ん",
+      "encoded_hex": "82F1",
+      "source": "native"
+    },
+    {
+      "slot": 123,
+      "char": "ァ",
+      "encoded_hex": "8340",
+      "source": "native"
+    },
+    {
+      "slot": 124,
+      "char": "ア",
+      "encoded_hex": "8341",
+      "source": "native"
+    },
+    {
+      "slot": 125,
+      "char": "ィ",
+      "encoded_hex": "8342",
+      "source": "native"
+    },
+    {
+      "slot": 126,
+      "char": "イ",
+      "encoded_hex": "8343",
+      "source": "native"
+    },
+    {
+      "slot": 127,
+      "char": "ゥ",
+      "encoded_hex": "8344",
+      "source": "native"
+    },
+    {
+      "slot": 128,
+      "char": "ウ",
+      "encoded_hex": "8345",
+      "source": "native"
+    },
+    {
+      "slot": 129,
+      "char": "ェ",
+      "encoded_hex": "8346",
+      "source": "native"
+    },
+    {
+      "slot": 130,
+      "char": "エ",
+      "encoded_hex": "8347",
+      "source": "native"
+    },
+    {
+      "slot": 131,
+      "char": "ォ",
+      "encoded_hex": "8348",
+      "source": "native"
+    },
+    {
+      "slot": 132,
+      "char": "オ",
+      "encoded_hex": "8349",
+      "source": "native"
+    },
+    {
+      "slot": 133,
+      "char": "カ",
+      "encoded_hex": "834A",
+      "source": "native"
+    },
+    {
+      "slot": 134,
+      "char": "ガ",
+      "encoded_hex": "834B",
+      "source": "native"
+    },
+    {
+      "slot": 135,
+      "char": "キ",
+      "encoded_hex": "834C",
+      "source": "native"
+    },
+    {
+      "slot": 136,
+      "char": "ギ",
+      "encoded_hex": "834D",
+      "source": "native"
+    },
+    {
+      "slot": 137,
+      "char": "ク",
+      "encoded_hex": "834E",
+      "source": "native"
+    },
+    {
+      "slot": 138,
+      "char": "グ",
+      "encoded_hex": "834F",
+      "source": "native"
+    },
+    {
+      "slot": 139,
+      "char": "ケ",
+      "encoded_hex": "8350",
+      "source": "native"
+    },
+    {
+      "slot": 140,
+      "char": "ゲ",
+      "encoded_hex": "8351",
+      "source": "native"
+    },
+    {
+      "slot": 141,
+      "char": "コ",
+      "encoded_hex": "8352",
+      "source": "native"
+    },
+    {
+      "slot": 142,
+      "char": "ゴ",
+      "encoded_hex": "8353",
+      "source": "native"
+    },
+    {
+      "slot": 143,
+      "char": "サ",
+      "encoded_hex": "8354",
+      "source": "native"
+    },
+    {
+      "slot": 144,
+      "char": "ザ",
+      "encoded_hex": "8355",
+      "source": "native"
+    },
+    {
+      "slot": 145,
+      "char": "シ",
+      "encoded_hex": "8356",
+      "source": "native"
+    },
+    {
+      "slot": 146,
+      "char": "ジ",
+      "encoded_hex": "8357",
+      "source": "native"
+    },
+    {
+      "slot": 147,
+      "char": "ス",
+      "encoded_hex": "8358",
+      "source": "native"
+    },
+    {
+      "slot": 148,
+      "char": "ズ",
+      "encoded_hex": "8359",
+      "source": "native"
+    },
+    {
+      "slot": 149,
+      "char": "セ",
+      "encoded_hex": "835A",
+      "source": "native"
+    },
+    {
+      "slot": 150,
+      "char": "ゼ",
+      "encoded_hex": "835B",
+      "source": "native"
+    },
+    {
+      "slot": 151,
+      "char": "ソ",
+      "encoded_hex": "835C",
+      "source": "native"
+    },
+    {
+      "slot": 152,
+      "char": "ゾ",
+      "encoded_hex": "835D",
+      "source": "native"
+    },
+    {
+      "slot": 153,
+      "char": "タ",
+      "encoded_hex": "835E",
+      "source": "native"
+    },
+    {
+      "slot": 154,
+      "char": "ダ",
+      "encoded_hex": "835F",
+      "source": "native"
+    },
+    {
+      "slot": 155,
+      "char": "チ",
+      "encoded_hex": "8360",
+      "source": "native"
+    },
+    {
+      "slot": 156,
+      "char": "ヂ",
+      "encoded_hex": "8361",
+      "source": "native"
+    },
+    {
+      "slot": 157,
+      "char": "ツ",
+      "encoded_hex": "8363",
+      "source": "native"
+    },
+    {
+      "slot": 158,
+      "char": "ヅ",
+      "encoded_hex": "8364",
+      "source": "native"
+    },
+    {
+      "slot": 159,
+      "char": "テ",
+      "encoded_hex": "8365",
+      "source": "native"
+    },
+    {
+      "slot": 160,
+      "char": "デ",
+      "encoded_hex": "8366",
+      "source": "native"
+    },
+    {
+      "slot": 161,
+      "char": "ト",
+      "encoded_hex": "8367",
+      "source": "native"
+    },
+    {
+      "slot": 162,
+      "char": "ド",
+      "encoded_hex": "8368",
+      "source": "native"
+    },
+    {
+      "slot": 163,
+      "char": "ナ",
+      "encoded_hex": "8369",
+      "source": "native"
+    },
+    {
+      "slot": 164,
+      "char": "ニ",
+      "encoded_hex": "836A",
+      "source": "native"
+    },
+    {
+      "slot": 165,
+      "char": "ヌ",
+      "encoded_hex": "836B",
+      "source": "native"
+    },
+    {
+      "slot": 166,
+      "char": "ネ",
+      "encoded_hex": "836C",
+      "source": "native"
+    },
+    {
+      "slot": 167,
+      "char": "ノ",
+      "encoded_hex": "836D",
+      "source": "native"
+    },
+    {
+      "slot": 168,
+      "char": "ハ",
+      "encoded_hex": "836E",
+      "source": "native"
+    },
+    {
+      "slot": 169,
+      "char": "バ",
+      "encoded_hex": "836F",
+      "source": "native"
+    },
+    {
+      "slot": 170,
+      "char": "ヒ",
+      "encoded_hex": "8371",
+      "source": "native"
+    },
+    {
+      "slot": 171,
+      "char": "ビ",
+      "encoded_hex": "8372",
+      "source": "native"
+    },
+    {
+      "slot": 172,
+      "char": "フ",
+      "encoded_hex": "8374",
+      "source": "native"
+    },
+    {
+      "slot": 173,
+      "char": "ブ",
+      "encoded_hex": "8375",
+      "source": "native"
+    },
+    {
+      "slot": 174,
+      "char": "ヘ",
+      "encoded_hex": "8377",
+      "source": "native"
+    },
+    {
+      "slot": 175,
+      "char": "ベ",
+      "encoded_hex": "8378",
+      "source": "native"
+    },
+    {
+      "slot": 176,
+      "char": "ホ",
+      "encoded_hex": "837A",
+      "source": "native"
+    },
+    {
+      "slot": 177,
+      "char": "ボ",
+      "encoded_hex": "837B",
+      "source": "native"
+    },
+    {
+      "slot": 178,
+      "char": "マ",
+      "encoded_hex": "837D",
+      "source": "native"
+    },
+    {
+      "slot": 179,
+      "char": "ミ",
+      "encoded_hex": "837E",
+      "source": "native"
+    },
+    {
+      "slot": 180,
+      "char": "ム",
+      "encoded_hex": "8380",
+      "source": "native"
+    },
+    {
+      "slot": 181,
+      "char": "メ",
+      "encoded_hex": "8381",
+      "source": "native"
+    },
+    {
+      "slot": 182,
+      "char": "モ",
+      "encoded_hex": "8382",
+      "source": "native"
+    },
+    {
+      "slot": 183,
+      "char": "ャ",
+      "encoded_hex": "8383",
+      "source": "native"
+    },
+    {
+      "slot": 184,
+      "char": "ヤ",
+      "encoded_hex": "8384",
+      "source": "native"
+    },
+    {
+      "slot": 185,
+      "char": "ュ",
+      "encoded_hex": "8385",
+      "source": "native"
+    },
+    {
+      "slot": 186,
+      "char": "ユ",
+      "encoded_hex": "8386",
+      "source": "native"
+    },
+    {
+      "slot": 187,
+      "char": "ョ",
+      "encoded_hex": "8387",
+      "source": "native"
+    },
+    {
+      "slot": 188,
+      "char": "ヨ",
+      "encoded_hex": "8388",
+      "source": "native"
+    },
+    {
+      "slot": 189,
+      "char": "ラ",
+      "encoded_hex": "8389",
+      "source": "native"
+    },
+    {
+      "slot": 190,
+      "char": "リ",
+      "encoded_hex": "838A",
+      "source": "native"
+    },
+    {
+      "slot": 191,
+      "char": "ル",
+      "encoded_hex": "838B",
+      "source": "native"
+    },
+    {
+      "slot": 192,
+      "char": "レ",
+      "encoded_hex": "838C",
+      "source": "native"
+    },
+    {
+      "slot": 193,
+      "char": "ロ",
+      "encoded_hex": "838D",
+      "source": "native"
+    },
+    {
+      "slot": 194,
+      "char": "ワ",
+      "encoded_hex": "838F",
+      "source": "native"
+    },
+    {
+      "slot": 195,
+      "char": "ヲ",
+      "encoded_hex": "8392",
+      "source": "native"
+    },
+    {
+      "slot": 196,
+      "char": "ン",
+      "encoded_hex": "8393",
+      "source": "native"
+    },
+    {
+      "slot": 197,
+      "char": "ヴ",
+      "encoded_hex": "8394",
+      "source": "native"
+    },
+    {
+      "slot": 198,
+      "char": "ぁ",
+      "encoded_hex": "829F",
+      "source": "native"
+    },
+    {
+      "slot": 199,
+      "char": "ぃ",
+      "encoded_hex": "82A1",
+      "source": "native"
+    },
+    {
+      "slot": 200,
+      "char": "ぅ",
+      "encoded_hex": "82A3",
+      "source": "native"
+    },
+    {
+      "slot": 201,
+      "char": "ぇ",
+      "encoded_hex": "82A5",
+      "source": "native"
+    },
+    {
+      "slot": 202,
+      "char": "ぉ",
+      "encoded_hex": "82A7",
+      "source": "native"
+    },
+    {
+      "slot": 203,
+      "char": "っ",
+      "encoded_hex": "82C1",
+      "source": "native"
+    },
+    {
+      "slot": 204,
+      "char": "ぱ",
+      "encoded_hex": "82CF",
+      "source": "native"
+    },
+    {
+      "slot": 205,
+      "char": "ぴ",
+      "encoded_hex": "82D2",
+      "source": "native"
+    },
+    {
+      "slot": 206,
+      "char": "ぷ",
+      "encoded_hex": "82D5",
+      "source": "native"
+    },
+    {
+      "slot": 207,
+      "char": "ぺ",
+      "encoded_hex": "82D8",
+      "source": "native"
+    },
+    {
+      "slot": 208,
+      "char": "ぽ",
+      "encoded_hex": "82DB",
+      "source": "native"
+    },
+    {
+      "slot": 209,
+      "char": "ッ",
+      "encoded_hex": "8362",
+      "source": "native"
+    },
+    {
+      "slot": 210,
+      "char": "パ",
+      "encoded_hex": "8370",
+      "source": "native"
+    },
+    {
+      "slot": 211,
+      "char": "ピ",
+      "encoded_hex": "8373",
+      "source": "native"
+    },
+    {
+      "slot": 212,
+      "char": "プ",
+      "encoded_hex": "8376",
+      "source": "native"
+    },
+    {
+      "slot": 213,
+      "char": "ペ",
+      "encoded_hex": "8379",
+      "source": "native"
+    },
+    {
+      "slot": 214,
+      "char": "ポ",
+      "encoded_hex": "837C",
+      "source": "native"
+    },
+    {
+      "slot": 215,
+      "char": "ヵ",
+      "encoded_hex": "8395",
+      "source": "native"
+    },
+    {
+      "slot": 216,
+      "char": "ヶ",
+      "encoded_hex": "8396",
+      "source": "native"
+    },
+    {
+      "slot": 217,
+      "char": "Ⅱ",
+      "encoded_hex": "8755",
+      "source": "native"
+    },
+    {
+      "slot": 218,
+      "char": "、",
+      "encoded_hex": "8141",
+      "source": "native"
+    },
+    {
+      "slot": 219,
+      "char": "之",
+      "encoded_hex": "9456",
+      "source": "extended"
+    },
+    {
+      "slot": 220,
+      "char": "会",
+      "encoded_hex": "89EF",
+      "source": "extended"
+    },
+    {
+      "slot": 221,
+      "char": "例",
+      "encoded_hex": "97E1",
+      "source": "extended"
+    },
+    {
+      "slot": 222,
+      "char": "原",
+      "encoded_hex": "8CB4",
+      "source": "extended"
+    },
+    {
+      "slot": 223,
+      "char": "学",
+      "encoded_hex": "8A77",
+      "source": "extended"
+    },
+    {
+      "slot": 224,
+      "char": "平",
+      "encoded_hex": "95BD",
+      "source": "extended"
+    },
+    {
+      "slot": 225,
+      "char": "月",
+      "encoded_hex": "8C8E",
+      "source": "extended"
+    },
+    {
+      "slot": 226,
+      "char": "海",
+      "encoded_hex": "8A43",
+      "source": "extended"
+    },
+    {
+      "slot": 227,
+      "char": "淡",
+      "encoded_hex": "9257",
+      "source": "extended"
+    },
+    {
+      "slot": 228,
+      "char": "生",
+      "encoded_hex": "90B6",
+      "source": "extended"
+    },
+    {
+      "slot": 229,
+      "char": "行",
+      "encoded_hex": "8D73",
+      "source": "extended"
+    },
+    {
+      "slot": 230,
+      "char": "长",
+      "encoded_hex": "F793",
+      "source": "extended"
+    },
+    {
+      "slot": 231,
+      "char": ".",
+      "encoded_hex": "2E",
+      "source": "extended"
+    },
+    {
+      "slot": 232,
+      "char": "A",
+      "encoded_hex": "41",
+      "source": "extended"
+    },
+    {
+      "slot": 233,
+      "char": "C",
+      "encoded_hex": "43",
+      "source": "extended"
+    },
+    {
+      "slot": 234,
+      "char": "E",
+      "encoded_hex": "45",
+      "source": "extended"
+    },
+    {
+      "slot": 235,
+      "char": "G",
+      "encoded_hex": "47",
+      "source": "extended"
+    },
+    {
+      "slot": 236,
+      "char": "H",
+      "encoded_hex": "48",
+      "source": "extended"
+    },
+    {
+      "slot": 237,
+      "char": "M",
+      "encoded_hex": "4D",
+      "source": "extended"
+    },
+    {
+      "slot": 238,
+      "char": "N",
+      "encoded_hex": "4E",
+      "source": "extended"
+    },
+    {
+      "slot": 239,
+      "char": "P",
+      "encoded_hex": "50",
+      "source": "extended"
+    },
+    {
+      "slot": 240,
+      "char": "R",
+      "encoded_hex": "52",
+      "source": "extended"
+    },
+    {
+      "slot": 241,
+      "char": "S",
+      "encoded_hex": "53",
+      "source": "extended"
+    },
+    {
+      "slot": 242,
+      "char": "a",
+      "encoded_hex": "61",
+      "source": "extended"
+    },
+    {
+      "slot": 243,
+      "char": "c",
+      "encoded_hex": "63",
+      "source": "extended"
+    },
+    {
+      "slot": 244,
+      "char": "d",
+      "encoded_hex": "64",
+      "source": "extended"
+    },
+    {
+      "slot": 245,
+      "char": "e",
+      "encoded_hex": "65",
+      "source": "extended"
+    },
+    {
+      "slot": 246,
+      "char": "f",
+      "encoded_hex": "66",
+      "source": "extended"
+    },
+    {
+      "slot": 247,
+      "char": "g",
+      "encoded_hex": "67",
+      "source": "extended"
+    },
+    {
+      "slot": 248,
+      "char": "h",
+      "encoded_hex": "68",
+      "source": "extended"
+    },
+    {
+      "slot": 249,
+      "char": "i",
+      "encoded_hex": "69",
+      "source": "extended"
+    },
+    {
+      "slot": 250,
+      "char": "l",
+      "encoded_hex": "6C",
+      "source": "extended"
+    },
+    {
+      "slot": 251,
+      "char": "n",
+      "encoded_hex": "6E",
+      "source": "extended"
+    },
+    {
+      "slot": 252,
+      "char": "o",
+      "encoded_hex": "6F",
+      "source": "extended"
+    },
+    {
+      "slot": 253,
+      "char": "q",
+      "encoded_hex": "71",
+      "source": "extended"
+    },
+    {
+      "slot": 254,
+      "char": "s",
+      "encoded_hex": "73",
+      "source": "extended"
+    },
+    {
+      "slot": 255,
+      "char": "t",
+      "encoded_hex": "74",
+      "source": "extended"
+    },
+    {
+      "slot": 256,
+      "char": "u",
+      "encoded_hex": "75",
+      "source": "extended"
+    },
+    {
+      "slot": 257,
+      "char": "y",
+      "encoded_hex": "79",
+      "source": "extended"
+    },
+    {
+      "slot": 258,
+      "char": "z",
+      "encoded_hex": "7A",
+      "source": "extended"
+    },
+    {
+      "slot": 259,
+      "char": "à",
+      "encoded_hex": "F865",
+      "source": "extended"
+    },
+    {
+      "slot": 260,
+      "char": "á",
+      "encoded_hex": "F866",
+      "source": "extended"
+    },
+    {
+      "slot": 261,
+      "char": "è",
+      "encoded_hex": "F867",
+      "source": "extended"
+    },
+    {
+      "slot": 262,
+      "char": "ì",
+      "encoded_hex": "F868",
+      "source": "extended"
+    },
+    {
+      "slot": 263,
+      "char": "ò",
+      "encoded_hex": "F869",
+      "source": "extended"
+    },
+    {
+      "slot": 264,
+      "char": "ù",
+      "encoded_hex": "F86A",
+      "source": "extended"
+    },
+    {
+      "slot": 265,
+      "char": "ú",
+      "encoded_hex": "F86B",
+      "source": "extended"
+    },
+    {
+      "slot": 266,
+      "char": "ē",
+      "encoded_hex": "F86C",
+      "source": "extended"
+    },
+    {
+      "slot": 267,
+      "char": "ǎ",
+      "encoded_hex": "F86D",
+      "source": "extended"
+    },
+    {
+      "slot": 268,
+      "char": "一",
+      "encoded_hex": "88EA",
+      "source": "extended"
+    },
+    {
+      "slot": 269,
+      "char": "七",
+      "encoded_hex": "8EB5",
+      "source": "extended"
+    },
+    {
+      "slot": 270,
+      "char": "万",
+      "encoded_hex": "969C",
+      "source": "extended"
+    },
+    {
+      "slot": 271,
+      "char": "三",
+      "encoded_hex": "8E4F",
+      "source": "extended"
+    },
+    {
+      "slot": 272,
+      "char": "下",
+      "encoded_hex": "89BA",
+      "source": "extended"
+    },
+    {
+      "slot": 273,
+      "char": "不",
+      "encoded_hex": "9573",
+      "source": "extended"
+    },
+    {
+      "slot": 274,
+      "char": "丑",
+      "encoded_hex": "F04B",
+      "source": "extended"
+    },
+    {
+      "slot": 275,
+      "char": "世",
+      "encoded_hex": "90A2",
+      "source": "extended"
+    },
+    {
+      "slot": 276,
+      "char": "东",
+      "encoded_hex": "F04F",
+      "source": "extended"
+    },
+    {
+      "slot": 277,
+      "char": "丝",
+      "encoded_hex": "F050",
+      "source": "extended"
+    },
+    {
+      "slot": 278,
+      "char": "个",
+      "encoded_hex": "F055",
+      "source": "extended"
+    },
+    {
+      "slot": 279,
+      "char": "临",
+      "encoded_hex": "F058",
+      "source": "extended"
+    },
+    {
+      "slot": 280,
+      "char": "为",
+      "encoded_hex": "F059",
+      "source": "extended"
+    },
+    {
+      "slot": 281,
+      "char": "主",
+      "encoded_hex": "8EE5",
+      "source": "extended"
+    },
+    {
+      "slot": 282,
+      "char": "丽",
+      "encoded_hex": "F05A",
+      "source": "extended"
+    },
+    {
+      "slot": 283,
+      "char": "义",
+      "encoded_hex": "F05D",
+      "source": "extended"
+    },
+    {
+      "slot": 284,
+      "char": "乌",
+      "encoded_hex": "F05E",
+      "source": "extended"
+    },
+    {
+      "slot": 285,
+      "char": "乐",
+      "encoded_hex": "F061",
+      "source": "extended"
+    },
+    {
+      "slot": 286,
+      "char": "习",
+      "encoded_hex": "F066",
+      "source": "extended"
+    },
+    {
+      "slot": 287,
+      "char": "了",
+      "encoded_hex": "97B9",
+      "source": "extended"
+    },
+    {
+      "slot": 288,
+      "char": "予",
+      "encoded_hex": "975C",
+      "source": "extended"
+    },
+    {
+      "slot": 289,
+      "char": "争",
+      "encoded_hex": "9188",
+      "source": "extended"
+    },
+    {
+      "slot": 290,
+      "char": "事",
+      "encoded_hex": "8E96",
+      "source": "extended"
+    },
+    {
+      "slot": 291,
+      "char": "二",
+      "encoded_hex": "93F1",
+      "source": "extended"
+    },
+    {
+      "slot": 292,
+      "char": "于",
+      "encoded_hex": "F06A",
+      "source": "extended"
+    },
+    {
+      "slot": 293,
+      "char": "五",
+      "encoded_hex": "8CDC",
+      "source": "extended"
+    },
+    {
+      "slot": 294,
+      "char": "亚",
+      "encoded_hex": "F06C",
+      "source": "extended"
+    },
+    {
+      "slot": 295,
+      "char": "交",
+      "encoded_hex": "8CF0",
+      "source": "extended"
+    },
+    {
+      "slot": 296,
+      "char": "享",
+      "encoded_hex": "8B9D",
+      "source": "extended"
+    },
+    {
+      "slot": 297,
+      "char": "亲",
+      "encoded_hex": "F071",
+      "source": "extended"
+    },
+    {
+      "slot": 298,
+      "char": "人",
+      "encoded_hex": "906C",
+      "source": "extended"
+    },
+    {
+      "slot": 299,
+      "char": "从",
+      "encoded_hex": "F078",
+      "source": "extended"
+    },
+    {
+      "slot": 300,
+      "char": "他",
+      "encoded_hex": "91BC",
+      "source": "extended"
+    },
+    {
+      "slot": 301,
+      "char": "仙",
+      "encoded_hex": "90E5",
+      "source": "extended"
+    },
+    {
+      "slot": 302,
+      "char": "代",
+      "encoded_hex": "91E3",
+      "source": "extended"
+    },
+    {
+      "slot": 303,
+      "char": "令",
+      "encoded_hex": "97DF",
+      "source": "extended"
+    },
+    {
+      "slot": 304,
+      "char": "们",
+      "encoded_hex": "F07C",
+      "source": "extended"
+    },
+    {
+      "slot": 305,
+      "char": "件",
+      "encoded_hex": "8C8F",
+      "source": "extended"
+    },
+    {
+      "slot": 306,
+      "char": "份",
+      "encoded_hex": "F07E",
+      "source": "extended"
+    },
+    {
+      "slot": 307,
+      "char": "伊",
+      "encoded_hex": "88C9",
+      "source": "extended"
+    },
+    {
+      "slot": 308,
+      "char": "伏",
+      "encoded_hex": "959A",
+      "source": "extended"
+    },
+    {
+      "slot": 309,
+      "char": "伙",
+      "encoded_hex": "F084",
+      "source": "extended"
+    },
+    {
+      "slot": 310,
+      "char": "传",
+      "encoded_hex": "F086",
+      "source": "extended"
+    },
+    {
+      "slot": 311,
+      "char": "伤",
+      "encoded_hex": "F087",
+      "source": "extended"
+    },
+    {
+      "slot": 312,
+      "char": "伯",
+      "encoded_hex": "948C",
+      "source": "extended"
+    },
+    {
+      "slot": 313,
+      "char": "伽",
+      "encoded_hex": "89BE",
+      "source": "extended"
+    },
+    {
+      "slot": 314,
+      "char": "低",
+      "encoded_hex": "92E1",
+      "source": "extended"
+    },
+    {
+      "slot": 315,
+      "char": "体",
+      "encoded_hex": "91CC",
+      "source": "extended"
+    },
+    {
+      "slot": 316,
+      "char": "佗",
+      "encoded_hex": "F870",
+      "source": "extended"
+    },
+    {
+      "slot": 317,
+      "char": "作",
+      "encoded_hex": "8DEC",
+      "source": "extended"
+    },
+    {
+      "slot": 318,
+      "char": "你",
+      "encoded_hex": "F08D",
+      "source": "extended"
+    },
+    {
+      "slot": 319,
+      "char": "侧",
+      "encoded_hex": "F094",
+      "source": "extended"
+    },
+    {
+      "slot": 320,
+      "char": "侵",
+      "encoded_hex": "904E",
+      "source": "extended"
+    },
+    {
+      "slot": 321,
+      "char": "保",
+      "encoded_hex": "95DB",
+      "source": "extended"
+    },
+    {
+      "slot": 322,
+      "char": "信",
+      "encoded_hex": "904D",
+      "source": "extended"
+    },
+    {
+      "slot": 323,
+      "char": "俯",
+      "encoded_hex": "98EB",
+      "source": "extended"
+    },
+    {
+      "slot": 324,
+      "char": "候",
+      "encoded_hex": "8CF3",
+      "source": "extended"
+    },
+    {
+      "slot": 325,
+      "char": "偏",
+      "encoded_hex": "95CE",
+      "source": "extended"
+    },
+    {
+      "slot": 326,
+      "char": "偶",
+      "encoded_hex": "8BF4",
+      "source": "extended"
+    },
+    {
+      "slot": 327,
+      "char": "偷",
+      "encoded_hex": "F0A3",
+      "source": "extended"
+    },
+    {
+      "slot": 328,
+      "char": "傲",
+      "encoded_hex": "98FC",
+      "source": "extended"
+    },
+    {
+      "slot": 329,
+      "char": "像",
+      "encoded_hex": "919C",
+      "source": "extended"
+    },
+    {
+      "slot": 330,
+      "char": "光",
+      "encoded_hex": "8CF5",
+      "source": "extended"
+    },
+    {
+      "slot": 331,
+      "char": "克",
+      "encoded_hex": "8D8E",
+      "source": "extended"
+    },
+    {
+      "slot": 332,
+      "char": "兔",
+      "encoded_hex": "F0AA",
+      "source": "extended"
+    },
+    {
+      "slot": 333,
+      "char": "入",
+      "encoded_hex": "93FC",
+      "source": "extended"
+    },
+    {
+      "slot": 334,
+      "char": "共",
+      "encoded_hex": "8BA4",
+      "source": "extended"
+    },
+    {
+      "slot": 335,
+      "char": "关",
+      "encoded_hex": "F0AD",
+      "source": "extended"
+    },
+    {
+      "slot": 336,
+      "char": "兵",
+      "encoded_hex": "95BA",
+      "source": "extended"
+    },
+    {
+      "slot": 337,
+      "char": "养",
+      "encoded_hex": "F0B0",
+      "source": "extended"
+    },
+    {
+      "slot": 338,
+      "char": "内",
+      "encoded_hex": "93E0",
+      "source": "extended"
+    },
+    {
+      "slot": 339,
+      "char": "军",
+      "encoded_hex": "F0B4",
+      "source": "extended"
+    },
+    {
+      "slot": 340,
+      "char": "农",
+      "encoded_hex": "F0B5",
+      "source": "extended"
+    },
+    {
+      "slot": 341,
+      "char": "冲",
+      "encoded_hex": "F0B8",
+      "source": "extended"
+    },
+    {
+      "slot": 342,
+      "char": "决",
+      "encoded_hex": "F0B9",
+      "source": "extended"
+    },
+    {
+      "slot": 343,
+      "char": "冷",
+      "encoded_hex": "97E2",
+      "source": "extended"
+    },
+    {
+      "slot": 344,
+      "char": "冻",
+      "encoded_hex": "F0BB",
+      "source": "extended"
+    },
+    {
+      "slot": 345,
+      "char": "凛",
+      "encoded_hex": "997A",
+      "source": "extended"
+    },
+    {
+      "slot": 346,
+      "char": "凶",
+      "encoded_hex": "8BA5",
+      "source": "extended"
+    },
+    {
+      "slot": 347,
+      "char": "出",
+      "encoded_hex": "8F6F",
+      "source": "extended"
+    },
+    {
+      "slot": 348,
+      "char": "击",
+      "encoded_hex": "F0C5",
+      "source": "extended"
+    },
+    {
+      "slot": 349,
+      "char": "凿",
+      "encoded_hex": "F0C6",
+      "source": "extended"
+    },
+    {
+      "slot": 350,
+      "char": "分",
+      "encoded_hex": "95AA",
+      "source": "extended"
+    },
+    {
+      "slot": 351,
+      "char": "则",
+      "encoded_hex": "F0CA",
+      "source": "extended"
+    },
+    {
+      "slot": 352,
+      "char": "刚",
+      "encoded_hex": "F0CB",
+      "source": "extended"
+    },
+    {
+      "slot": 353,
+      "char": "删",
+      "encoded_hex": "F0CD",
+      "source": "extended"
+    },
+    {
+      "slot": 354,
+      "char": "利",
+      "encoded_hex": "9798",
+      "source": "extended"
+    },
+    {
+      "slot": 355,
+      "char": "别",
+      "encoded_hex": "F0CF",
+      "source": "extended"
+    },
+    {
+      "slot": 356,
+      "char": "到",
+      "encoded_hex": "939E",
+      "source": "extended"
+    },
+    {
+      "slot": 357,
+      "char": "制",
+      "encoded_hex": "90A7",
+      "source": "extended"
+    },
+    {
+      "slot": 358,
+      "char": "刺",
+      "encoded_hex": "8E68",
+      "source": "extended"
+    },
+    {
+      "slot": 359,
+      "char": "刻",
+      "encoded_hex": "8D8F",
+      "source": "extended"
+    },
+    {
+      "slot": 360,
+      "char": "剑",
+      "encoded_hex": "F0D4",
+      "source": "extended"
+    },
+    {
+      "slot": 361,
+      "char": "力",
+      "encoded_hex": "97CD",
+      "source": "extended"
+    },
+    {
+      "slot": 362,
+      "char": "办",
+      "encoded_hex": "F0DC",
+      "source": "extended"
+    },
+    {
+      "slot": 363,
+      "char": "功",
+      "encoded_hex": "8CF7",
+      "source": "extended"
+    },
+    {
+      "slot": 364,
+      "char": "劣",
+      "encoded_hex": "97F2",
+      "source": "extended"
+    },
+    {
+      "slot": 365,
+      "char": "动",
+      "encoded_hex": "F0DE",
+      "source": "extended"
+    },
+    {
+      "slot": 366,
+      "char": "努",
+      "encoded_hex": "9377",
+      "source": "extended"
+    },
+    {
+      "slot": 367,
+      "char": "匍",
+      "encoded_hex": "99B3",
+      "source": "extended"
+    },
+    {
+      "slot": 368,
+      "char": "匐",
+      "encoded_hex": "99B4",
+      "source": "extended"
+    },
+    {
+      "slot": 369,
+      "char": "半",
+      "encoded_hex": "94BC",
+      "source": "extended"
+    },
+    {
+      "slot": 370,
+      "char": "卑",
+      "encoded_hex": "94DA",
+      "source": "extended"
+    },
+    {
+      "slot": 371,
+      "char": "博",
+      "encoded_hex": "948E",
+      "source": "extended"
+    },
+    {
+      "slot": 372,
+      "char": "卡",
+      "encoded_hex": "F0EE",
+      "source": "extended"
+    },
+    {
+      "slot": 373,
+      "char": "危",
+      "encoded_hex": "8AEB",
+      "source": "extended"
+    },
+    {
+      "slot": 374,
+      "char": "历",
+      "encoded_hex": "F0F5",
+      "source": "extended"
+    },
+    {
+      "slot": 375,
+      "char": "去",
+      "encoded_hex": "8B8E",
+      "source": "extended"
+    },
+    {
+      "slot": 376,
+      "char": "双",
+      "encoded_hex": "916F",
+      "source": "extended"
+    },
+    {
+      "slot": 377,
+      "char": "反",
+      "encoded_hex": "94BD",
+      "source": "extended"
+    },
+    {
+      "slot": 378,
+      "char": "取",
+      "encoded_hex": "8EE6",
+      "source": "extended"
+    },
+    {
+      "slot": 379,
+      "char": "受",
+      "encoded_hex": "8EF3",
+      "source": "extended"
+    },
+    {
+      "slot": 380,
+      "char": "口",
+      "encoded_hex": "8CFB",
+      "source": "extended"
+    },
+    {
+      "slot": 381,
+      "char": "古",
+      "encoded_hex": "8CC3",
+      "source": "extended"
+    },
+    {
+      "slot": 382,
+      "char": "可",
+      "encoded_hex": "89C2",
+      "source": "extended"
+    },
+    {
+      "slot": 383,
+      "char": "号",
+      "encoded_hex": "8D86",
+      "source": "extended"
+    },
+    {
+      "slot": 384,
+      "char": "叹",
+      "encoded_hex": "F149",
+      "source": "extended"
+    },
+    {
+      "slot": 385,
+      "char": "名",
+      "encoded_hex": "96BC",
+      "source": "extended"
+    },
+    {
+      "slot": 386,
+      "char": "后",
+      "encoded_hex": "F14B",
+      "source": "extended"
+    },
+    {
+      "slot": 387,
+      "char": "吟",
+      "encoded_hex": "8BE1",
+      "source": "extended"
+    },
+    {
+      "slot": 388,
+      "char": "吼",
+      "encoded_hex": "99E1",
+      "source": "extended"
+    },
+    {
+      "slot": 389,
+      "char": "吾",
+      "encoded_hex": "8CE1",
+      "source": "extended"
+    },
+    {
+      "slot": 390,
+      "char": "告",
+      "encoded_hex": "8D90",
+      "source": "extended"
+    },
+    {
+      "slot": 391,
+      "char": "味",
+      "encoded_hex": "96A1",
+      "source": "extended"
+    },
+    {
+      "slot": 392,
+      "char": "呵",
+      "encoded_hex": "99E8",
+      "source": "extended"
+    },
+    {
+      "slot": 393,
+      "char": "命",
+      "encoded_hex": "96BD",
+      "source": "extended"
+    },
+    {
+      "slot": 394,
+      "char": "咀",
+      "encoded_hex": "99F0",
+      "source": "extended"
+    },
+    {
+      "slot": 395,
+      "char": "咄",
+      "encoded_hex": "99F2",
+      "source": "extended"
+    },
+    {
+      "slot": 396,
+      "char": "咆",
+      "encoded_hex": "99F4",
+      "source": "extended"
+    },
+    {
+      "slot": 397,
+      "char": "咏",
+      "encoded_hex": "F162",
+      "source": "extended"
+    },
+    {
+      "slot": 398,
+      "char": "咒",
+      "encoded_hex": "F164",
+      "source": "extended"
+    },
+    {
+      "slot": 399,
+      "char": "咔",
+      "encoded_hex": "F165",
+      "source": "extended"
+    },
+    {
+      "slot": 400,
+      "char": "咖",
+      "encoded_hex": "F167",
+      "source": "extended"
+    },
+    {
+      "slot": 401,
+      "char": "哀",
+      "encoded_hex": "88A3",
+      "source": "extended"
+    },
+    {
+      "slot": 402,
+      "char": "品",
+      "encoded_hex": "9569",
+      "source": "extended"
+    },
+    {
+      "slot": 403,
+      "char": "哈",
+      "encoded_hex": "F16F",
+      "source": "extended"
+    },
+    {
+      "slot": 404,
+      "char": "哮",
+      "encoded_hex": "9A4B",
+      "source": "extended"
+    },
+    {
+      "slot": 405,
+      "char": "唱",
+      "encoded_hex": "8FA5",
+      "source": "extended"
+    },
+    {
+      "slot": 406,
+      "char": "啊",
+      "encoded_hex": "F180",
+      "source": "extended"
+    },
+    {
+      "slot": 407,
+      "char": "啡",
+      "encoded_hex": "F181",
+      "source": "extended"
+    },
+    {
+      "slot": 408,
+      "char": "喃",
+      "encoded_hex": "F18B",
+      "source": "extended"
+    },
+    {
+      "slot": 409,
+      "char": "喜",
+      "encoded_hex": "8AEC",
+      "source": "extended"
+    },
+    {
+      "slot": 410,
+      "char": "嗡",
+      "encoded_hex": "F198",
+      "source": "extended"
+    },
+    {
+      "slot": 411,
+      "char": "嘴",
+      "encoded_hex": "F1A5",
+      "source": "extended"
+    },
+    {
+      "slot": 412,
+      "char": "器",
+      "encoded_hex": "8AED",
+      "source": "extended"
+    },
+    {
+      "slot": 413,
+      "char": "噪",
+      "encoded_hex": "9A84",
+      "source": "extended"
+    },
+    {
+      "slot": 414,
+      "char": "嚼",
+      "encoded_hex": "9A90",
+      "source": "extended"
+    },
+    {
+      "slot": 415,
+      "char": "回",
+      "encoded_hex": "89F1",
+      "source": "extended"
+    },
+    {
+      "slot": 416,
+      "char": "因",
+      "encoded_hex": "88F6",
+      "source": "extended"
+    },
+    {
+      "slot": 417,
+      "char": "园",
+      "encoded_hex": "F1B9",
+      "source": "extended"
+    },
+    {
+      "slot": 418,
+      "char": "图",
+      "encoded_hex": "F1BB",
+      "source": "extended"
+    },
+    {
+      "slot": 419,
+      "char": "土",
+      "encoded_hex": "9379",
+      "source": "extended"
+    },
+    {
+      "slot": 420,
+      "char": "在",
+      "encoded_hex": "8DDD",
+      "source": "extended"
+    },
+    {
+      "slot": 421,
+      "char": "地",
+      "encoded_hex": "926E",
+      "source": "extended"
+    },
+    {
+      "slot": 422,
+      "char": "场",
+      "encoded_hex": "F1BF",
+      "source": "extended"
+    },
+    {
+      "slot": 423,
+      "char": "坂",
+      "encoded_hex": "8DE2",
+      "source": "extended"
+    },
+    {
+      "slot": 424,
+      "char": "坏",
+      "encoded_hex": "F1C2",
+      "source": "extended"
+    },
+    {
+      "slot": 425,
+      "char": "坷",
+      "encoded_hex": "F889",
+      "source": "extended"
+    },
+    {
+      "slot": 426,
+      "char": "垃",
+      "encoded_hex": "F1C9",
+      "source": "extended"
+    },
+    {
+      "slot": 427,
+      "char": "型",
+      "encoded_hex": "8C5E",
+      "source": "extended"
+    },
+    {
+      "slot": 428,
+      "char": "埃",
+      "encoded_hex": "9ABA",
+      "source": "extended"
+    },
+    {
+      "slot": 429,
+      "char": "基",
+      "encoded_hex": "8AEE",
+      "source": "extended"
+    },
+    {
+      "slot": 430,
+      "char": "堂",
+      "encoded_hex": "93B0",
+      "source": "extended"
+    },
+    {
+      "slot": 431,
+      "char": "塔",
+      "encoded_hex": "F1D2",
+      "source": "extended"
+    },
+    {
+      "slot": 432,
+      "char": "填",
+      "encoded_hex": "9355",
+      "source": "extended"
+    },
+    {
+      "slot": 433,
+      "char": "境",
+      "encoded_hex": "8BAB",
+      "source": "extended"
+    },
+    {
+      "slot": 434,
+      "char": "墓",
+      "encoded_hex": "95E6",
+      "source": "extended"
+    },
+    {
+      "slot": 435,
+      "char": "墙",
+      "encoded_hex": "F1D4",
+      "source": "extended"
+    },
+    {
+      "slot": 436,
+      "char": "士",
+      "encoded_hex": "8E6D",
+      "source": "extended"
+    },
+    {
+      "slot": 437,
+      "char": "声",
+      "encoded_hex": "90BA",
+      "source": "extended"
+    },
+    {
+      "slot": 438,
+      "char": "处",
+      "encoded_hex": "F1D8",
+      "source": "extended"
+    },
+    {
+      "slot": 439,
+      "char": "备",
+      "encoded_hex": "F1D9",
+      "source": "extended"
+    },
+    {
+      "slot": 440,
+      "char": "复",
+      "encoded_hex": "F1DA",
+      "source": "extended"
+    },
+    {
+      "slot": 441,
+      "char": "外",
+      "encoded_hex": "8A4F",
+      "source": "extended"
+    },
+    {
+      "slot": 442,
+      "char": "多",
+      "encoded_hex": "91BD",
+      "source": "extended"
+    },
+    {
+      "slot": 443,
+      "char": "大",
+      "encoded_hex": "91E5",
+      "source": "extended"
+    },
+    {
+      "slot": 444,
+      "char": "天",
+      "encoded_hex": "9356",
+      "source": "extended"
+    },
+    {
+      "slot": 445,
+      "char": "夫",
+      "encoded_hex": "9576",
+      "source": "extended"
+    },
+    {
+      "slot": 446,
+      "char": "失",
+      "encoded_hex": "8EB8",
+      "source": "extended"
+    },
+    {
+      "slot": 447,
+      "char": "头",
+      "encoded_hex": "F1DC",
+      "source": "extended"
+    },
+    {
+      "slot": 448,
+      "char": "奇",
+      "encoded_hex": "8AEF",
+      "source": "extended"
+    },
+    {
+      "slot": 449,
+      "char": "奉",
+      "encoded_hex": "95F2",
+      "source": "extended"
+    },
+    {
+      "slot": 450,
+      "char": "奎",
+      "encoded_hex": "F1E1",
+      "source": "extended"
+    },
+    {
+      "slot": 451,
+      "char": "奠",
+      "encoded_hex": "F88C",
+      "source": "extended"
+    },
+    {
+      "slot": 452,
+      "char": "奥",
+      "encoded_hex": "899C",
+      "source": "extended"
+    },
+    {
+      "slot": 453,
+      "char": "女",
+      "encoded_hex": "8F97",
+      "source": "extended"
+    },
+    {
+      "slot": 454,
+      "char": "好",
+      "encoded_hex": "8D44",
+      "source": "extended"
+    },
+    {
+      "slot": 455,
+      "char": "如",
+      "encoded_hex": "9440",
+      "source": "extended"
+    },
+    {
+      "slot": 456,
+      "char": "妒",
+      "encoded_hex": "F1E8",
+      "source": "extended"
+    },
+    {
+      "slot": 457,
+      "char": "妖",
+      "encoded_hex": "9764",
+      "source": "extended"
+    },
+    {
+      "slot": 458,
+      "char": "姆",
+      "encoded_hex": "F1EA",
+      "source": "extended"
+    },
+    {
+      "slot": 459,
+      "char": "始",
+      "encoded_hex": "8E6E",
+      "source": "extended"
+    },
+    {
+      "slot": 460,
+      "char": "姿",
+      "encoded_hex": "8E70",
+      "source": "extended"
+    },
+    {
+      "slot": 461,
+      "char": "娇",
+      "encoded_hex": "F1EE",
+      "source": "extended"
+    },
+    {
+      "slot": 462,
+      "char": "嫉",
+      "encoded_hex": "8EB9",
+      "source": "extended"
+    },
+    {
+      "slot": 463,
+      "char": "子",
+      "encoded_hex": "8E71",
+      "source": "extended"
+    },
+    {
+      "slot": 464,
+      "char": "字",
+      "encoded_hex": "8E9A",
+      "source": "extended"
+    },
+    {
+      "slot": 465,
+      "char": "存",
+      "encoded_hex": "91B6",
+      "source": "extended"
+    },
+    {
+      "slot": 466,
+      "char": "孩",
+      "encoded_hex": "F1F5",
+      "source": "extended"
+    },
+    {
+      "slot": 467,
+      "char": "宇",
+      "encoded_hex": "8946",
+      "source": "extended"
+    },
+    {
+      "slot": 468,
+      "char": "安",
+      "encoded_hex": "88C0",
+      "source": "extended"
+    },
+    {
+      "slot": 469,
+      "char": "完",
+      "encoded_hex": "8AAE",
+      "source": "extended"
+    },
+    {
+      "slot": 470,
+      "char": "实",
+      "encoded_hex": "F1FB",
+      "source": "extended"
+    },
+    {
+      "slot": 471,
+      "char": "客",
+      "encoded_hex": "8B71",
+      "source": "extended"
+    },
+    {
+      "slot": 472,
+      "char": "宫",
+      "encoded_hex": "F241",
+      "source": "extended"
+    },
+    {
+      "slot": 473,
+      "char": "害",
+      "encoded_hex": "8A51",
+      "source": "extended"
+    },
+    {
+      "slot": 474,
+      "char": "家",
+      "encoded_hex": "89C6",
+      "source": "extended"
+    },
+    {
+      "slot": 475,
+      "char": "容",
+      "encoded_hex": "9765",
+      "source": "extended"
+    },
+    {
+      "slot": 476,
+      "char": "宿",
+      "encoded_hex": "8F68",
+      "source": "extended"
+    },
+    {
+      "slot": 477,
+      "char": "寂",
+      "encoded_hex": "8EE2",
+      "source": "extended"
+    },
+    {
+      "slot": 478,
+      "char": "寄",
+      "encoded_hex": "8AF1",
+      "source": "extended"
+    },
+    {
+      "slot": 479,
+      "char": "寞",
+      "encoded_hex": "F244",
+      "source": "extended"
+    },
+    {
+      "slot": 480,
+      "char": "寡",
+      "encoded_hex": "89C7",
+      "source": "extended"
+    },
+    {
+      "slot": 481,
+      "char": "对",
+      "encoded_hex": "F246",
+      "source": "extended"
+    },
+    {
+      "slot": 482,
+      "char": "封",
+      "encoded_hex": "9595",
+      "source": "extended"
+    },
+    {
+      "slot": 483,
+      "char": "小",
+      "encoded_hex": "8FAC",
+      "source": "extended"
+    },
+    {
+      "slot": 484,
+      "char": "尔",
+      "encoded_hex": "F249",
+      "source": "extended"
+    },
+    {
+      "slot": 485,
+      "char": "尽",
+      "encoded_hex": "9073",
+      "source": "extended"
+    },
+    {
+      "slot": 486,
+      "char": "尾",
+      "encoded_hex": "94F6",
+      "source": "extended"
+    },
+    {
+      "slot": 487,
+      "char": "局",
+      "encoded_hex": "8BC7",
+      "source": "extended"
+    },
+    {
+      "slot": 488,
+      "char": "屏",
+      "encoded_hex": "F254",
+      "source": "extended"
+    },
+    {
+      "slot": 489,
+      "char": "属",
+      "encoded_hex": "91AE",
+      "source": "extended"
+    },
+    {
+      "slot": 490,
+      "char": "山",
+      "encoded_hex": "8E52",
+      "source": "extended"
+    },
+    {
+      "slot": 491,
+      "char": "岁",
+      "encoded_hex": "F257",
+      "source": "extended"
+    },
+    {
+      "slot": 492,
+      "char": "峰",
+      "encoded_hex": "95F4",
+      "source": "extended"
+    },
+    {
+      "slot": 493,
+      "char": "崇",
+      "encoded_hex": "9092",
+      "source": "extended"
+    },
+    {
+      "slot": 494,
+      "char": "崩",
+      "encoded_hex": "95F6",
+      "source": "extended"
+    },
+    {
+      "slot": 495,
+      "char": "巅",
+      "encoded_hex": "F897",
+      "source": "extended"
+    },
+    {
+      "slot": 496,
+      "char": "巧",
+      "encoded_hex": "8D49",
+      "source": "extended"
+    },
+    {
+      "slot": 497,
+      "char": "己",
+      "encoded_hex": "8CC8",
+      "source": "extended"
+    },
+    {
+      "slot": 498,
+      "char": "巴",
+      "encoded_hex": "9462",
+      "source": "extended"
+    },
+    {
+      "slot": 499,
+      "char": "布",
+      "encoded_hex": "957A",
+      "source": "extended"
+    },
+    {
+      "slot": 500,
+      "char": "师",
+      "encoded_hex": "F261",
+      "source": "extended"
+    },
+    {
+      "slot": 501,
+      "char": "希",
+      "encoded_hex": "8AF3",
+      "source": "extended"
+    },
+    {
+      "slot": 502,
+      "char": "帮",
+      "encoded_hex": "F265",
+      "source": "extended"
+    },
+    {
+      "slot": 503,
+      "char": "常",
+      "encoded_hex": "8FED",
+      "source": "extended"
+    },
+    {
+      "slot": 504,
+      "char": "幕",
+      "encoded_hex": "968B",
+      "source": "extended"
+    },
+    {
+      "slot": 505,
+      "char": "干",
+      "encoded_hex": "8AB1",
+      "source": "extended"
+    },
+    {
+      "slot": 506,
+      "char": "幸",
+      "encoded_hex": "8D4B",
+      "source": "extended"
+    },
+    {
+      "slot": 507,
+      "char": "幽",
+      "encoded_hex": "9748",
+      "source": "extended"
+    },
+    {
+      "slot": 508,
+      "char": "序",
+      "encoded_hex": "8F98",
+      "source": "extended"
+    },
+    {
+      "slot": 509,
+      "char": "库",
+      "encoded_hex": "F26A",
+      "source": "extended"
+    },
+    {
+      "slot": 510,
+      "char": "应",
+      "encoded_hex": "F26B",
+      "source": "extended"
+    },
+    {
+      "slot": 511,
+      "char": "底",
+      "encoded_hex": "92EA",
+      "source": "extended"
+    },
+    {
+      "slot": 512,
+      "char": "度",
+      "encoded_hex": "9378",
+      "source": "extended"
+    },
+    {
+      "slot": 513,
+      "char": "建",
+      "encoded_hex": "8C9A",
+      "source": "extended"
+    },
+    {
+      "slot": 514,
+      "char": "开",
+      "encoded_hex": "F26F",
+      "source": "extended"
+    },
+    {
+      "slot": 515,
+      "char": "异",
+      "encoded_hex": "F270",
+      "source": "extended"
+    },
+    {
+      "slot": 516,
+      "char": "弃",
+      "encoded_hex": "F271",
+      "source": "extended"
+    },
+    {
+      "slot": 517,
+      "char": "式",
+      "encoded_hex": "8EAE",
+      "source": "extended"
+    },
+    {
+      "slot": 518,
+      "char": "弓",
+      "encoded_hex": "8B7C",
+      "source": "extended"
+    },
+    {
+      "slot": 519,
+      "char": "引",
+      "encoded_hex": "88F8",
+      "source": "extended"
+    },
+    {
+      "slot": 520,
+      "char": "弥",
+      "encoded_hex": "96ED",
+      "source": "extended"
+    },
+    {
+      "slot": 521,
+      "char": "弱",
+      "encoded_hex": "8EE3",
+      "source": "extended"
+    },
+    {
+      "slot": 522,
+      "char": "强",
+      "encoded_hex": "F278",
+      "source": "extended"
+    },
+    {
+      "slot": 523,
+      "char": "当",
+      "encoded_hex": "9396",
+      "source": "extended"
+    },
+    {
+      "slot": 524,
+      "char": "录",
+      "encoded_hex": "F27A",
+      "source": "extended"
+    },
+    {
+      "slot": 525,
+      "char": "形",
+      "encoded_hex": "8C60",
+      "source": "extended"
+    },
+    {
+      "slot": 526,
+      "char": "彻",
+      "encoded_hex": "F27B",
+      "source": "extended"
+    },
+    {
+      "slot": 527,
+      "char": "得",
+      "encoded_hex": "93BE",
+      "source": "extended"
+    },
+    {
+      "slot": 528,
+      "char": "御",
+      "encoded_hex": "8CE4",
+      "source": "extended"
+    },
+    {
+      "slot": 529,
+      "char": "德",
+      "encoded_hex": "F27E",
+      "source": "extended"
+    },
+    {
+      "slot": 530,
+      "char": "心",
+      "encoded_hex": "9053",
+      "source": "extended"
+    },
+    {
+      "slot": 531,
+      "char": "忆",
+      "encoded_hex": "F281",
+      "source": "extended"
+    },
+    {
+      "slot": 532,
+      "char": "快",
+      "encoded_hex": "89F5",
+      "source": "extended"
+    },
+    {
+      "slot": 533,
+      "char": "念",
+      "encoded_hex": "944F",
+      "source": "extended"
+    },
+    {
+      "slot": 534,
+      "char": "怀",
+      "encoded_hex": "F285",
+      "source": "extended"
+    },
+    {
+      "slot": 535,
+      "char": "态",
+      "encoded_hex": "F286",
+      "source": "extended"
+    },
+    {
+      "slot": 536,
+      "char": "怒",
+      "encoded_hex": "937B",
+      "source": "extended"
+    },
+    {
+      "slot": 537,
+      "char": "思",
+      "encoded_hex": "8E76",
+      "source": "extended"
+    },
+    {
+      "slot": 538,
+      "char": "怠",
+      "encoded_hex": "91D3",
+      "source": "extended"
+    },
+    {
+      "slot": 539,
+      "char": "性",
+      "encoded_hex": "90AB",
+      "source": "extended"
+    },
+    {
+      "slot": 540,
+      "char": "怨",
+      "encoded_hex": "8985",
+      "source": "extended"
+    },
+    {
+      "slot": 541,
+      "char": "恋",
+      "encoded_hex": "97F6",
+      "source": "extended"
+    },
+    {
+      "slot": 542,
+      "char": "恨",
+      "encoded_hex": "8DA6",
+      "source": "extended"
+    },
+    {
+      "slot": 543,
+      "char": "恭",
+      "encoded_hex": "8BB1",
+      "source": "extended"
+    },
+    {
+      "slot": 544,
+      "char": "息",
+      "encoded_hex": "91A7",
+      "source": "extended"
+    },
+    {
+      "slot": 545,
+      "char": "恶",
+      "encoded_hex": "F291",
+      "source": "extended"
+    },
+    {
+      "slot": 546,
+      "char": "恼",
+      "encoded_hex": "F293",
+      "source": "extended"
+    },
+    {
+      "slot": 547,
+      "char": "您",
+      "encoded_hex": "F296",
+      "source": "extended"
+    },
+    {
+      "slot": 548,
+      "char": "悲",
+      "encoded_hex": "94DF",
+      "source": "extended"
+    },
+    {
+      "slot": 549,
+      "char": "悼",
+      "encoded_hex": "9389",
+      "source": "extended"
+    },
+    {
+      "slot": 550,
+      "char": "情",
+      "encoded_hex": "8FEE",
+      "source": "extended"
+    },
+    {
+      "slot": 551,
+      "char": "想",
+      "encoded_hex": "917A",
+      "source": "extended"
+    },
+    {
+      "slot": 552,
+      "char": "惹",
+      "encoded_hex": "8EE4",
+      "source": "extended"
+    },
+    {
+      "slot": 553,
+      "char": "意",
+      "encoded_hex": "88D3",
+      "source": "extended"
+    },
+    {
+      "slot": 554,
+      "char": "感",
+      "encoded_hex": "8AB4",
+      "source": "extended"
+    },
+    {
+      "slot": 555,
+      "char": "愿",
+      "encoded_hex": "F2A9",
+      "source": "extended"
+    },
+    {
+      "slot": 556,
+      "char": "慌",
+      "encoded_hex": "8D51",
+      "source": "extended"
+    },
+    {
+      "slot": 557,
+      "char": "慎",
+      "encoded_hex": "9054",
+      "source": "extended"
+    },
+    {
+      "slot": 558,
+      "char": "慨",
+      "encoded_hex": "8A53",
+      "source": "extended"
+    },
+    {
+      "slot": 559,
+      "char": "懈",
+      "encoded_hex": "F2AD",
+      "source": "extended"
+    },
+    {
+      "slot": 560,
+      "char": "成",
+      "encoded_hex": "90AC",
+      "source": "extended"
+    },
+    {
+      "slot": 561,
+      "char": "我",
+      "encoded_hex": "89E4",
+      "source": "extended"
+    },
+    {
+      "slot": 562,
+      "char": "战",
+      "encoded_hex": "F2B4",
+      "source": "extended"
+    },
+    {
+      "slot": 563,
+      "char": "戴",
+      "encoded_hex": "91D5",
+      "source": "extended"
+    },
+    {
+      "slot": 564,
+      "char": "手",
+      "encoded_hex": "8EE8",
+      "source": "extended"
+    },
+    {
+      "slot": 565,
+      "char": "打",
+      "encoded_hex": "91C5",
+      "source": "extended"
+    },
+    {
+      "slot": 566,
+      "char": "托",
+      "encoded_hex": "F2BD",
+      "source": "extended"
+    },
+    {
+      "slot": 567,
+      "char": "执",
+      "encoded_hex": "F2BF",
+      "source": "extended"
+    },
+    {
+      "slot": 568,
+      "char": "技",
+      "encoded_hex": "8B5A",
+      "source": "extended"
+    },
+    {
+      "slot": 569,
+      "char": "抗",
+      "encoded_hex": "8D52",
+      "source": "extended"
+    },
+    {
+      "slot": 570,
+      "char": "折",
+      "encoded_hex": "90DC",
+      "source": "extended"
+    },
+    {
+      "slot": 571,
+      "char": "护",
+      "encoded_hex": "F2CE",
+      "source": "extended"
+    },
+    {
+      "slot": 572,
+      "char": "报",
+      "encoded_hex": "F2CF",
+      "source": "extended"
+    },
+    {
+      "slot": 573,
+      "char": "抹",
+      "encoded_hex": "9695",
+      "source": "extended"
+    },
+    {
+      "slot": 574,
+      "char": "抽",
+      "encoded_hex": "928A",
+      "source": "extended"
+    },
+    {
+      "slot": 575,
+      "char": "担",
+      "encoded_hex": "9253",
+      "source": "extended"
+    },
+    {
+      "slot": 576,
+      "char": "拉",
+      "encoded_hex": "F2D3",
+      "source": "extended"
+    },
+    {
+      "slot": 577,
+      "char": "拓",
+      "encoded_hex": "91F1",
+      "source": "extended"
+    },
+    {
+      "slot": 578,
+      "char": "拭",
+      "encoded_hex": "9040",
+      "source": "extended"
+    },
+    {
+      "slot": 579,
+      "char": "拳",
+      "encoded_hex": "8C9D",
+      "source": "extended"
+    },
+    {
+      "slot": 580,
+      "char": "持",
+      "encoded_hex": "8E9D",
+      "source": "extended"
+    },
+    {
+      "slot": 581,
+      "char": "指",
+      "encoded_hex": "8E77",
+      "source": "extended"
+    },
+    {
+      "slot": 582,
+      "char": "挥",
+      "encoded_hex": "F2EC",
+      "source": "extended"
+    },
+    {
+      "slot": 583,
+      "char": "挫",
+      "encoded_hex": "8DC1",
+      "source": "extended"
+    },
+    {
+      "slot": 584,
+      "char": "据",
+      "encoded_hex": "9098",
+      "source": "extended"
+    },
+    {
+      "slot": 585,
+      "char": "授",
+      "encoded_hex": "8EF6",
+      "source": "extended"
+    },
+    {
+      "slot": 586,
+      "char": "掌",
+      "encoded_hex": "8FB6",
+      "source": "extended"
+    },
+    {
+      "slot": 587,
+      "char": "接",
+      "encoded_hex": "90DA",
+      "source": "extended"
+    },
+    {
+      "slot": 588,
+      "char": "控",
+      "encoded_hex": "8D54",
+      "source": "extended"
+    },
+    {
+      "slot": 589,
+      "char": "掩",
+      "encoded_hex": "F2F9",
+      "source": "extended"
+    },
+    {
+      "slot": 590,
+      "char": "援",
+      "encoded_hex": "8987",
+      "source": "extended"
+    },
+    {
+      "slot": 591,
+      "char": "摒",
+      "encoded_hex": "F8A8",
+      "source": "extended"
+    },
+    {
+      "slot": 592,
+      "char": "擎",
+      "encoded_hex": "F35C",
+      "source": "extended"
+    },
+    {
+      "slot": 593,
+      "char": "支",
+      "encoded_hex": "8E78",
+      "source": "extended"
+    },
+    {
+      "slot": 594,
+      "char": "改",
+      "encoded_hex": "89FC",
+      "source": "extended"
+    },
+    {
+      "slot": 595,
+      "char": "放",
+      "encoded_hex": "95FA",
+      "source": "extended"
+    },
+    {
+      "slot": 596,
+      "char": "政",
+      "encoded_hex": "90AD",
+      "source": "extended"
+    },
+    {
+      "slot": 597,
+      "char": "故",
+      "encoded_hex": "8CCC",
+      "source": "extended"
+    },
+    {
+      "slot": 598,
+      "char": "敌",
+      "encoded_hex": "F365",
+      "source": "extended"
+    },
+    {
+      "slot": 599,
+      "char": "救",
+      "encoded_hex": "8B7E",
+      "source": "extended"
+    },
+    {
+      "slot": 600,
+      "char": "教",
+      "encoded_hex": "8BB3",
+      "source": "extended"
+    },
+    {
+      "slot": 601,
+      "char": "数",
+      "encoded_hex": "9094",
+      "source": "extended"
+    },
+    {
+      "slot": 602,
+      "char": "文",
+      "encoded_hex": "95B6",
+      "source": "extended"
+    },
+    {
+      "slot": 603,
+      "char": "斗",
+      "encoded_hex": "936C",
+      "source": "extended"
+    },
+    {
+      "slot": 604,
+      "char": "料",
+      "encoded_hex": "97BF",
+      "source": "extended"
+    },
+    {
+      "slot": 605,
+      "char": "斩",
+      "encoded_hex": "F369",
+      "source": "extended"
+    },
+    {
+      "slot": 606,
+      "char": "断",
+      "encoded_hex": "9266",
+      "source": "extended"
+    },
+    {
+      "slot": 607,
+      "char": "斯",
+      "encoded_hex": "F36A",
+      "source": "extended"
+    },
+    {
+      "slot": 608,
+      "char": "旁",
+      "encoded_hex": "F36B",
+      "source": "extended"
+    },
+    {
+      "slot": 609,
+      "char": "旗",
+      "encoded_hex": "8AF8",
+      "source": "extended"
+    },
+    {
+      "slot": 610,
+      "char": "无",
+      "encoded_hex": "9DD9",
+      "source": "extended"
+    },
+    {
+      "slot": 611,
+      "char": "时",
+      "encoded_hex": "F36C",
+      "source": "extended"
+    },
+    {
+      "slot": 612,
+      "char": "明",
+      "encoded_hex": "96BE",
+      "source": "extended"
+    },
+    {
+      "slot": 613,
+      "char": "星",
+      "encoded_hex": "90AF",
+      "source": "extended"
+    },
+    {
+      "slot": 614,
+      "char": "是",
+      "encoded_hex": "90A5",
+      "source": "extended"
+    },
+    {
+      "slot": 615,
+      "char": "晓",
+      "encoded_hex": "F36F",
+      "source": "extended"
+    },
+    {
+      "slot": 616,
+      "char": "晕",
+      "encoded_hex": "F370",
+      "source": "extended"
+    },
+    {
+      "slot": 617,
+      "char": "普",
+      "encoded_hex": "9581",
+      "source": "extended"
+    },
+    {
+      "slot": 618,
+      "char": "暂",
+      "encoded_hex": "F376",
+      "source": "extended"
+    },
+    {
+      "slot": 619,
+      "char": "暗",
+      "encoded_hex": "88C3",
+      "source": "extended"
+    },
+    {
+      "slot": 620,
+      "char": "最",
+      "encoded_hex": "8DC5",
+      "source": "extended"
+    },
+    {
+      "slot": 621,
+      "char": "有",
+      "encoded_hex": "974C",
+      "source": "extended"
+    },
+    {
+      "slot": 622,
+      "char": "望",
+      "encoded_hex": "965D",
+      "source": "extended"
+    },
+    {
+      "slot": 623,
+      "char": "期",
+      "encoded_hex": "8AFA",
+      "source": "extended"
+    },
+    {
+      "slot": 624,
+      "char": "木",
+      "encoded_hex": "96D8",
+      "source": "extended"
+    },
+    {
+      "slot": 625,
+      "char": "未",
+      "encoded_hex": "96A2",
+      "source": "extended"
+    },
+    {
+      "slot": 626,
+      "char": "末",
+      "encoded_hex": "9696",
+      "source": "extended"
+    },
+    {
+      "slot": 627,
+      "char": "术",
+      "encoded_hex": "F37B",
+      "source": "extended"
+    },
+    {
+      "slot": 628,
+      "char": "机",
+      "encoded_hex": "8AF7",
+      "source": "extended"
+    },
+    {
+      "slot": 629,
+      "char": "杀",
+      "encoded_hex": "F37D",
+      "source": "extended"
+    },
+    {
+      "slot": 630,
+      "char": "权",
+      "encoded_hex": "F380",
+      "source": "extended"
+    },
+    {
+      "slot": 631,
+      "char": "杉",
+      "encoded_hex": "9099",
+      "source": "extended"
+    },
+    {
+      "slot": 632,
+      "char": "来",
+      "encoded_hex": "9788",
+      "source": "extended"
+    },
+    {
+      "slot": 633,
+      "char": "杵",
+      "encoded_hex": "F8BA",
+      "source": "extended"
+    },
+    {
+      "slot": 634,
+      "char": "构",
+      "encoded_hex": "F384",
+      "source": "extended"
+    },
+    {
+      "slot": 635,
+      "char": "柳",
+      "encoded_hex": "96F6",
+      "source": "extended"
+    },
+    {
+      "slot": 636,
+      "char": "标",
+      "encoded_hex": "F388",
+      "source": "extended"
+    },
+    {
+      "slot": 637,
+      "char": "校",
+      "encoded_hex": "8D5A",
+      "source": "extended"
+    },
+    {
+      "slot": 638,
+      "char": "样",
+      "encoded_hex": "F38C",
+      "source": "extended"
+    },
+    {
+      "slot": 639,
+      "char": "格",
+      "encoded_hex": "8A69",
+      "source": "extended"
+    },
+    {
+      "slot": 640,
+      "char": "桐",
+      "encoded_hex": "8BCB",
+      "source": "extended"
+    },
+    {
+      "slot": 641,
+      "char": "梦",
+      "encoded_hex": "F394",
+      "source": "extended"
+    },
+    {
+      "slot": 642,
+      "char": "梯",
+      "encoded_hex": "92F2",
+      "source": "extended"
+    },
+    {
+      "slot": 643,
+      "char": "械",
+      "encoded_hex": "8A42",
+      "source": "extended"
+    },
+    {
+      "slot": 644,
+      "char": "梳",
+      "encoded_hex": "F8BC",
+      "source": "extended"
+    },
+    {
+      "slot": 645,
+      "char": "楼",
+      "encoded_hex": "984F",
+      "source": "extended"
+    },
+    {
+      "slot": 646,
+      "char": "概",
+      "encoded_hex": "8A54",
+      "source": "extended"
+    },
+    {
+      "slot": 647,
+      "char": "槃",
+      "encoded_hex": "9ECF",
+      "source": "extended"
+    },
+    {
+      "slot": 648,
+      "char": "模",
+      "encoded_hex": "96CD",
+      "source": "extended"
+    },
+    {
+      "slot": 649,
+      "char": "次",
+      "encoded_hex": "8E9F",
+      "source": "extended"
+    },
+    {
+      "slot": 650,
+      "char": "欢",
+      "encoded_hex": "F3A2",
+      "source": "extended"
+    },
+    {
+      "slot": 651,
+      "char": "欧",
+      "encoded_hex": "89A2",
+      "source": "extended"
+    },
+    {
+      "slot": 652,
+      "char": "欺",
+      "encoded_hex": "8B5C",
+      "source": "extended"
+    },
+    {
+      "slot": 653,
+      "char": "歉",
+      "encoded_hex": "F3A6",
+      "source": "extended"
+    },
+    {
+      "slot": 654,
+      "char": "歌",
+      "encoded_hex": "89CC",
+      "source": "extended"
+    },
+    {
+      "slot": 655,
+      "char": "正",
+      "encoded_hex": "90B3",
+      "source": "extended"
+    },
+    {
+      "slot": 656,
+      "char": "此",
+      "encoded_hex": "8D9F",
+      "source": "extended"
+    },
+    {
+      "slot": 657,
+      "char": "死",
+      "encoded_hex": "8E80",
+      "source": "extended"
+    },
+    {
+      "slot": 658,
+      "char": "毒",
+      "encoded_hex": "93C5",
+      "source": "extended"
+    },
+    {
+      "slot": 659,
+      "char": "毫",
+      "encoded_hex": "F3B2",
+      "source": "extended"
+    },
+    {
+      "slot": 660,
+      "char": "气",
+      "encoded_hex": "F3B4",
+      "source": "extended"
+    },
+    {
+      "slot": 661,
+      "char": "污",
+      "encoded_hex": "F3B9",
+      "source": "extended"
+    },
+    {
+      "slot": 662,
+      "char": "沉",
+      "encoded_hex": "F3BE",
+      "source": "extended"
+    },
+    {
+      "slot": 663,
+      "char": "沙",
+      "encoded_hex": "8DB9",
+      "source": "extended"
+    },
+    {
+      "slot": 664,
+      "char": "没",
+      "encoded_hex": "9676",
+      "source": "extended"
+    },
+    {
+      "slot": 665,
+      "char": "沫",
+      "encoded_hex": "9697",
+      "source": "extended"
+    },
+    {
+      "slot": 666,
+      "char": "沸",
+      "encoded_hex": "95A6",
+      "source": "extended"
+    },
+    {
+      "slot": 667,
+      "char": "泊",
+      "encoded_hex": "F3C5",
+      "source": "extended"
+    },
+    {
+      "slot": 668,
+      "char": "法",
+      "encoded_hex": "9640",
+      "source": "extended"
+    },
+    {
+      "slot": 669,
+      "char": "泛",
+      "encoded_hex": "F3C6",
+      "source": "extended"
+    },
+    {
+      "slot": 670,
+      "char": "泡",
+      "encoded_hex": "9641",
+      "source": "extended"
+    },
+    {
+      "slot": 671,
+      "char": "洞",
+      "encoded_hex": "93B4",
+      "source": "extended"
+    },
+    {
+      "slot": 672,
+      "char": "流",
+      "encoded_hex": "97AC",
+      "source": "extended"
+    },
+    {
+      "slot": 673,
+      "char": "浓",
+      "encoded_hex": "F3D5",
+      "source": "extended"
+    },
+    {
+      "slot": 674,
+      "char": "涅",
+      "encoded_hex": "9FB8",
+      "source": "extended"
+    },
+    {
+      "slot": 675,
+      "char": "消",
+      "encoded_hex": "8FC1",
+      "source": "extended"
+    },
+    {
+      "slot": 676,
+      "char": "深",
+      "encoded_hex": "905B",
+      "source": "extended"
+    },
+    {
+      "slot": 677,
+      "char": "清",
+      "encoded_hex": "90B4",
+      "source": "extended"
+    },
+    {
+      "slot": 678,
+      "char": "渣",
+      "encoded_hex": "F3E9",
+      "source": "extended"
+    },
+    {
+      "slot": 679,
+      "char": "滓",
+      "encoded_hex": "F3F3",
+      "source": "extended"
+    },
+    {
+      "slot": 680,
+      "char": "满",
+      "encoded_hex": "F3F5",
+      "source": "extended"
+    },
+    {
+      "slot": 681,
+      "char": "漫",
+      "encoded_hex": "969F",
+      "source": "extended"
+    },
+    {
+      "slot": 682,
+      "char": "灌",
+      "encoded_hex": "9FF3",
+      "source": "extended"
+    },
+    {
+      "slot": 683,
+      "char": "火",
+      "encoded_hex": "89CE",
+      "source": "extended"
+    },
+    {
+      "slot": 684,
+      "char": "灭",
+      "encoded_hex": "F442",
+      "source": "extended"
+    },
+    {
+      "slot": 685,
+      "char": "灯",
+      "encoded_hex": "9394",
+      "source": "extended"
+    },
+    {
+      "slot": 686,
+      "char": "灵",
+      "encoded_hex": "F443",
+      "source": "extended"
+    },
+    {
+      "slot": 687,
+      "char": "炽",
+      "encoded_hex": "F449",
+      "source": "extended"
+    },
+    {
+      "slot": 688,
+      "char": "烈",
+      "encoded_hex": "97F3",
+      "source": "extended"
+    },
+    {
+      "slot": 689,
+      "char": "烛",
+      "encoded_hex": "F44D",
+      "source": "extended"
+    },
+    {
+      "slot": 690,
+      "char": "烟",
+      "encoded_hex": "F44E",
+      "source": "extended"
+    },
+    {
+      "slot": 691,
+      "char": "烦",
+      "encoded_hex": "F450",
+      "source": "extended"
+    },
+    {
+      "slot": 692,
+      "char": "焰",
+      "encoded_hex": "F458",
+      "source": "extended"
+    },
+    {
+      "slot": 693,
+      "char": "爆",
+      "encoded_hex": "949A",
+      "source": "extended"
+    },
+    {
+      "slot": 694,
+      "char": "爱",
+      "encoded_hex": "F460",
+      "source": "extended"
+    },
+    {
+      "slot": 695,
+      "char": "父",
+      "encoded_hex": "9583",
+      "source": "extended"
+    },
+    {
+      "slot": 696,
+      "char": "牌",
+      "encoded_hex": "F463",
+      "source": "extended"
+    },
+    {
+      "slot": 697,
+      "char": "物",
+      "encoded_hex": "95A8",
+      "source": "extended"
+    },
+    {
+      "slot": 698,
+      "char": "特",
+      "encoded_hex": "93C1",
+      "source": "extended"
+    },
+    {
+      "slot": 699,
+      "char": "状",
+      "encoded_hex": "8FF3",
+      "source": "extended"
+    },
+    {
+      "slot": 700,
+      "char": "犹",
+      "encoded_hex": "F467",
+      "source": "extended"
+    },
+    {
+      "slot": 701,
+      "char": "狂",
+      "encoded_hex": "8BB6",
+      "source": "extended"
+    },
+    {
+      "slot": 702,
+      "char": "狩",
+      "encoded_hex": "8EEB",
+      "source": "extended"
+    },
+    {
+      "slot": 703,
+      "char": "狮",
+      "encoded_hex": "F46C",
+      "source": "extended"
+    },
+    {
+      "slot": 704,
+      "char": "猎",
+      "encoded_hex": "F46E",
+      "source": "extended"
+    },
+    {
+      "slot": 705,
+      "char": "猛",
+      "encoded_hex": "96D2",
+      "source": "extended"
+    },
+    {
+      "slot": 706,
+      "char": "玛",
+      "encoded_hex": "F473",
+      "source": "extended"
+    },
+    {
+      "slot": 707,
+      "char": "玩",
+      "encoded_hex": "8ADF",
+      "source": "extended"
+    },
+    {
+      "slot": 708,
+      "char": "现",
+      "encoded_hex": "F476",
+      "source": "extended"
+    },
+    {
+      "slot": 709,
+      "char": "球",
+      "encoded_hex": "8B85",
+      "source": "extended"
+    },
+    {
+      "slot": 710,
+      "char": "理",
+      "encoded_hex": "979D",
+      "source": "extended"
+    },
+    {
+      "slot": 711,
+      "char": "瑞",
+      "encoded_hex": "9090",
+      "source": "extended"
+    },
+    {
+      "slot": 712,
+      "char": "瑟",
+      "encoded_hex": "F47A",
+      "source": "extended"
+    },
+    {
+      "slot": 713,
+      "char": "甘",
+      "encoded_hex": "8AC3",
+      "source": "extended"
+    },
+    {
+      "slot": 714,
+      "char": "由",
+      "encoded_hex": "9752",
+      "source": "extended"
+    },
+    {
+      "slot": 715,
+      "char": "男",
+      "encoded_hex": "926A",
+      "source": "extended"
+    },
+    {
+      "slot": 716,
+      "char": "界",
+      "encoded_hex": "8A45",
+      "source": "extended"
+    },
+    {
+      "slot": 717,
+      "char": "留",
+      "encoded_hex": "97AF",
+      "source": "extended"
+    },
+    {
+      "slot": 718,
+      "char": "畴",
+      "encoded_hex": "F484",
+      "source": "extended"
+    },
+    {
+      "slot": 719,
+      "char": "疑",
+      "encoded_hex": "8B5E",
+      "source": "extended"
+    },
+    {
+      "slot": 720,
+      "char": "病",
+      "encoded_hex": "9561",
+      "source": "extended"
+    },
+    {
+      "slot": 721,
+      "char": "痕",
+      "encoded_hex": "8DAD",
+      "source": "extended"
+    },
+    {
+      "slot": 722,
+      "char": "痛",
+      "encoded_hex": "92C9",
+      "source": "extended"
+    },
+    {
+      "slot": 723,
+      "char": "癌",
+      "encoded_hex": "F8CA",
+      "source": "extended"
+    },
+    {
+      "slot": 724,
+      "char": "登",
+      "encoded_hex": "936F",
+      "source": "extended"
+    },
+    {
+      "slot": 725,
+      "char": "白",
+      "encoded_hex": "9492",
+      "source": "extended"
+    },
+    {
+      "slot": 726,
+      "char": "的",
+      "encoded_hex": "9349",
+      "source": "extended"
+    },
+    {
+      "slot": 727,
+      "char": "皆",
+      "encoded_hex": "8A46",
+      "source": "extended"
+    },
+    {
+      "slot": 728,
+      "char": "盗",
+      "encoded_hex": "9390",
+      "source": "extended"
+    },
+    {
+      "slot": 729,
+      "char": "盘",
+      "encoded_hex": "F49C",
+      "source": "extended"
+    },
+    {
+      "slot": 730,
+      "char": "目",
+      "encoded_hex": "96DA",
+      "source": "extended"
+    },
+    {
+      "slot": 731,
+      "char": "相",
+      "encoded_hex": "918A",
+      "source": "extended"
+    },
+    {
+      "slot": 732,
+      "char": "眉",
+      "encoded_hex": "94FB",
+      "source": "extended"
+    },
+    {
+      "slot": 733,
+      "char": "看",
+      "encoded_hex": "8AC5",
+      "source": "extended"
+    },
+    {
+      "slot": 734,
+      "char": "真",
+      "encoded_hex": "905E",
+      "source": "extended"
+    },
+    {
+      "slot": 735,
+      "char": "眠",
+      "encoded_hex": "96B0",
+      "source": "extended"
+    },
+    {
+      "slot": 736,
+      "char": "眨",
+      "encoded_hex": "F49F",
+      "source": "extended"
+    },
+    {
+      "slot": 737,
+      "char": "眩",
+      "encoded_hex": "E1BF",
+      "source": "extended"
+    },
+    {
+      "slot": 738,
+      "char": "眼",
+      "encoded_hex": "8AE1",
+      "source": "extended"
+    },
+    {
+      "slot": 739,
+      "char": "着",
+      "encoded_hex": "9285",
+      "source": "extended"
+    },
+    {
+      "slot": 740,
+      "char": "睡",
+      "encoded_hex": "9087",
+      "source": "extended"
+    },
+    {
+      "slot": 741,
+      "char": "矜",
+      "encoded_hex": "E1E0",
+      "source": "extended"
+    },
+    {
+      "slot": 742,
+      "char": "知",
+      "encoded_hex": "926D",
+      "source": "extended"
+    },
+    {
+      "slot": 743,
+      "char": "短",
+      "encoded_hex": "925A",
+      "source": "extended"
+    },
+    {
+      "slot": 744,
+      "char": "码",
+      "encoded_hex": "F4B1",
+      "source": "extended"
+    },
+    {
+      "slot": 745,
+      "char": "破",
+      "encoded_hex": "946A",
+      "source": "extended"
+    },
+    {
+      "slot": 746,
+      "char": "硬",
+      "encoded_hex": "8D64",
+      "source": "extended"
+    },
+    {
+      "slot": 747,
+      "char": "碍",
+      "encoded_hex": "8A56",
+      "source": "extended"
+    },
+    {
+      "slot": 748,
+      "char": "礼",
+      "encoded_hex": "97E7",
+      "source": "extended"
+    },
+    {
+      "slot": 749,
+      "char": "神",
+      "encoded_hex": "905F",
+      "source": "extended"
+    },
+    {
+      "slot": 750,
+      "char": "福",
+      "encoded_hex": "959F",
+      "source": "extended"
+    },
+    {
+      "slot": 751,
+      "char": "离",
+      "encoded_hex": "F4C8",
+      "source": "extended"
+    },
+    {
+      "slot": 752,
+      "char": "秀",
+      "encoded_hex": "8F47",
+      "source": "extended"
+    },
+    {
+      "slot": 753,
+      "char": "私",
+      "encoded_hex": "8E84",
+      "source": "extended"
+    },
+    {
+      "slot": 754,
+      "char": "称",
+      "encoded_hex": "8FCC",
+      "source": "extended"
+    },
+    {
+      "slot": 755,
+      "char": "秽",
+      "encoded_hex": "F4CD",
+      "source": "extended"
+    },
+    {
+      "slot": 756,
+      "char": "程",
+      "encoded_hex": "92F6",
+      "source": "extended"
+    },
+    {
+      "slot": 757,
+      "char": "稻",
+      "encoded_hex": "F4D1",
+      "source": "extended"
+    },
+    {
+      "slot": 758,
+      "char": "穴",
+      "encoded_hex": "8C8A",
+      "source": "extended"
+    },
+    {
+      "slot": 759,
+      "char": "穹",
+      "encoded_hex": "F4D4",
+      "source": "extended"
+    },
+    {
+      "slot": 760,
+      "char": "空",
+      "encoded_hex": "8BF3",
+      "source": "extended"
+    },
+    {
+      "slot": 761,
+      "char": "穿",
+      "encoded_hex": "90FA",
+      "source": "extended"
+    },
+    {
+      "slot": 762,
+      "char": "窝",
+      "encoded_hex": "F4D8",
+      "source": "extended"
+    },
+    {
+      "slot": 763,
+      "char": "窥",
+      "encoded_hex": "F4DA",
+      "source": "extended"
+    },
+    {
+      "slot": 764,
+      "char": "站",
+      "encoded_hex": "F4DE",
+      "source": "extended"
+    },
+    {
+      "slot": 765,
+      "char": "童",
+      "encoded_hex": "93B6",
+      "source": "extended"
+    },
+    {
+      "slot": 766,
+      "char": "笑",
+      "encoded_hex": "8FCE",
+      "source": "extended"
+    },
+    {
+      "slot": 767,
+      "char": "第",
+      "encoded_hex": "91E6",
+      "source": "extended"
+    },
+    {
+      "slot": 768,
+      "char": "篡",
+      "encoded_hex": "F4EC",
+      "source": "extended"
+    },
+    {
+      "slot": 769,
+      "char": "类",
+      "encoded_hex": "F4F0",
+      "source": "extended"
+    },
+    {
+      "slot": 770,
+      "char": "系",
+      "encoded_hex": "8C6E",
+      "source": "extended"
+    },
+    {
+      "slot": 771,
+      "char": "素",
+      "encoded_hex": "9166",
+      "source": "extended"
+    },
+    {
+      "slot": 772,
+      "char": "索",
+      "encoded_hex": "8DF5",
+      "source": "extended"
+    },
+    {
+      "slot": 773,
+      "char": "紫",
+      "encoded_hex": "8E87",
+      "source": "extended"
+    },
+    {
+      "slot": 774,
+      "char": "纠",
+      "encoded_hex": "F4F9",
+      "source": "extended"
+    },
+    {
+      "slot": 775,
+      "char": "约",
+      "encoded_hex": "F4FC",
+      "source": "extended"
+    },
+    {
+      "slot": 776,
+      "char": "纽",
+      "encoded_hex": "F549",
+      "source": "extended"
+    },
+    {
+      "slot": 777,
+      "char": "线",
+      "encoded_hex": "F54A",
+      "source": "extended"
+    },
+    {
+      "slot": 778,
+      "char": "细",
+      "encoded_hex": "F54D",
+      "source": "extended"
+    },
+    {
+      "slot": 779,
+      "char": "终",
+      "encoded_hex": "F54F",
+      "source": "extended"
+    },
+    {
+      "slot": 780,
+      "char": "经",
+      "encoded_hex": "F552",
+      "source": "extended"
+    },
+    {
+      "slot": 781,
+      "char": "结",
+      "encoded_hex": "F555",
+      "source": "extended"
+    },
+    {
+      "slot": 782,
+      "char": "络",
+      "encoded_hex": "F55A",
+      "source": "extended"
+    },
+    {
+      "slot": 783,
+      "char": "绝",
+      "encoded_hex": "F55B",
+      "source": "extended"
+    },
+    {
+      "slot": 784,
+      "char": "统",
+      "encoded_hex": "F55D",
+      "source": "extended"
+    },
+    {
+      "slot": 785,
+      "char": "维",
+      "encoded_hex": "F565",
+      "source": "extended"
+    },
+    {
+      "slot": 786,
+      "char": "缅",
+      "encoded_hex": "F56B",
+      "source": "extended"
+    },
+    {
+      "slot": 787,
+      "char": "缓",
+      "encoded_hex": "F56C",
+      "source": "extended"
+    },
+    {
+      "slot": 788,
+      "char": "缘",
+      "encoded_hex": "F56F",
+      "source": "extended"
+    },
+    {
+      "slot": 789,
+      "char": "网",
+      "encoded_hex": "F57A",
+      "source": "extended"
+    },
+    {
+      "slot": 790,
+      "char": "罗",
+      "encoded_hex": "F57C",
+      "source": "extended"
+    },
+    {
+      "slot": 791,
+      "char": "羊",
+      "encoded_hex": "9772",
+      "source": "extended"
+    },
+    {
+      "slot": 792,
+      "char": "美",
+      "encoded_hex": "94FC",
+      "source": "extended"
+    },
+    {
+      "slot": 793,
+      "char": "耀",
+      "encoded_hex": "F588",
+      "source": "extended"
+    },
+    {
+      "slot": 794,
+      "char": "老",
+      "encoded_hex": "9856",
+      "source": "extended"
+    },
+    {
+      "slot": 795,
+      "char": "者",
+      "encoded_hex": "8ED2",
+      "source": "extended"
+    },
+    {
+      "slot": 796,
+      "char": "耶",
+      "encoded_hex": "96EB",
+      "source": "extended"
+    },
+    {
+      "slot": 797,
+      "char": "职",
+      "encoded_hex": "F591",
+      "source": "extended"
+    },
+    {
+      "slot": 798,
+      "char": "联",
+      "encoded_hex": "F593",
+      "source": "extended"
+    },
+    {
+      "slot": 799,
+      "char": "聪",
+      "encoded_hex": "F595",
+      "source": "extended"
+    },
+    {
+      "slot": 800,
+      "char": "肉",
+      "encoded_hex": "93F7",
+      "source": "extended"
+    },
+    {
+      "slot": 801,
+      "char": "肚",
+      "encoded_hex": "F599",
+      "source": "extended"
+    },
+    {
+      "slot": 802,
+      "char": "胆",
+      "encoded_hex": "925F",
+      "source": "extended"
+    },
+    {
+      "slot": 803,
+      "char": "胜",
+      "encoded_hex": "F5A0",
+      "source": "extended"
+    },
+    {
+      "slot": 804,
+      "char": "胸",
+      "encoded_hex": "8BB9",
+      "source": "extended"
+    },
+    {
+      "slot": 805,
+      "char": "能",
+      "encoded_hex": "945C",
+      "source": "extended"
+    },
+    {
+      "slot": 806,
+      "char": "脆",
+      "encoded_hex": "90C6",
+      "source": "extended"
+    },
+    {
+      "slot": 807,
+      "char": "脏",
+      "encoded_hex": "F5A6",
+      "source": "extended"
+    },
+    {
+      "slot": 808,
+      "char": "脸",
+      "encoded_hex": "F5AA",
+      "source": "extended"
+    },
+    {
+      "slot": 809,
+      "char": "腾",
+      "encoded_hex": "F5AD",
+      "source": "extended"
+    },
+    {
+      "slot": 810,
+      "char": "自",
+      "encoded_hex": "8EA9",
+      "source": "extended"
+    },
+    {
+      "slot": 811,
+      "char": "致",
+      "encoded_hex": "9276",
+      "source": "extended"
+    },
+    {
+      "slot": 812,
+      "char": "舌",
+      "encoded_hex": "90E3",
+      "source": "extended"
+    },
+    {
+      "slot": 813,
+      "char": "般",
+      "encoded_hex": "94CA",
+      "source": "extended"
+    },
+    {
+      "slot": 814,
+      "char": "色",
+      "encoded_hex": "9046",
+      "source": "extended"
+    },
+    {
+      "slot": 815,
+      "char": "艺",
+      "encoded_hex": "F5BB",
+      "source": "extended"
+    },
+    {
+      "slot": 816,
+      "char": "节",
+      "encoded_hex": "F5BD",
+      "source": "extended"
+    },
+    {
+      "slot": 817,
+      "char": "芒",
+      "encoded_hex": "F5BE",
+      "source": "extended"
+    },
+    {
+      "slot": 818,
+      "char": "花",
+      "encoded_hex": "89D4",
+      "source": "extended"
+    },
+    {
+      "slot": 819,
+      "char": "苍",
+      "encoded_hex": "F5C0",
+      "source": "extended"
+    },
+    {
+      "slot": 820,
+      "char": "苦",
+      "encoded_hex": "8BEA",
+      "source": "extended"
+    },
+    {
+      "slot": 821,
+      "char": "范",
+      "encoded_hex": "F5C4",
+      "source": "extended"
+    },
+    {
+      "slot": 822,
+      "char": "草",
+      "encoded_hex": "9190",
+      "source": "extended"
+    },
+    {
+      "slot": 823,
+      "char": "荡",
+      "encoded_hex": "F5C8",
+      "source": "extended"
+    },
+    {
+      "slot": 824,
+      "char": "落",
+      "encoded_hex": "978E",
+      "source": "extended"
+    },
+    {
+      "slot": 825,
+      "char": "葛",
+      "encoded_hex": "8A8B",
+      "source": "extended"
+    },
+    {
+      "slot": 826,
+      "char": "蒙",
+      "encoded_hex": "F5DB",
+      "source": "extended"
+    },
+    {
+      "slot": 827,
+      "char": "蓝",
+      "encoded_hex": "F5DC",
+      "source": "extended"
+    },
+    {
+      "slot": 828,
+      "char": "蔑",
+      "encoded_hex": "95CC",
+      "source": "extended"
+    },
+    {
+      "slot": 829,
+      "char": "虚",
+      "encoded_hex": "8B95",
+      "source": "extended"
+    },
+    {
+      "slot": 830,
+      "char": "蜡",
+      "encoded_hex": "F5EE",
+      "source": "extended"
+    },
+    {
+      "slot": 831,
+      "char": "蜷",
+      "encoded_hex": "F5EF",
+      "source": "extended"
+    },
+    {
+      "slot": 832,
+      "char": "蠕",
+      "encoded_hex": "E5BE",
+      "source": "extended"
+    },
+    {
+      "slot": 833,
+      "char": "蠢",
+      "encoded_hex": "F5F8",
+      "source": "extended"
+    },
+    {
+      "slot": 834,
+      "char": "衣",
+      "encoded_hex": "88DF",
+      "source": "extended"
+    },
+    {
+      "slot": 835,
+      "char": "衰",
+      "encoded_hex": "908A",
+      "source": "extended"
+    },
+    {
+      "slot": 836,
+      "char": "袍",
+      "encoded_hex": "F642",
+      "source": "extended"
+    },
+    {
+      "slot": 837,
+      "char": "装",
+      "encoded_hex": "9195",
+      "source": "extended"
+    },
+    {
+      "slot": 838,
+      "char": "裙",
+      "encoded_hex": "F648",
+      "source": "extended"
+    },
+    {
+      "slot": 839,
+      "char": "西",
+      "encoded_hex": "90BC",
+      "source": "extended"
+    },
+    {
+      "slot": 840,
+      "char": "要",
+      "encoded_hex": "9776",
+      "source": "extended"
+    },
+    {
+      "slot": 841,
+      "char": "观",
+      "encoded_hex": "F64F",
+      "source": "extended"
+    },
+    {
+      "slot": 842,
+      "char": "规",
+      "encoded_hex": "F650",
+      "source": "extended"
+    },
+    {
+      "slot": 843,
+      "char": "视",
+      "encoded_hex": "F652",
+      "source": "extended"
+    },
+    {
+      "slot": 844,
+      "char": "角",
+      "encoded_hex": "8A70",
+      "source": "extended"
+    },
+    {
+      "slot": 845,
+      "char": "触",
+      "encoded_hex": "9047",
+      "source": "extended"
+    },
+    {
+      "slot": 846,
+      "char": "言",
+      "encoded_hex": "8CBE",
+      "source": "extended"
+    },
+    {
+      "slot": 847,
+      "char": "誉",
+      "encoded_hex": "975F",
+      "source": "extended"
+    },
+    {
+      "slot": 848,
+      "char": "誓",
+      "encoded_hex": "90BE",
+      "source": "extended"
+    },
+    {
+      "slot": 849,
+      "char": "警",
+      "encoded_hex": "8C78",
+      "source": "extended"
+    },
+    {
+      "slot": 850,
+      "char": "认",
+      "encoded_hex": "F659",
+      "source": "extended"
+    },
+    {
+      "slot": 851,
+      "char": "让",
+      "encoded_hex": "F65D",
+      "source": "extended"
+    },
+    {
+      "slot": 852,
+      "char": "议",
+      "encoded_hex": "F660",
+      "source": "extended"
+    },
+    {
+      "slot": 853,
+      "char": "记",
+      "encoded_hex": "F662",
+      "source": "extended"
+    },
+    {
+      "slot": 854,
+      "char": "论",
+      "encoded_hex": "F667",
+      "source": "extended"
+    },
+    {
+      "slot": 855,
+      "char": "诗",
+      "encoded_hex": "F675",
+      "source": "extended"
+    },
+    {
+      "slot": 856,
+      "char": "话",
+      "encoded_hex": "F678",
+      "source": "extended"
+    },
+    {
+      "slot": 857,
+      "char": "诩",
+      "encoded_hex": "F8EC",
+      "source": "extended"
+    },
+    {
+      "slot": 858,
+      "char": "误",
+      "encoded_hex": "F682",
+      "source": "extended"
+    },
+    {
+      "slot": 859,
+      "char": "说",
+      "encoded_hex": "F685",
+      "source": "extended"
+    },
+    {
+      "slot": 860,
+      "char": "诸",
+      "encoded_hex": "F689",
+      "source": "extended"
+    },
+    {
+      "slot": 861,
+      "char": "调",
+      "encoded_hex": "F68E",
+      "source": "extended"
+    },
+    {
+      "slot": 862,
+      "char": "谨",
+      "encoded_hex": "F69B",
+      "source": "extended"
+    },
+    {
+      "slot": 863,
+      "char": "谱",
+      "encoded_hex": "F69F",
+      "source": "extended"
+    },
+    {
+      "slot": 864,
+      "char": "豪",
+      "encoded_hex": "8D8B",
+      "source": "extended"
+    },
+    {
+      "slot": 865,
+      "char": "豫",
+      "encoded_hex": "F6A1",
+      "source": "extended"
+    },
+    {
+      "slot": 866,
+      "char": "贯",
+      "encoded_hex": "F6B1",
+      "source": "extended"
+    },
+    {
+      "slot": 867,
+      "char": "贵",
+      "encoded_hex": "F6B4",
+      "source": "extended"
+    },
+    {
+      "slot": 868,
+      "char": "资",
+      "encoded_hex": "F6BC",
+      "source": "extended"
+    },
+    {
+      "slot": 869,
+      "char": "赋",
+      "encoded_hex": "F6BD",
+      "source": "extended"
+    },
+    {
+      "slot": 870,
+      "char": "赛",
+      "encoded_hex": "F6C6",
+      "source": "extended"
+    },
+    {
+      "slot": 871,
+      "char": "赞",
+      "encoded_hex": "F6C7",
+      "source": "extended"
+    },
+    {
+      "slot": 872,
+      "char": "走",
+      "encoded_hex": "9196",
+      "source": "extended"
+    },
+    {
+      "slot": 873,
+      "char": "起",
+      "encoded_hex": "8B4E",
+      "source": "extended"
+    },
+    {
+      "slot": 874,
+      "char": "超",
+      "encoded_hex": "92B4",
+      "source": "extended"
+    },
+    {
+      "slot": 875,
+      "char": "趣",
+      "encoded_hex": "8EEF",
+      "source": "extended"
+    },
+    {
+      "slot": 876,
+      "char": "足",
+      "encoded_hex": "91AB",
+      "source": "extended"
+    },
+    {
+      "slot": 877,
+      "char": "路",
+      "encoded_hex": "9848",
+      "source": "extended"
+    },
+    {
+      "slot": 878,
+      "char": "跳",
+      "encoded_hex": "92B5",
+      "source": "extended"
+    },
+    {
+      "slot": 879,
+      "char": "身",
+      "encoded_hex": "9067",
+      "source": "extended"
+    },
+    {
+      "slot": 880,
+      "char": "躯",
+      "encoded_hex": "8BEB",
+      "source": "extended"
+    },
+    {
+      "slot": 881,
+      "char": "车",
+      "encoded_hex": "F6E7",
+      "source": "extended"
+    },
+    {
+      "slot": 882,
+      "char": "轨",
+      "encoded_hex": "F6E8",
+      "source": "extended"
+    },
+    {
+      "slot": 883,
+      "char": "轩",
+      "encoded_hex": "F6E9",
+      "source": "extended"
+    },
+    {
+      "slot": 884,
+      "char": "转",
+      "encoded_hex": "F6EA",
+      "source": "extended"
+    },
+    {
+      "slot": 885,
+      "char": "轮",
+      "encoded_hex": "F6EB",
+      "source": "extended"
+    },
+    {
+      "slot": 886,
+      "char": "软",
+      "encoded_hex": "F6EC",
+      "source": "extended"
+    },
+    {
+      "slot": 887,
+      "char": "轻",
+      "encoded_hex": "F6EE",
+      "source": "extended"
+    },
+    {
+      "slot": 888,
+      "char": "较",
+      "encoded_hex": "F6F0",
+      "source": "extended"
+    },
+    {
+      "slot": 889,
+      "char": "辑",
+      "encoded_hex": "F6F5",
+      "source": "extended"
+    },
+    {
+      "slot": 890,
+      "char": "输",
+      "encoded_hex": "F6F6",
+      "source": "extended"
+    },
+    {
+      "slot": 891,
+      "char": "辕",
+      "encoded_hex": "F6F7",
+      "source": "extended"
+    },
+    {
+      "slot": 892,
+      "char": "辙",
+      "encoded_hex": "F6F9",
+      "source": "extended"
+    },
+    {
+      "slot": 893,
+      "char": "辜",
+      "encoded_hex": "E783",
+      "source": "extended"
+    },
+    {
+      "slot": 894,
+      "char": "辟",
+      "encoded_hex": "F6FA",
+      "source": "extended"
+    },
+    {
+      "slot": 895,
+      "char": "辣",
+      "encoded_hex": "E785",
+      "source": "extended"
+    },
+    {
+      "slot": 896,
+      "char": "边",
+      "encoded_hex": "F740",
+      "source": "extended"
+    },
+    {
+      "slot": 897,
+      "char": "运",
+      "encoded_hex": "F747",
+      "source": "extended"
+    },
+    {
+      "slot": 898,
+      "char": "这",
+      "encoded_hex": "F749",
+      "source": "extended"
+    },
+    {
+      "slot": 899,
+      "char": "远",
+      "encoded_hex": "F74B",
+      "source": "extended"
+    },
+    {
+      "slot": 900,
+      "char": "迟",
+      "encoded_hex": "F74E",
+      "source": "extended"
+    },
+    {
+      "slot": 901,
+      "char": "迦",
+      "encoded_hex": "89DE",
+      "source": "extended"
+    },
+    {
+      "slot": 902,
+      "char": "述",
+      "encoded_hex": "8F71",
+      "source": "extended"
+    },
+    {
+      "slot": 903,
+      "char": "迷",
+      "encoded_hex": "96C0",
+      "source": "extended"
+    },
+    {
+      "slot": 904,
+      "char": "迹",
+      "encoded_hex": "E791",
+      "source": "extended"
+    },
+    {
+      "slot": 905,
+      "char": "退",
+      "encoded_hex": "91DE",
+      "source": "extended"
+    },
+    {
+      "slot": 906,
+      "char": "选",
+      "encoded_hex": "F752",
+      "source": "extended"
+    },
+    {
+      "slot": 907,
+      "char": "逗",
+      "encoded_hex": "F755",
+      "source": "extended"
+    },
+    {
+      "slot": 908,
+      "char": "通",
+      "encoded_hex": "92CA",
+      "source": "extended"
+    },
+    {
+      "slot": 909,
+      "char": "造",
+      "encoded_hex": "91A2",
+      "source": "extended"
+    },
+    {
+      "slot": 910,
+      "char": "逻",
+      "encoded_hex": "F757",
+      "source": "extended"
+    },
+    {
+      "slot": 911,
+      "char": "逼",
+      "encoded_hex": "F758",
+      "source": "extended"
+    },
+    {
+      "slot": 912,
+      "char": "道",
+      "encoded_hex": "93B9",
+      "source": "extended"
+    },
+    {
+      "slot": 913,
+      "char": "那",
+      "encoded_hex": "93DF",
+      "source": "extended"
+    },
+    {
+      "slot": 914,
+      "char": "邪",
+      "encoded_hex": "8ED7",
+      "source": "extended"
+    },
+    {
+      "slot": 915,
+      "char": "配",
+      "encoded_hex": "947A",
+      "source": "extended"
+    },
+    {
+      "slot": 916,
+      "char": "里",
+      "encoded_hex": "97A2",
+      "source": "extended"
+    },
+    {
+      "slot": 917,
+      "char": "重",
+      "encoded_hex": "8F64",
+      "source": "extended"
+    },
+    {
+      "slot": 918,
+      "char": "量",
+      "encoded_hex": "97CA",
+      "source": "extended"
+    },
+    {
+      "slot": 919,
+      "char": "金",
+      "encoded_hex": "8BE0",
+      "source": "extended"
+    },
+    {
+      "slot": 920,
+      "char": "链",
+      "encoded_hex": "F780",
+      "source": "extended"
+    },
+    {
+      "slot": 921,
+      "char": "锁",
+      "encoded_hex": "F783",
+      "source": "extended"
+    },
+    {
+      "slot": 922,
+      "char": "锋",
+      "encoded_hex": "F786",
+      "source": "extended"
+    },
+    {
+      "slot": 923,
+      "char": "错",
+      "encoded_hex": "F788",
+      "source": "extended"
+    },
+    {
+      "slot": 924,
+      "char": "键",
+      "encoded_hex": "F78B",
+      "source": "extended"
+    },
+    {
+      "slot": 925,
+      "char": "镜",
+      "encoded_hex": "F790",
+      "source": "extended"
+    },
+    {
+      "slot": 926,
+      "char": "闯",
+      "encoded_hex": "F798",
+      "source": "extended"
+    },
+    {
+      "slot": 927,
+      "char": "闲",
+      "encoded_hex": "F799",
+      "source": "extended"
+    },
+    {
+      "slot": 928,
+      "char": "间",
+      "encoded_hex": "F79A",
+      "source": "extended"
+    },
+    {
+      "slot": 929,
+      "char": "闷",
+      "encoded_hex": "F79B",
+      "source": "extended"
+    },
+    {
+      "slot": 930,
+      "char": "闹",
+      "encoded_hex": "F79D",
+      "source": "extended"
+    },
+    {
+      "slot": 931,
+      "char": "防",
+      "encoded_hex": "9668",
+      "source": "extended"
+    },
+    {
+      "slot": 932,
+      "char": "阶",
+      "encoded_hex": "F7AA",
+      "source": "extended"
+    },
+    {
+      "slot": 933,
+      "char": "阿",
+      "encoded_hex": "88A2",
+      "source": "extended"
+    },
+    {
+      "slot": 934,
+      "char": "陋",
+      "encoded_hex": "F7AF",
+      "source": "extended"
+    },
+    {
+      "slot": 935,
+      "char": "除",
+      "encoded_hex": "8F9C",
+      "source": "extended"
+    },
+    {
+      "slot": 936,
+      "char": "陵",
+      "encoded_hex": "97CB",
+      "source": "extended"
+    },
+    {
+      "slot": 937,
+      "char": "随",
+      "encoded_hex": "908F",
+      "source": "extended"
+    },
+    {
+      "slot": 938,
+      "char": "隐",
+      "encoded_hex": "F7B5",
+      "source": "extended"
+    },
+    {
+      "slot": 939,
+      "char": "雄",
+      "encoded_hex": "9759",
+      "source": "extended"
+    },
+    {
+      "slot": 940,
+      "char": "雌",
+      "encoded_hex": "8E93",
+      "source": "extended"
+    },
+    {
+      "slot": 941,
+      "char": "雷",
+      "encoded_hex": "978B",
+      "source": "extended"
+    },
+    {
+      "slot": 942,
+      "char": "音",
+      "encoded_hex": "89B9",
+      "source": "extended"
+    },
+    {
+      "slot": 943,
+      "char": "顶",
+      "encoded_hex": "F7CB",
+      "source": "extended"
+    },
+    {
+      "slot": 944,
+      "char": "顽",
+      "encoded_hex": "F7CF",
+      "source": "extended"
+    },
+    {
+      "slot": 945,
+      "char": "颂",
+      "encoded_hex": "F7D2",
+      "source": "extended"
+    },
+    {
+      "slot": 946,
+      "char": "预",
+      "encoded_hex": "F7D3",
+      "source": "extended"
+    },
+    {
+      "slot": 947,
+      "char": "题",
+      "encoded_hex": "F7DD",
+      "source": "extended"
+    },
+    {
+      "slot": 948,
+      "char": "颜",
+      "encoded_hex": "F7DF",
+      "source": "extended"
+    },
+    {
+      "slot": 949,
+      "char": "飞",
+      "encoded_hex": "F7E5",
+      "source": "extended"
+    },
+    {
+      "slot": 950,
+      "char": "饰",
+      "encoded_hex": "F7E9",
+      "source": "extended"
+    },
+    {
+      "slot": 951,
+      "char": "馋",
+      "encoded_hex": "F7F3",
+      "source": "extended"
+    },
+    {
+      "slot": 952,
+      "char": "首",
+      "encoded_hex": "8EF1",
+      "source": "extended"
+    },
+    {
+      "slot": 953,
+      "char": "马",
+      "encoded_hex": "F7F4",
+      "source": "extended"
+    },
+    {
+      "slot": 954,
+      "char": "骄",
+      "encoded_hex": "F7FC",
+      "source": "extended"
+    },
+    {
+      "slot": 955,
+      "char": "骗",
+      "encoded_hex": "F844",
+      "source": "extended"
+    },
+    {
+      "slot": 956,
+      "char": "骨",
+      "encoded_hex": "8D9C",
+      "source": "extended"
+    },
+    {
+      "slot": 957,
+      "char": "高",
+      "encoded_hex": "8D82",
+      "source": "extended"
+    },
+    {
+      "slot": 958,
+      "char": "魂",
+      "encoded_hex": "8DB0",
+      "source": "extended"
+    },
+    {
+      "slot": 959,
+      "char": "魔",
+      "encoded_hex": "9682",
+      "source": "extended"
+    },
+    {
+      "slot": 960,
+      "char": "鸡",
+      "encoded_hex": "F852",
+      "source": "extended"
+    },
+    {
+      "slot": 961,
+      "char": "鸦",
+      "encoded_hex": "F854",
+      "source": "extended"
+    },
+    {
+      "slot": 962,
+      "char": "鸬",
+      "encoded_hex": "F94C",
+      "source": "extended"
+    },
+    {
+      "slot": 963,
+      "char": "鹚",
+      "encoded_hex": "F950",
+      "source": "extended"
+    },
+    {
+      "slot": 964,
+      "char": "鹦",
+      "encoded_hex": "F951",
+      "source": "extended"
+    },
+    {
+      "slot": 965,
+      "char": "鹿",
+      "encoded_hex": "8EAD",
+      "source": "extended"
+    },
+    {
+      "slot": 966,
+      "char": "黄",
+      "encoded_hex": "89A9",
+      "source": "extended"
+    },
+    {
+      "slot": 967,
+      "char": "黑",
+      "encoded_hex": "F85B",
+      "source": "extended"
+    },
+    {
+      "slot": 968,
+      "char": "默",
+      "encoded_hex": "F85C",
+      "source": "extended"
+    }
+  ]
+}

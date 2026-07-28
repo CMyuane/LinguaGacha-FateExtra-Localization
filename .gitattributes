@@ -1,0 +1,7 @@
+# 字库 manifest 记录逐字节 SHA-256，禁止 Git 改写这些生成资源的换行。
+resource/fate-extra/fontpack/** -text
+
+# 明确保持内置二进制运行资源的原始字节。
+resource/fate-extra/bin/** -text
+resource/fate-extra/fonts/*.otf -text
+public/fate-extra/*.otf -text

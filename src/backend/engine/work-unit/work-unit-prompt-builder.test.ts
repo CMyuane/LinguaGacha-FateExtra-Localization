@@ -317,6 +317,31 @@ describe("PromptBuilder", () => {
     expect(result.console_log).toEqual([]);
   });
 
+  it("只为 FE 行注入 Fate/Extra 翻译规则", async () => {
+    const app_root = await create_template_root();
+    const builder = new PromptBuilder(
+      app_root,
+      { app_language: "ZH", source_language: "JA", target_language: "ZH" },
+      create_quality_snapshot(),
+    );
+
+    const normal = await builder.generate_prompt(
+      [create_line({ text_src: "普通项目文本" })],
+      "text",
+      [],
+      [],
+    );
+    const fate_extra = await builder.generate_prompt(
+      [create_line({ text_src: "FE 项目文本", fate_extra: true })],
+      "text",
+      [],
+      [],
+    );
+
+    expect(normal.messages[0]?.content).not.toContain("FE_ONLY_TEST_RULE");
+    expect(fate_extra.messages[0]?.content).toContain("FE_ONLY_TEST_RULE");
+  });
+
   it("分析主提示词启用自定义正文时读取分析模板目录", async () => {
     const app_root = await create_template_root();
     const builder = new PromptBuilder(
@@ -437,6 +462,13 @@ async function create_template_root(): Promise<string> {
     thinking: "",
     suffix: "输出 JSONLINE",
   });
+  const fate_extra_rules = path.join(app_root, "resource", "fate-extra", "rules");
+  await mkdir(fate_extra_rules, { recursive: true });
+  await writeFile(
+    path.join(fate_extra_rules, "translation-prompt.md"),
+    "FE_ONLY_TEST_RULE",
+    "utf-8",
+  );
   return app_root;
 }
 
@@ -486,6 +518,7 @@ function create_line(overrides: {
   request_index?: number;
   text_src: string;
   actor_src?: TranslationActor;
+  fate_extra?: boolean;
 }): TranslationLine {
   return {
     request_index: overrides.request_index ?? 0,
@@ -493,5 +526,6 @@ function create_line(overrides: {
     line_index: overrides.request_index ?? 0,
     text_src: overrides.text_src,
     actor_src: overrides.actor_src ?? null,
+    fate_extra: overrides.fate_extra,
   };
 }

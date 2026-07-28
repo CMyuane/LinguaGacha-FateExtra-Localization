@@ -3,6 +3,8 @@ import { createElement } from "react";
 import { BasicSettingsPage } from "@frontend/pages/basic-settings-page/page";
 import { CustomPromptPage } from "@frontend/pages/custom-prompt-page/page";
 import { ExpertSettingsPage } from "@frontend/pages/expert-settings-page/page";
+import { FateExtraPage } from "@frontend/pages/fate-extra-page/page";
+import { FateExtraPreviewPage } from "@frontend/pages/fate-extra-preview-page/page";
 import { GlossaryPage } from "@frontend/pages/glossary-page/page";
 import { LaboratoryPage } from "@frontend/pages/laboratory-page/page";
 import { ModelPage } from "@frontend/pages/model-page/page";
@@ -100,5 +102,13 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
   "ts-conversion": {
     component: TsConversionPage,
     title_key: "ts_conversion_page.title",
+  },
+  "fate-extra": {
+    component: FateExtraPage,
+    title_key: "fate_extra_page.title",
+  },
+  "fate-extra-preview": {
+    component: FateExtraPreviewPage,
+    title_key: "fate_extra_preview_page.title",
   },
 };

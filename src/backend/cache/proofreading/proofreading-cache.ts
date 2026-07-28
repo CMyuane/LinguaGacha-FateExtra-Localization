@@ -27,7 +27,7 @@ import type { QualitySlice, QualitySnapshot } from "../../../shared/quality/snap
 import type { ProjectDataSectionRevisions } from "../../../shared/project-event";
 import type { CacheChange } from "../cache-change";
 
-const PROOFREADING_CACHE_VERSION = 1;
+const PROOFREADING_CACHE_VERSION = 2;
 
 export type ProofreadingCacheKey = {
   projectPath: string;
@@ -400,6 +400,7 @@ export class ProofreadingCache {
       status: String(item["status"] ?? "NONE"),
       text_type: String(item["text_type"] ?? "NONE"),
       retry_count: this.read_number(item["retry_count"], 0),
+      extra_field: (item["extra_field"] ?? "") as ApiJsonValue,
     };
   }
 

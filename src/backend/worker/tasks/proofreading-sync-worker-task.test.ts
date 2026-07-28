@@ -48,6 +48,7 @@ describe("run_proofreading_sync_worker_task", () => {
         row_number: 12,
         src: "HP",
         dst: "HP",
+        extra_field: "",
         name_src: "Alice",
         name_dst: "艾丽丝",
         status: "PROCESSED",
