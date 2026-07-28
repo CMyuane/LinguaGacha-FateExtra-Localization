@@ -51,29 +51,6 @@ function evaluate(args: {
 }
 
 describe("proofreading-evaluator", () => {
-  it("只为 FE 条目生成 PSP 溢出标签", () => {
-    const extra_field = {
-      __linguagacha_fe_v1: {
-        schema_version: 1,
-        path: "field/test.dat",
-        char_offset: 42,
-        classification: {},
-      },
-    };
-
-    expect(
-      evaluate({
-        src: "原文",
-        dst: "全".repeat(19),
-        sourceLanguage: "JA",
-        extra_field,
-      })?.warnings,
-    ).toContain("FE_PSP_OVERFLOW");
-    expect(
-      evaluate({ src: "原文", dst: "全".repeat(19), sourceLanguage: "JA" })?.warnings,
-    ).not.toContain("FE_PSP_OVERFLOW");
-  });
-
   it("按源语言识别假名和谚文残留", () => {
     expect(evaluate({ src: "東京", dst: "東京あ", sourceLanguage: "JA" })?.warnings).toContain(
       "KANA",

@@ -18,8 +18,8 @@ func TestBuildLauncherPlanForwardsCLIMarkerAndUserArgs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildLauncherPlan 返回错误：%v", err)
 	}
-	if plan.executablePath != filepath.Join("install", "app.exe") {
-		t.Fatalf("主程序路径 = %q，期望 %q", plan.executablePath, filepath.Join("install", "app.exe"))
+	if plan.executablePath != filepath.Join("install", "LinguaGacha-FE.exe") {
+		t.Fatalf("主程序路径 = %q，期望 %q", plan.executablePath, filepath.Join("install", "LinguaGacha-FE.exe"))
 	}
 	expectedArgs := []string{"--cli", "translate", "--input", filepath.Join("game files", "script.txt")}
 	if !reflect.DeepEqual(plan.args, expectedArgs) {
@@ -62,21 +62,21 @@ func TestNormalizeExitResultReportsLaunchFailure(t *testing.T) {
 	}
 }
 
-// 证明缺少 app.exe 时会给出明确错误。
+// 证明缺少 GUI 主程序时会给出明确错误。
 func TestEnsureAppExecutableExistsReportsMissingApp(t *testing.T) {
 	tempDir := t.TempDir()
 
-	err := ensureAppExecutableExists(filepath.Join(tempDir, "app.exe"))
+	err := ensureAppExecutableExists(filepath.Join(tempDir, "LinguaGacha-FE.exe"))
 
 	if err == nil {
-		t.Fatal("ensureAppExecutableExists 应该报告 app.exe 缺失")
+		t.Fatal("ensureAppExecutableExists 应该报告 GUI 主程序缺失")
 	}
 }
 
-// 证明 app.exe 存在时启动前检查通过。
+// 证明 GUI 主程序存在时启动前检查通过。
 func TestEnsureAppExecutableExistsAcceptsExistingApp(t *testing.T) {
 	tempDir := t.TempDir()
-	appPath := filepath.Join(tempDir, "app.exe")
+	appPath := filepath.Join(tempDir, "LinguaGacha-FE.exe")
 	if err := os.WriteFile(appPath, []byte("app"), 0o755); err != nil {
 		t.Fatalf("准备 app.exe 失败：%v", err)
 	}

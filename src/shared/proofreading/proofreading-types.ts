@@ -10,7 +10,6 @@ export const PROOFREADING_WARNING_CODES = [
   "SIMILARITY",
   "GLOSSARY",
   "RETRY_THRESHOLD",
-  "FE_PSP_OVERFLOW",
 ] as const;
 
 const PROOFREADING_DEFAULT_ACTIVE_STATUS_CODES = ["NONE", "PROCESSED", "ERROR"] as const;
@@ -50,7 +49,6 @@ export const PROOFREADING_WARNING_LABEL_KEY_BY_CODE = {
   SIMILARITY: "proofreading_page.warning.similarity",
   GLOSSARY: "proofreading_page.warning.glossary",
   RETRY_THRESHOLD: "proofreading_page.warning.retry_threshold",
-  FE_PSP_OVERFLOW: "proofreading_page.warning.fe_psp_overflow",
   NO_WARNING: "proofreading_page.filter.no_warning",
 } as const;
 

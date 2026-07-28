@@ -346,6 +346,200 @@ describe("TranslationWorkUnitRunner", () => {
     });
     expect(String(result.logs[0]?.message ?? "")).toContain("存在空行");
   });
+
+  it("FE 固定槽位超长时只保留草稿并等待定向重试", async () => {
+    const runner = new TranslationWorkUnitRunner(
+      await create_template_root(),
+      create_llm_client({ response_result: '{"0":"中文"}' }),
+    );
+
+    const result = await runner.execute_unit(
+      create_translation_unit({
+        model: { api_format: "SakuraLLM" },
+        items: [
+          {
+            id: 1,
+            src: "原文",
+            dst: "",
+            status: "NONE",
+            text_type: "TXT",
+            extra_field: create_fe_extra_field(2, false),
+          },
+        ],
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("failed");
+    expect(result.output).toMatchObject({
+      kind: "translation",
+      row_count: 0,
+      items: [{ id: 1, dst: "中文", status: "NONE" }],
+    });
+    expect(String(result.logs.at(-1)?.message ?? "")).toContain(
+      "当前 4 字节，容量 2 字节，至少缩短 2 字节",
+    );
+  });
+
+  it("FE 允许超长和无容量条目不触发容量重试", async () => {
+    const runner = new TranslationWorkUnitRunner(
+      await create_template_root(),
+      create_llm_client({ response_result: '{"0":"中文","1":"更多中文"}' }),
+    );
+
+    const result = await runner.execute_unit(
+      create_translation_unit({
+        model: { api_format: "SakuraLLM" },
+        items: [
+          {
+            id: 1,
+            src: "原文",
+            dst: "",
+            status: "NONE",
+            text_type: "TXT",
+            extra_field: create_fe_extra_field(2, true),
+          },
+          {
+            id: 2,
+            src: "原文二",
+            dst: "",
+            status: "NONE",
+            text_type: "TXT",
+            extra_field: create_fe_extra_field(null, false),
+          },
+        ],
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result.output).toMatchObject({
+      kind: "translation",
+      row_count: 2,
+      items: [
+        { id: 1, dst: "中文", status: "PROCESSED" },
+        { id: 2, dst: "更多中文", status: "PROCESSED" },
+      ],
+    });
+  });
+
+  it("FE 多条请求只重试超过容量的逻辑条目", async () => {
+    const runner = new TranslationWorkUnitRunner(
+      await create_template_root(),
+      create_llm_client({ response_result: '{"0":"过长","1":"短"}' }),
+    );
+
+    const result = await runner.execute_unit(
+      create_translation_unit({
+        model: { api_format: "SakuraLLM" },
+        items: [
+          {
+            id: 1,
+            src: "第一",
+            dst: "",
+            status: "NONE",
+            text_type: "TXT",
+            extra_field: create_fe_extra_field(2, false),
+          },
+          {
+            id: 2,
+            src: "第二",
+            dst: "",
+            status: "NONE",
+            text_type: "TXT",
+            extra_field: create_fe_extra_field(2, false),
+          },
+        ],
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result.output).toMatchObject({
+      kind: "translation",
+      row_count: 1,
+      items: [
+        { id: 1, dst: "过长", status: "NONE" },
+        { id: 2, dst: "短", status: "PROCESSED" },
+      ],
+    });
+  });
+
+  it("FE 物理换行硬规则不能被普通重试阈值放行", async () => {
+    const runner = new TranslationWorkUnitRunner(
+      await create_template_root(),
+      create_llm_client({ response_result: '{"0":"新增\\n换行"}' }),
+    );
+
+    const result = await runner.execute_unit(
+      create_translation_unit({
+        model: { api_format: "SakuraLLM" },
+        retry_count: 2,
+        items: [
+          {
+            id: 1,
+            src: "单行",
+            dst: "",
+            status: "NONE",
+            text_type: "TXT",
+            retry_count: 2,
+            extra_field: create_fe_extra_field(100, false),
+          },
+        ],
+      }),
+      new AbortController().signal,
+    );
+
+    expect(result.output).toMatchObject({
+      kind: "translation",
+      row_count: 0,
+      items: [{ id: 1, dst: "", status: "NONE", retry_count: 3 }],
+    });
+  });
+
+  it("FE 提示词携带逻辑条目容量和上一版字节差，但不泄露索引路径", async () => {
+    const captured_requests: LLMRequestBody[] = [];
+    const llm_client: LLMClientPort = {
+      request: vi.fn(async (body) => {
+        captured_requests.push(body);
+        return {
+          response_think: "",
+          response_result: '{"0":"短","1":"短"}',
+          input_tokens: 1,
+          output_tokens: 1,
+          cancelled: false,
+          timeout: false,
+          degraded: false,
+        };
+      }),
+    };
+    const runner = new TranslationWorkUnitRunner(await create_template_root(), llm_client);
+
+    await runner.execute_unit(
+      create_translation_unit({
+        model: { api_format: "SakuraLLM" },
+        items: [
+          {
+            id: 1,
+            src: "原文\n次行",
+            dst: "上一版\n第二版",
+            status: "NONE",
+            text_type: "TXT",
+            extra_field: create_fe_extra_field(2, false, "secret/index/path.dat"),
+          },
+        ],
+      }),
+      new AbortController().signal,
+    );
+
+    const prompt =
+      captured_requests[0]?.messages.map((message) => message.content).join("\n") ?? "";
+    expect(prompt).toContain('"request_indices":[0,1]');
+    expect(prompt).toContain('"slot_capacity":2');
+    expect(prompt).toContain('"previous_encoded_bytes":13');
+    expect(prompt).toContain('"must_reduce_bytes":11');
+    expect(prompt.match(/"slot_capacity":2/gu)).toHaveLength(1);
+    expect(prompt).not.toContain("secret/index/path.dat");
+    expect(prompt).not.toContain("char_offset");
+  });
 });
 
 /**
@@ -441,7 +635,11 @@ function create_translation_unit(args: {
 async function create_template_root(): Promise<string> {
   const app_root = await mkdtemp(path.join(tmpdir(), "linguagacha-translation-runner-"));
   const dir = path.join(app_root, "resource", "translation_prompt", "template", "zh");
+  const rules_dir = path.join(app_root, "resource", "fate-extra", "rules");
+  const fontpack_dir = path.join(app_root, "resource", "fate-extra", "fontpack", "NPJH50247");
   await mkdir(dir, { recursive: true });
+  await mkdir(rules_dir, { recursive: true });
+  await mkdir(fontpack_dir, { recursive: true });
   await writeFile(path.join(dir, "prefix.txt"), "前缀", "utf-8");
   await writeFile(path.join(dir, "base.txt"), "从 {source_language} 到 {target_language}", "utf-8");
   await writeFile(path.join(dir, "thinking.txt"), "", "utf-8");
@@ -450,5 +648,30 @@ async function create_template_root(): Promise<string> {
     "输出 JSONLINE\n{translation_output_format}",
     "utf-8",
   );
+  await writeFile(path.join(rules_dir, "translation-prompt.md"), "FE 翻译规则", "utf-8");
+  await writeFile(path.join(fontpack_dir, "jp-font-map.json"), '{"records":[]}\n', "utf-8");
+  await writeFile(path.join(fontpack_dir, "chinese-glyph-codec.json"), '{"records":[]}\n', "utf-8");
   return app_root;
+}
+
+function create_fe_extra_field(
+  slot_capacity: number | null,
+  allow_overlength: boolean,
+  indexed_path = "field/test.dat",
+): Record<string, ApiJsonValue> {
+  return {
+    __linguagacha_fe_v1: {
+      schema_version: 1,
+      path: indexed_path,
+      char_offset: 42,
+      classification: {
+        category: "ordinary_independent_slot",
+        category_zh: "普通独立槽位",
+        slot_capacity,
+        allow_overlength,
+        allow_relocation: false,
+        address_limit: null,
+      },
+    },
+  };
 }

@@ -62,7 +62,6 @@ export const en_us_proofreading_page = {
     similarity: "High Similarity",
     glossary: "Glossary Not Applied",
     retry_threshold: "Retry Threshold Reached",
-    fe_psp_overflow: "Overflow",
   },
   glossary: {
     ok: "Glossary Applied",

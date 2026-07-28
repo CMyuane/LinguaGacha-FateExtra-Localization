@@ -10,8 +10,9 @@ import type {
   TextQualitySnapshot,
   TextTaskItemRecord,
 } from "../../../../shared/text/text-types";
+import { read_fate_extra_item_metadata } from "../../../../shared/fate-extra/fate-extra-types";
 import { read_optional_item_name_text } from "../../../../shared/item-name";
-import type { TranslationLine } from "../translation-line";
+import type { FateExtraTranslationConstraint, TranslationLine } from "../translation-line";
 
 /**
  * 翻译译前流程产物，显式保存译后恢复需要的每行状态
@@ -57,6 +58,7 @@ export class TranslationPrePipeline {
     }
     const text_type = this.read_text_type(item);
     const actor_src = read_optional_item_name_text(item.name_src);
+    const fate_extra_constraint = this.read_fate_extra_constraint(item);
     context.source_text = String(item.src ?? "");
     for (const [line_index, raw_src] of context.source_text.split("\n").entries()) {
       let src = normalize_text_for_processing(raw_src);
@@ -83,25 +85,32 @@ export class TranslationPrePipeline {
         line_index,
         text_src: src,
         actor_src,
-        fate_extra: this.is_fate_extra_item(item),
+        fate_extra: fate_extra_constraint !== null,
+        ...(fate_extra_constraint === null ? {} : { fate_extra_constraint }),
       });
       context.valid_line_indexes.add(line_index);
     }
     return context;
   }
 
-  private is_fate_extra_item(item: TextTaskItemRecord): boolean {
-    const extra = item.extra_field;
-    if (typeof extra !== "object" || extra === null || Array.isArray(extra)) {
-      return false;
-    }
-    const metadata = extra["__linguagacha_fe_v1"];
-    return (
-      typeof metadata === "object" &&
-      metadata !== null &&
-      !Array.isArray(metadata) &&
-      metadata["schema_version"] === 1
+  private read_fate_extra_constraint(
+    item: TextTaskItemRecord,
+  ): FateExtraTranslationConstraint | null {
+    const metadata = read_fate_extra_item_metadata(
+      item.extra_field as Parameters<typeof read_fate_extra_item_metadata>[0],
     );
+    if (metadata === null) {
+      return null;
+    }
+    const classification = metadata.classification;
+    return {
+      category: classification.category,
+      slot_capacity: classification.slot_capacity,
+      allow_overlength: classification.allow_overlength,
+      allow_relocation: classification.allow_relocation,
+      address_limit: classification.address_limit,
+      current_translation: String(item.dst ?? ""),
+    };
   }
 
   /**
