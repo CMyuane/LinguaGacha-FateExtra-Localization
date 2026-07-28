@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Database, FileCheck2, FolderOpen, ScanSearch, Upload } from "lucide-react";
 
 import { api_fetch } from "@frontend/app/desktop/desktop-api";
@@ -54,6 +54,17 @@ type ApplyPayload = {
 };
 
 function error_message(error: unknown): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "details" in error &&
+    typeof error.details === "object" &&
+    error.details !== null &&
+    "reason" in error.details &&
+    typeof error.details.reason === "string"
+  ) {
+    return error.details.reason;
+  }
   return error instanceof Error ? error.message : String(error);
 }
 
@@ -67,11 +78,31 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
   const [output_directory, set_output_directory] = useState("");
   const [scan_report, set_scan_report] = useState<ScanReport | null>(null);
   const [font_report, set_font_report] = useState<FontReport | null>(null);
+  const [adapter_enabled, set_adapter_enabled] = useState(false);
   const [busy, set_busy] = useState("");
   const [feedback, set_feedback] = useState("");
   const [error, set_error] = useState("");
 
   const project_path = project_snapshot.loaded ? project_snapshot.path : "";
+
+  useEffect(() => {
+    let active = true;
+    set_scan_report(null);
+    set_adapter_enabled(false);
+    if (project_path === "") return;
+    void api_fetch<{ enabled?: boolean }>("/api/toolbox/fate-extra/status", {
+      project_path,
+    })
+      .then((status) => {
+        if (active) set_adapter_enabled(status.enabled === true);
+      })
+      .catch(() => {
+        if (active) set_adapter_enabled(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [project_path]);
 
   async function choose_directory(
     current: string,
@@ -86,12 +117,12 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     return null;
   }
 
-  async function run_scan(): Promise<void> {
+  async function request_scan(busy_state: "scan" | "apply"): Promise<ScanReport | null> {
     if (project_path === "") {
       set_error(t("fate_extra_page.no_project"));
-      return;
+      return null;
     }
-    set_busy("scan");
+    set_busy(busy_state);
     set_error("");
     set_feedback("");
     try {
@@ -104,15 +135,27 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
       });
       set_scan_report(report);
       set_feedback(report.applicable ? t("fate_extra_page.scan_ready") : "");
+      return report;
     } catch (reason) {
       set_error(error_message(reason));
+      return null;
     } finally {
       set_busy("");
     }
   }
 
+  async function run_scan(): Promise<void> {
+    await request_scan("scan");
+  }
+
   async function apply_adapter(): Promise<void> {
-    if (scan_report?.applicable !== true || scan_report.scan_id === undefined) return;
+    if (scan_report?.applicable !== true || scan_report.scan_id === undefined) {
+      const report = await request_scan("apply");
+      if (report?.applicable === true) {
+        set_feedback(t("fate_extra_page.scan_ready_apply_again"));
+      }
+      return;
+    }
     set_busy("apply");
     set_error("");
     try {
@@ -135,6 +178,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
       set_feedback(
         `${t("fate_extra_page.apply_done")} ${String(result.payload.backup_path ?? "")}`,
       );
+      set_adapter_enabled(true);
       set_scan_report(null);
     } catch (reason) {
       set_error(error_message(reason));
@@ -193,25 +237,37 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     {
       label: t("fate_extra_page.source_directory"),
       value: source_directory,
-      update: set_source_directory,
+      update: (value: string) => {
+        set_source_directory(value);
+        set_scan_report(null);
+      },
       browse: true,
     },
     {
       label: t("fate_extra_page.classification_database"),
       value: classification_database,
-      update: set_classification_database,
+      update: (value: string) => {
+        set_classification_database(value);
+        set_scan_report(null);
+      },
       browse: false,
     },
     {
       label: t("fate_extra_page.migration_project"),
       value: migration_project,
-      update: set_migration_project,
+      update: (value: string) => {
+        set_migration_project(value);
+        set_scan_report(null);
+      },
       browse: false,
     },
     {
       label: t("fate_extra_page.migration_text_directory"),
       value: migration_text_directory,
-      update: set_migration_text_directory,
+      update: (value: string) => {
+        set_migration_text_directory(value);
+        set_scan_report(null);
+      },
       browse: true,
     },
     {
@@ -262,7 +318,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
           {busy === "scan" ? t("fate_extra_page.busy") : t("fate_extra_page.scan")}
         </AppButton>
         <AppButton
-          disabled={busy !== "" || scan_report?.applicable !== true}
+          disabled={busy !== "" || project_path === ""}
           onClick={() => void apply_adapter()}
         >
           {busy === "apply" ? <Spinner /> : <Database data-icon="inline-start" />}
@@ -278,7 +334,8 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         </AppButton>
         <AppButton
           variant="outline"
-          disabled={busy !== "" || project_path === ""}
+          disabled={busy !== "" || project_path === "" || !adapter_enabled}
+          title={!adapter_enabled ? t("fate_extra_page.export_requires_adapter") : undefined}
           onClick={() => void export_project(false)}
         >
           <Upload data-icon="inline-start" />
@@ -286,7 +343,8 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         </AppButton>
         <AppButton
           variant="outline"
-          disabled={busy !== "" || project_path === ""}
+          disabled={busy !== "" || project_path === "" || !adapter_enabled}
+          title={!adapter_enabled ? t("fate_extra_page.export_requires_adapter") : undefined}
           onClick={() => void export_project(true)}
         >
           <Upload data-icon="inline-start" />
@@ -294,6 +352,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         </AppButton>
       </div>
 
+      <p className="fate-extra-page__workflow-hint">{t("fate_extra_page.workflow_hint")}</p>
       {error !== "" ? <p className="fate-extra-page__error">{error}</p> : null}
       {feedback !== "" ? <p className="fate-extra-page__feedback">{feedback}</p> : null}
 

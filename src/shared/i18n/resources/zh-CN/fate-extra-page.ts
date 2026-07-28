@@ -16,7 +16,10 @@ export const zh_cn_fate_extra_page = {
   report: "扫描报告",
   no_project: "请先打开一个 .lg 项目。",
   scan_ready: "扫描完成，可应用适配。",
+  scan_ready_apply_again: "扫描完成，请检查下方报告；确认无误后再次点击“应用 FE 适配”。",
   apply_done: "FE 适配已应用，原项目已备份。",
+  export_requires_adapter: "请先完成 FE 适配，再执行导出。",
+  workflow_hint: "使用顺序：生成扫描报告 → 检查报告 → 应用 FE 适配 → 导出。",
   export_done: "导出完成；普通 FE 警告不会阻止输出。",
   font_ready: "当前语料字库扫描完成。",
 } as const;

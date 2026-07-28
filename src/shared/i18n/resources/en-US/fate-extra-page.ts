@@ -20,7 +20,11 @@ export const en_us_fate_extra_page = {
   report: "Scan report",
   no_project: "Open an .lg project first.",
   scan_ready: "Scan complete. The adapter can be applied.",
+  scan_ready_apply_again:
+    'Scan complete. Review the report below, then click "Apply FE adapter" again.',
   apply_done: "FE adapter applied; the original project was backed up.",
+  export_requires_adapter: "Apply the FE adapter before exporting.",
+  workflow_hint: "Order: create scan report → review it → apply the FE adapter → export.",
   export_done: "Export complete. Advisory FE warnings did not block output.",
   font_ready: "Font coverage scan completed for the current corpus.",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_page>;

@@ -20,7 +20,11 @@ export const de_de_fate_extra_page = {
   report: "Prüfbericht",
   no_project: "Öffnen Sie zuerst ein .lg-Projekt.",
   scan_ready: "Prüfung abgeschlossen. Der Adapter kann angewendet werden.",
+  scan_ready_apply_again:
+    'Prüfung abgeschlossen. Prüfen Sie den Bericht und klicken Sie dann erneut auf "FE-Adapter anwenden".',
   apply_done: "FE-Adapter angewendet; das ursprüngliche Projekt wurde gesichert.",
+  export_requires_adapter: "Wenden Sie vor dem Export zuerst den FE-Adapter an.",
+  workflow_hint: "Reihenfolge: Prüfbericht erstellen → prüfen → FE-Adapter anwenden → exportieren.",
   export_done: "Export abgeschlossen. Hinweise haben die Ausgabe nicht blockiert.",
   font_ready: "Schriftabdeckung für den aktuellen Textbestand wurde geprüft.",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_page>;

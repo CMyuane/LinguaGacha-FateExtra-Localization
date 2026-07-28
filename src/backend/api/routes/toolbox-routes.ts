@@ -10,6 +10,9 @@ export function register_toolbox_routes(context: ApiRouteContext): void {
   context.postJson("/api/toolbox/fate-extra/apply", (body) =>
     context.services.toolbox.fateExtra.apply(body),
   );
+  context.postJson("/api/toolbox/fate-extra/status", (body) =>
+    context.services.toolbox.fateExtra.status(body),
+  );
   context.postJson("/api/toolbox/fate-extra/font/scan", (body) =>
     context.services.toolbox.fateExtraFont.scan(body),
   );

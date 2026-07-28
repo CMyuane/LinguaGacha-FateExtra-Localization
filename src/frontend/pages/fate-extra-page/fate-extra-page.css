@@ -47,11 +47,17 @@
 }
 
 .fate-extra-page__error,
-.fate-extra-page__feedback {
+.fate-extra-page__feedback,
+.fate-extra-page__workflow-hint {
   margin: 0;
   border-radius: var(--ui-radius-card);
   padding: 9px 12px;
   font-size: 12px;
+}
+
+.fate-extra-page__workflow-hint {
+  padding-block: 2px;
+  color: var(--muted-foreground);
 }
 
 .fate-extra-page__error {

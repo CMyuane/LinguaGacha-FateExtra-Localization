@@ -24,7 +24,7 @@ LinguaGacha FE 固定基于 LinguaGacha `v0.103.0`、提交
 
 - 应用名称：`LinguaGacha FE`
 - Windows 数据目录：`LinguaGachaFE`
-- Windows x64 便携包：`LinguaGacha-FE-v0.103.0-fe.1-win-x64.zip`
+- Windows x64 便携包：`LinguaGacha-FE-v0.103.0-fe.2-win-x64.zip`
 
 ## 安装与启动
 

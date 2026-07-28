@@ -10,9 +10,11 @@ import {
   type FateExtraClassificationRow,
 } from "../database/fate-extra-database-reader";
 import type { ProjectOperationGate } from "../project/project-gate";
+import { get_section_revision } from "../project/project-data";
 import type { ProjectSessionState } from "../project/project-session";
 import type { ProjectWriteStore } from "../project/project-write-store";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
+import * as AppErrors from "../../shared/error";
 import {
   has_fate_extra_psp_overflow,
   layout_fate_extra_preview,
@@ -61,7 +63,7 @@ type MigrationIssue = {
 type ScanDraft = {
   id: string;
   project_path: string;
-  project_mtime_ms: number;
+  project_section_revisions: Record<FateExtraGuardedSection, number>;
   source_directory: string;
   source_mtime_ms: number;
   classification_database: string;
@@ -73,6 +75,8 @@ type ScanDraft = {
   migration_issues: MigrationIssue[];
 };
 
+type FateExtraGuardedSection = "files" | "items" | "analysis" | "proofreading";
+
 type UnindexedTranslationImport = {
   translations: Map<string, string>;
   issues: string[];
@@ -80,6 +84,12 @@ type UnindexedTranslationImport = {
 
 const SOURCE_MARKER_PREFIX = "\u0000FE_SOURCE_";
 const SOURCE_MARKER_SUFFIX = "\u0000";
+const FATE_EXTRA_GUARDED_SECTIONS: readonly FateExtraGuardedSection[] = [
+  "files",
+  "items",
+  "analysis",
+  "proofreading",
+];
 
 function read_source_marker(value: string): number | null {
   if (!value.startsWith(SOURCE_MARKER_PREFIX) || !value.endsWith(SOURCE_MARKER_SUFFIX)) {
@@ -296,7 +306,7 @@ export class FateExtraService {
       this.scan_drafts.set(scan_id, {
         id: scan_id,
         project_path,
-        project_mtime_ms: this.native_fs.stat(project_path).mtimeMs,
+        project_section_revisions: this.read_guarded_project_revisions(project_path),
         source_directory,
         source_mtime_ms: this.native_fs.stat(source_directory).mtimeMs,
         classification_database,
@@ -316,7 +326,7 @@ export class FateExtraService {
     const scan_id = this.require_string(body, "scan_id");
     const draft = this.scan_drafts.get(scan_id);
     if (draft === undefined || draft.project_path !== project_path) {
-      throw new Error("FE 扫描报告已失效，请重新扫描。");
+      this.throw_validation_error("FE 扫描报告已失效，请重新扫描。");
     }
     return await this.operation_gate.run_exclusive_project_write(async () => {
       this.assert_draft_unchanged(draft);
@@ -378,6 +388,21 @@ export class FateExtraService {
         logical_text_count: draft.items.length,
       } as unknown as JsonRecord;
     });
+  }
+
+  public status(body: JsonRecord): JsonRecord {
+    const project_path = this.require_loaded_project(body);
+    const meta = this.read_record_operation("getAllMeta", project_path);
+    const adapter = read_record(meta[FATE_EXTRA_ADAPTER_META_KEY]);
+    const enabled =
+      adapter["enabled"] === true &&
+      Number(adapter["schema_version"]) === FATE_EXTRA_SCHEMA_VERSION;
+    return {
+      enabled,
+      schema_version: enabled ? FATE_EXTRA_SCHEMA_VERSION : 0,
+      logical_text_count: enabled ? Number(adapter["logical_text_count"] ?? 0) : 0,
+      applied_at: enabled ? String(adapter["applied_at"] ?? "") : "",
+    };
   }
 
   public list_items(body: JsonRecord): JsonRecord {
@@ -453,7 +478,9 @@ export class FateExtraService {
     const meta = this.read_record_operation("getAllMeta", project_path);
     const adapter = read_record(meta[FATE_EXTRA_ADAPTER_META_KEY]);
     if (adapter["enabled"] !== true || Number(adapter["schema_version"]) !== 1) {
-      throw new Error("当前项目尚未启用 Fate/Extra 汉化适配。");
+      this.throw_validation_error(
+        "当前项目尚未启用 Fate/Extra 汉化适配。请先生成扫描报告，再应用 FE 适配。",
+      );
     }
     const item_rows = items.map((item) => ({
       item,
@@ -462,11 +489,11 @@ export class FateExtraService {
       ),
     }));
     if (item_rows.some((row) => row.metadata === null)) {
-      throw new Error("FE 索引结构已损坏：项目中存在缺少索引元数据的文本。");
+      this.throw_validation_error("FE 索引结构已损坏：项目中存在缺少索引元数据的文本。");
     }
     const expected_count = Number(adapter["logical_text_count"] ?? 0);
     if (expected_count !== item_rows.length) {
-      throw new Error("FE 索引结构已损坏：逻辑文本数量与适配清单不一致。");
+      this.throw_validation_error("FE 索引结构已损坏：逻辑文本数量与适配清单不一致。");
     }
     this.native_fs.make_dir(output_directory);
     const font_output = path.join(output_directory, "fate-extra-font", "NPJH50247");
@@ -979,22 +1006,34 @@ export class FateExtraService {
 
   private assert_draft_unchanged(draft: ScanDraft): void {
     const state = this.session_state.snapshot();
+    const current_revisions = this.read_guarded_project_revisions(draft.project_path);
     const unchanged =
       state.loaded &&
       this.native_fs.to_identity_path(state.projectPath) ===
         this.native_fs.to_identity_path(draft.project_path) &&
-      this.native_fs.stat(draft.project_path).mtimeMs === draft.project_mtime_ms &&
+      FATE_EXTRA_GUARDED_SECTIONS.every(
+        (section) => current_revisions[section] === draft.project_section_revisions[section],
+      ) &&
       this.native_fs.stat(draft.source_directory).mtimeMs === draft.source_mtime_ms &&
       this.native_fs.stat(draft.classification_database).mtimeMs === draft.database_mtime_ms;
     if (!unchanged) {
-      throw new Error("项目、索引原稿或分类数据库已变化，请重新扫描。");
+      this.throw_validation_error("项目、索引原稿或分类数据库已变化，请重新扫描。");
     }
+  }
+
+  private read_guarded_project_revisions(
+    project_path: string,
+  ): Record<FateExtraGuardedSection, number> {
+    const meta = this.read_record_operation("getAllMeta", project_path) as JsonRecord;
+    return Object.fromEntries(
+      FATE_EXTRA_GUARDED_SECTIONS.map((section) => [section, get_section_revision(meta, section)]),
+    ) as Record<FateExtraGuardedSection, number>;
   }
 
   private require_loaded_project(body: JsonRecord): string {
     const state = this.session_state.snapshot();
     if (!state.loaded || state.projectPath === "") {
-      throw new Error("请先打开一个 .lg 项目。");
+      this.throw_validation_error("请先打开一个 .lg 项目。");
     }
     const requested = this.optional_string(body, "project_path", "");
     if (
@@ -1002,7 +1041,7 @@ export class FateExtraService {
       this.native_fs.to_identity_path(requested) !==
         this.native_fs.to_identity_path(state.projectPath)
     ) {
-      throw new Error("项目已切换，请重新执行 FE 操作。");
+      this.throw_validation_error("项目已切换，请重新执行 FE 操作。");
     }
     return state.projectPath;
   }
@@ -1018,7 +1057,7 @@ export class FateExtraService {
 
   private require_string(body: JsonRecord, key: string): string {
     const value = this.optional_string(body, key, "");
-    if (value === "") throw new Error(`缺少参数：${key}`);
+    if (value === "") this.throw_validation_error(`缺少参数：${key}`);
     return value;
   }
 
@@ -1028,13 +1067,20 @@ export class FateExtraService {
 
   private assert_file(file_path: string, label: string): void {
     if (!this.native_fs.exists(file_path) || !this.native_fs.stat(file_path).isFile()) {
-      throw new Error(`${label}不存在：${file_path}`);
+      this.throw_validation_error(`${label}不存在：${file_path}`);
     }
   }
 
   private assert_directory(directory: string, label: string): void {
     if (!this.native_fs.exists(directory) || !this.native_fs.stat(directory).isDirectory()) {
-      throw new Error(`${label}不存在：${directory}`);
+      this.throw_validation_error(`${label}不存在：${directory}`);
     }
+  }
+
+  private throw_validation_error(reason: string): never {
+    throw new AppErrors.RequestValidationError({
+      public_details: { reason },
+      diagnostic_context: { reason },
+    });
   }
 }
