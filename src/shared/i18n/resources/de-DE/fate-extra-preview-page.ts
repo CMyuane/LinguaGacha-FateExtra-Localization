@@ -20,4 +20,7 @@ export const de_de_fate_extra_preview_page = {
   empty: "Dieses Projekt enthält keine FE-adaptierten Texte.",
   overflow: "Überlauf",
   safe: "Passt",
+  unsaved: "Nicht gespeichert",
+  load_failed: "PSP-Vorschautext konnte nicht geladen werden",
+  retranslate_started: "Neuübersetzung für den aktuellen Eintrag gestartet",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_preview_page>;

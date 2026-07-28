@@ -136,6 +136,7 @@ export type AppTableProps<Row> = {
   box_selection_enabled?: boolean;
   virtual_overscan?: number;
   row_height?: number;
+  dynamic_row_height?: boolean;
   placeholder_row_strategy?: "fill-viewport";
   className?: string;
   table_class_name?: string;

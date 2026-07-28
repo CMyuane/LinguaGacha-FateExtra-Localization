@@ -168,6 +168,10 @@
   padding-block: 0;
 }
 
+.app-table--dynamic-rows .app-table__table--body [data-slot="table-cell"] {
+  height: auto;
+}
+
 .app-table__head-cell,
 .app-table__body-cell {
   position: relative;

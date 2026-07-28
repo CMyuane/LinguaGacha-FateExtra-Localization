@@ -20,4 +20,7 @@ export const en_us_fate_extra_preview_page = {
   empty: "This project contains no FE-adapted text.",
   overflow: "Overflow",
   safe: "Fits",
+  unsaved: "Unsaved",
+  load_failed: "Failed to load PSP preview text",
+  retranslate_started: "Retranslation started for the current item",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_preview_page>;

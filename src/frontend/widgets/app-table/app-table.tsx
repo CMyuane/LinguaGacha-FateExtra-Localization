@@ -466,6 +466,7 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
     box_selection_enabled: box_selection_enabled_prop,
     virtual_overscan,
     row_height: row_height_prop,
+    dynamic_row_height = false,
     placeholder_row_strategy,
     className,
     table_class_name,
@@ -766,8 +767,11 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
       }
 
       row_elements_ref.current.set(row_id, row_element);
+      if (dynamic_row_height) {
+        virtualizer.measureElement(row_element);
+      }
     },
-    [],
+    [dynamic_row_height, virtualizer],
   );
 
   // 优先读取已挂载行的真实偏移，未挂载行退回固定行高估算。
@@ -789,9 +793,11 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
         return null;
       }
 
-      return row_index * row_height - viewport_element.scrollTop;
+      const row_offset =
+        virtualizer.getOffsetForIndex(row_index, "start")?.[0] ?? row_index * row_height;
+      return row_offset - viewport_element.scrollTop;
     },
-    [row_height, row_model, viewport_element],
+    [row_height, row_model, viewport_element, virtualizer],
   );
 
   // 按新索引和旧偏移恢复 scrollTop，并限制在虚拟总高度内。
@@ -804,10 +810,9 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
       const viewport_client_height =
         viewport_element.clientHeight > 0 ? viewport_element.clientHeight : viewport_height;
       const max_scroll_top = Math.max(0, virtualizer.getTotalSize() - viewport_client_height);
-      const next_scroll_top = Math.max(
-        0,
-        Math.min(max_scroll_top, row_index * row_height - captured_offset),
-      );
+      const row_offset =
+        virtualizer.getOffsetForIndex(row_index, "start")?.[0] ?? row_index * row_height;
+      const next_scroll_top = Math.max(0, Math.min(max_scroll_top, row_offset - captured_offset));
       viewport_element.scrollTop = next_scroll_top;
     },
     [row_height, viewport_element, viewport_height, virtualizer],
@@ -1787,7 +1792,10 @@ export function AppTable<Row>(props: AppTableProps<Row>): JSX.Element {
   } as CSSProperties;
 
   return (
-    <div className={cn("app-table", className)} style={root_style}>
+    <div
+      className={cn("app-table", dynamic_row_height && "app-table--dynamic-rows", className)}
+      style={root_style}
+    >
       {header}
       <div
         ref={table_scroll_host_ref}

@@ -283,6 +283,8 @@ describe("ProofreadingTable", () => {
               create_visible_item(1, {
                 name_src: ["虎铁", "保留原名"],
                 name_dst: "虎铁译",
+                src: "原文第一行\n原文第二行",
+                dst: "译文第一行\n译文第二行",
               }),
             ]}
             visible_row_count={1}
@@ -324,12 +326,15 @@ describe("ProofreadingTable", () => {
       source_badge?.querySelector(".proofreading-page__table-name-badge-label"),
     ).not.toBeNull();
     expect(source_badge?.textContent).toBe("虎铁");
-    expect(source_cell?.querySelector(".proofreading-page__table-text")?.textContent).toBe("src-1");
+    expect(source_cell?.querySelector(".proofreading-page__table-text")?.textContent).toBe(
+      "原文第一行\n原文第二行",
+    );
     expect(translation_badge?.getAttribute("data-variant")).toBe("secondary");
     expect(translation_badge?.textContent).toBe("虎铁译");
     expect(translation_cell?.querySelector(".proofreading-page__table-text")?.textContent).toBe(
-      "dst-1",
+      "译文第一行\n译文第二行",
     );
+    expect(app_table_fixture.current_props?.dynamic_row_height).toBe(true);
   });
 
   it("姓名数组首项为空时不展示后续槽位姓名", async () => {

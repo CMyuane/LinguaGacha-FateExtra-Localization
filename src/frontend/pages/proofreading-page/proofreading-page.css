@@ -45,19 +45,22 @@
 }
 
 .proofreading-page__table-text {
-  display: inline-block;
+  display: block;
   min-width: 0;
   flex: 1 1 auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  line-height: 1.5;
 }
 
 .proofreading-page__table-text-line {
   display: flex;
   min-width: 0;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
+  padding-block: 8px;
 }
 
 .proofreading-page__table-name-badge {

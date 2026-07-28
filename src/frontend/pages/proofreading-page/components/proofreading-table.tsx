@@ -379,7 +379,7 @@ export function ProofreadingTable(props: ProofreadingTableProps): JSX.Element {
         render_cell: (payload) => {
           return render_name_prefixed_text({
             name: read_optional_item_name_text(payload.row.item.name_src),
-            text: payload.row.compressed_src,
+            text: payload.row.item.src,
           });
         },
       },
@@ -399,7 +399,7 @@ export function ProofreadingTable(props: ProofreadingTableProps): JSX.Element {
         render_cell: (payload) => {
           return render_name_prefixed_text({
             name: read_optional_item_name_text(payload.row.item.name_dst),
-            text: payload.row.compressed_dst,
+            text: payload.row.item.dst,
           });
         },
       },
@@ -531,6 +531,7 @@ export function ProofreadingTable(props: ProofreadingTableProps): JSX.Element {
           ignore_row_click_target={should_ignore_row_click_target}
           ignore_box_select_target={should_ignore_box_selection_target}
           box_selection_enabled
+          dynamic_row_height
           table_class_name="proofreading-page__table"
           row_class_name={() => "proofreading-page__table-row"}
         />

@@ -11,6 +11,7 @@ const app_table_test_state = vi.hoisted(() => {
     virtual_item_indices: null as number[] | null,
     estimate_sizes: [] as number[],
     measure: vi.fn(),
+    measureElement: vi.fn(),
     scrollToIndex: vi.fn(),
   };
 });
@@ -66,7 +67,9 @@ vi.mock("@tanstack/react-virtual", () => {
             };
           }),
         getTotalSize: () => options.count * row_height,
+        getOffsetForIndex: (index: number) => [index * row_height, "start"] as const,
         measure: app_table_test_state.measure,
+        measureElement: app_table_test_state.measureElement,
         scrollToIndex: (...args: [number, { align: "auto" | "start" }]) => {
           if (options.getScrollElement() === null) {
             return;
@@ -293,6 +296,7 @@ describe("AppTable row model", () => {
     app_table_test_state.virtual_item_indices = null;
     app_table_test_state.estimate_sizes = [];
     app_table_test_state.measure.mockClear();
+    app_table_test_state.measureElement.mockClear();
     app_table_test_state.scrollToIndex.mockClear();
   });
 
@@ -364,6 +368,18 @@ describe("AppTable row model", () => {
 
     expect(app_table_test_state.estimate_sizes.at(-1)).toBe(42);
     expect(table?.style.getPropertyValue("--app-table-row-height")).toBe("42px");
+  });
+
+  it("动态行高会测量已挂载行并启用自适应样式", async () => {
+    const container = await mount(
+      create_default_props({
+        rows: create_rows(2),
+        dynamic_row_height: true,
+      }),
+    );
+
+    expect(container.querySelector(".app-table")?.classList).toContain("app-table--dynamic-rows");
+    expect(app_table_test_state.measureElement).toHaveBeenCalled();
   });
 
   it("恢复页面状态时会把本地表格的选中行滚入视口", async () => {

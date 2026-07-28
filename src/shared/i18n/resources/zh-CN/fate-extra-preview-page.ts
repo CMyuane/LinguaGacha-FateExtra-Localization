@@ -16,4 +16,7 @@ export const zh_cn_fate_extra_preview_page = {
   empty: "当前项目没有 FE 适配文本。",
   overflow: "溢出",
   safe: "画面内",
+  unsaved: "未保存",
+  load_failed: "PSP 预览文本加载失败",
+  retranslate_started: "已开始重新翻译当前条目",
 } as const;
