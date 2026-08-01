@@ -8,15 +8,15 @@ import (
 	"path/filepath"
 )
 
-const appExecutableName = "LinguaGacha-FE.exe" // cli.exe 与定制版 GUI 主程序固定同目录
+const appExecutableName = "app.exe" // cli.exe 与 app.exe 固定同目录，避免 PATH 或安装器语义进入启动器
 
-// 描述 cli.exe 交给同目录 LinguaGacha-FE.exe 的转发计划。
+// 描述 cli.exe 交给同目录 app.exe 的转发计划。
 type launcherPlan struct {
 	executablePath string   // executablePath 指向同目录 Electron GUI 主程序
 	args           []string // args 固定以 --cli 开头，后面保留用户原始参数顺序
 }
 
-// 作为 Windows console 子系统入口，只负责转发并返回 GUI 主程序的退出码。
+// 作为 Windows console 子系统入口，只负责转发并返回 app.exe 的退出码。
 func main() {
 	exitCode, err := runLauncher(os.Args[1:])
 	if err != nil {
@@ -25,7 +25,7 @@ func main() {
 	os.Exit(exitCode)
 }
 
-// 定位同目录 GUI 主程序，继承当前终端 IO，并等待 CLI 任务结束。
+// 定位同目录 app.exe，继承当前终端 IO，并等待 CLI 任务结束。
 func runLauncher(userArgs []string) (int, error) {
 	currentExecutablePath, err := os.Executable()
 	if err != nil {
@@ -65,7 +65,7 @@ func buildLauncherPlan(currentExecutablePath string, userArgs []string) (launche
 	}, nil
 }
 
-// 在启动前确认同目录 GUI 主程序存在，避免 exec.Command 返回难读的系统错误。
+// 在启动前确认同目录 app.exe 存在，避免 exec.Command 返回难读的系统错误。
 func ensureAppExecutableExists(appPath string) error {
 	if _, err := os.Stat(appPath); err != nil {
 		return fmt.Errorf("找不到 GUI 主程序 %s：%w", appPath, err)
@@ -73,7 +73,7 @@ func ensureAppExecutableExists(appPath string) error {
 	return nil
 }
 
-// 保留 GUI 主程序的退出码；启动失败才归一为 1。
+// 保留 app.exe 的退出码；启动失败才归一为 1。
 func normalizeExitResult(err error) (int, error) {
 	if err == nil {
 		return 0, nil

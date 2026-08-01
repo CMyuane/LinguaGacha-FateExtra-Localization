@@ -4,15 +4,6 @@ export type { TranslationPromptMode };
 
 export type TranslationActor = string | null;
 
-export type FateExtraTranslationConstraint = {
-  category: string;
-  slot_capacity: number | null;
-  allow_overlength: boolean;
-  allow_relocation: boolean;
-  address_limit: number | null;
-  current_translation: string;
-};
-
 /**
  * 译前 pipeline 送入模型的最小行单元，request_index 是响应回填唯一键。
  */
@@ -23,7 +14,6 @@ export interface TranslationLine {
   text_src: string;
   actor_src: TranslationActor;
   fate_extra?: boolean;
-  fate_extra_constraint?: FateExtraTranslationConstraint;
 }
 
 /**

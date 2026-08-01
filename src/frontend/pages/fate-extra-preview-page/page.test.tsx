@@ -75,22 +75,9 @@ const ITEM = {
   src: "原文",
   dst: "旧译文",
   status: "NONE",
-  warnings: ["FE_STORAGE_CAPACITY"],
+  warnings: ["FE_PSP_OVERFLOW"],
+  overflow: true,
   index: { path: "field/001.dat", char_offset: 1234 },
-  capacity: {
-    category: "ordinary_independent_slot",
-    category_zh: "普通独立槽位",
-    encoded_bytes: 84,
-    slot_capacity: 82,
-    remaining_bytes: -2,
-    exceeded_bytes: 2,
-    over_capacity: true,
-    capacity_violation: true,
-    allow_overlength: false,
-    allow_relocation: false,
-    translator_message: "需要缩短",
-    address_limit: null,
-  },
 };
 
 describe("FateExtraPreviewPage", () => {

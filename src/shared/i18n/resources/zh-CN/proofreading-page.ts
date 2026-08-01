@@ -59,6 +59,7 @@ export const zh_cn_proofreading_page = {
     similarity: "相似度过高",
     glossary: "术语表未生效",
     retry_threshold: "重试次数达阈值",
+    fe_psp_overflow: "溢出",
   },
   glossary: {
     ok: "术语生效",

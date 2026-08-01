@@ -27,7 +27,7 @@ describe("TaskEngine", () => {
     }
   });
 
-  it("翻译单条重试超限后提交 ERROR 并保留最后一版草稿", async () => {
+  it("翻译单条重试超限后提交 ERROR 且不回填原文", async () => {
     const committed_batches: MutableJsonRecord[] = [];
     const done = create_status_waiter("translation", "done");
     const task_engine = new TaskEngine({
@@ -55,11 +55,8 @@ describe("TaskEngine", () => {
       } as unknown as ProjectTaskStore,
       taskRunPublisher: create_task_run_publisher(done.publish),
       executorClient: {
-        execute_unit: async () => {
-          const item = create_pending_item();
-          item["dst"] = "超长草稿";
-          return create_translation_worker_result([item], 0, 1, 2);
-        },
+        execute_unit: async () =>
+          create_translation_worker_result([create_pending_item()], 0, 1, 2),
       } as unknown as WorkUnitExecutor,
       taskPlanner: create_test_task_planner(),
       AppSettingService: create_setting_service(),
@@ -79,7 +76,7 @@ describe("TaskEngine", () => {
       {
         id: 1,
         src: "原文",
-        dst: "超长草稿",
+        dst: "",
         status: "ERROR",
         file_path: "demo.txt",
       },

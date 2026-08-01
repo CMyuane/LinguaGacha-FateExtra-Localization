@@ -1,6 +1,10 @@
 export const FATE_EXTRA_PSP_WIDTH = 480;
 export const FATE_EXTRA_PSP_HEIGHT = 272;
+export const FATE_EXTRA_TEXT_WIDTH = 432;
+export const FATE_EXTRA_MAX_VISIBLE_LINES = 3;
 export const FATE_EXTRA_GLYPH_ADVANCE = 24;
+export const FATE_EXTRA_RUBY_GLYPH_ADVANCE = 12;
+export const FATE_EXTRA_RUBY_MAX_WIDTH = 192;
 
 export type FateExtraPreviewVariables = {
   family: string;
@@ -29,6 +33,9 @@ export type FateExtraPreviewLayout = {
   line_widths_px: number[];
   max_width_px: number;
   visible_line_count: number;
+  ruby_overflow: boolean;
+  overflow: boolean;
+  issues: string[];
 };
 
 export const FATE_EXTRA_DEFAULT_PREVIEW_VARIABLES: FateExtraPreviewVariables = {
@@ -286,6 +293,7 @@ export function layout_fate_extra_preview(args: {
   const line_widths_px = [0];
   const visible_parts: string[] = [];
   let line = 0;
+  let ruby_overflow = false;
 
   for (const run of runs) {
     if (run.text === "\n") {
@@ -299,16 +307,50 @@ export function layout_fate_extra_preview(args: {
       (run.icon ? FATE_EXTRA_GLYPH_ADVANCE : [...run.text].length * FATE_EXTRA_GLYPH_ADVANCE);
     line_widths_px[line] = (line_widths_px[line] ?? 0) + width;
     visible_parts.push(run.text);
+    if ([...run.ruby].length * FATE_EXTRA_RUBY_GLYPH_ADVANCE > FATE_EXTRA_RUBY_MAX_WIDTH) {
+      ruby_overflow = true;
+    }
   }
 
   const max_width_px = Math.max(...line_widths_px);
+  const width_overflow = max_width_px > FATE_EXTRA_TEXT_WIDTH;
+  const line_overflow = line_widths_px.length > FATE_EXTRA_MAX_VISIBLE_LINES;
+  const issues: string[] = [];
+  if (width_overflow) {
+    issues.push(`正文宽度 ${max_width_px}px 超过 PSP 对话区域 ${FATE_EXTRA_TEXT_WIDTH}px。`);
+  }
+  if (line_overflow) {
+    issues.push(`正文共有 ${line_widths_px.length} 行，超过 PSP 对话框可见的 3 行。`);
+  }
+  if (ruby_overflow) {
+    issues.push(`Ruby 读音宽度超过 ${FATE_EXTRA_RUBY_MAX_WIDTH}px。`);
+  }
   return {
     runs,
     visible_text: visible_parts.join(""),
     line_widths_px,
     max_width_px,
     visible_line_count: line_widths_px.length,
+    ruby_overflow,
+    overflow: width_overflow || line_overflow || ruby_overflow,
+    issues,
   };
+}
+
+export function has_fate_extra_psp_overflow(text: string): boolean {
+  for (let servant_index = 0; servant_index < 4; servant_index += 1) {
+    for (let gender_index = 0; gender_index < 2; gender_index += 1) {
+      if (
+        layout_fate_extra_preview({
+          text,
+          state: { servant_index, gender_index },
+        }).overflow
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 export function collect_fate_extra_visible_characters(text: string): Set<string> {

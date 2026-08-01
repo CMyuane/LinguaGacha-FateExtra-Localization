@@ -51,21 +51,8 @@ type PreviewItem = {
   dst: string;
   status: string;
   warnings: string[];
+  overflow: boolean;
   index: { path: string; char_offset: number };
-  capacity: {
-    category: string;
-    category_zh: string;
-    encoded_bytes: number;
-    slot_capacity: number | null;
-    remaining_bytes: number | null;
-    exceeded_bytes: number;
-    over_capacity: boolean;
-    capacity_violation: boolean;
-    allow_overlength: boolean;
-    allow_relocation: boolean;
-    translator_message: string;
-    address_limit: number | null;
-  };
 };
 
 type PreviewList = {
@@ -98,15 +85,24 @@ function draw_preview(canvas: HTMLCanvasElement, layout: FateExtraPreviewLayout)
   context.fillStyle = gradient;
   context.fillRect(0, 0, 480, 272);
 
-  let x = 18;
+  context.fillStyle = "rgba(4, 11, 23, .86)";
+  context.strokeStyle = "#9fc3e9";
+  context.lineWidth = 1;
+  context.fillRect(12, 69, 456, 135);
+  context.strokeRect(12.5, 69.5, 455, 134);
+  context.fillStyle = "rgba(126, 180, 231, .2)";
+  context.fillRect(18, 76, 444, 2);
+
+  let x = 24;
   let line = 0;
+  const line_y = [111, 147, 183];
   for (const run of layout.runs) {
     if (run.text === "\n") {
-      x = 18;
+      x = 24;
       line += 1;
       continue;
     }
-    const y = 38 + line * 32;
+    const y = line_y[line] ?? 219 + (line - 3) * 36;
     if (run.advance_px !== null) {
       x += run.advance_px;
       continue;
@@ -135,6 +131,11 @@ function draw_preview(canvas: HTMLCanvasElement, layout: FateExtraPreviewLayout)
       context.fillText(char, x, y);
       x += 24;
     }
+  }
+  if (layout.overflow) {
+    context.strokeStyle = "#ff8b8b";
+    context.lineWidth = 2;
+    context.strokeRect(17, 82, 446, 108);
   }
 }
 
@@ -419,7 +420,11 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           </h2>
           <p>{t("fate_extra_preview_page.description")}</p>
         </div>
-        <Badge variant="outline">480×272</Badge>
+        <Badge variant={layout.overflow ? "destructive" : "outline"}>
+          {layout.overflow
+            ? t("fate_extra_preview_page.overflow")
+            : t("fate_extra_preview_page.safe")}
+        </Badge>
       </header>
 
       <div className="fate-extra-preview__filters">
@@ -459,12 +464,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           }}
         >
           <option value="">{t("fate_extra_preview_page.all_warnings")}</option>
-          <option value="FE_STORAGE_CAPACITY">
-            {t("fate_extra_preview_page.capacity_warning_only")}
-          </option>
-          <option value="FE_MIGRATION_REVIEW">
-            {t("fate_extra_preview_page.migration_warning_only")}
-          </option>
+          <option value="FE_PSP_OVERFLOW">{t("fate_extra_preview_page.overflow_only")}</option>
         </select>
       </div>
 
@@ -512,12 +512,8 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           </div>
           <div className="fate-extra-preview__measurements">
             <span>480×272</span>
-            <span>
-              {t("fate_extra_preview_page.measured_width")}: {layout.max_width_px}px
-            </span>
-            <span>
-              {t("fate_extra_preview_page.physical_lines")}: {layout.visible_line_count}
-            </span>
+            <span>{layout.max_width_px}/432px</span>
+            <span>{layout.visible_line_count}/3 lines</span>
           </div>
         </section>
 
@@ -559,95 +555,39 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
                 <h3>{t("proofreading_page.fields.status")}</h3>
                 <div className="fate-extra-preview__badges">
                   <Badge variant="outline">{status_label}</Badge>
-                  {current.capacity.capacity_violation ? (
-                    <Badge variant="destructive">
-                      {t("fate_extra_preview_page.needs_shortening")}
-                    </Badge>
-                  ) : current.capacity.over_capacity ? (
-                    <Badge variant="secondary">
-                      {t("fate_extra_preview_page.overlength_allowed")}
-                    </Badge>
+                  {layout.overflow ? (
+                    <Badge variant="destructive">{t("fate_extra_preview_page.overflow")}</Badge>
                   ) : null}
-                  {current.warnings.map((warning_code) => {
-                    const label =
-                      warning_code === "FE_STORAGE_CAPACITY"
-                        ? t("fate_extra_preview_page.storage_capacity_warning")
-                        : warning_code === "FE_MIGRATION_REVIEW"
-                          ? t("fate_extra_preview_page.migration_review_warning")
-                          : Object.prototype.hasOwnProperty.call(
-                                PROOFREADING_WARNING_LABEL_KEY_BY_CODE,
-                                warning_code,
-                              )
-                            ? t(
-                                PROOFREADING_WARNING_LABEL_KEY_BY_CODE[
-                                  warning_code as keyof typeof PROOFREADING_WARNING_LABEL_KEY_BY_CODE
-                                ],
-                              )
-                            : warning_code;
-                    return (
-                      <Badge variant="outline" key={warning_code}>
-                        {label}
-                      </Badge>
-                    );
-                  })}
+                  {current.warnings
+                    .filter((warning_code) => warning_code !== "FE_PSP_OVERFLOW")
+                    .map((warning_code) => {
+                      const label = Object.prototype.hasOwnProperty.call(
+                        PROOFREADING_WARNING_LABEL_KEY_BY_CODE,
+                        warning_code,
+                      )
+                        ? t(
+                            PROOFREADING_WARNING_LABEL_KEY_BY_CODE[
+                              warning_code as keyof typeof PROOFREADING_WARNING_LABEL_KEY_BY_CODE
+                            ],
+                          )
+                        : warning_code;
+                      return (
+                        <Badge variant="outline" key={warning_code}>
+                          {label}
+                        </Badge>
+                      );
+                    })}
                   {dirty ? (
                     <Badge variant="secondary">{t("fate_extra_preview_page.unsaved")}</Badge>
                   ) : null}
                 </div>
               </section>
 
-              <section className="fate-extra-preview__capacity-section">
-                <h3>{t("fate_extra_preview_page.storage_capacity")}</h3>
-                <dl>
-                  <div>
-                    <dt>{t("fate_extra_preview_page.category")}</dt>
-                    <dd>{current.capacity.category_zh || current.capacity.category}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("fate_extra_preview_page.encoded_bytes")}</dt>
-                    <dd>{current.capacity.encoded_bytes}</dd>
-                  </div>
-                  <div>
-                    <dt>{t("fate_extra_preview_page.slot_capacity")}</dt>
-                    <dd>
-                      {current.capacity.slot_capacity ??
-                        t("fate_extra_preview_page.capacity_unlimited")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>
-                      {current.capacity.exceeded_bytes > 0
-                        ? t("fate_extra_preview_page.exceeded_bytes")
-                        : t("fate_extra_preview_page.remaining_bytes")}
-                    </dt>
-                    <dd>
-                      {current.capacity.exceeded_bytes > 0
-                        ? current.capacity.exceeded_bytes
-                        : (current.capacity.remaining_bytes ??
-                          t("fate_extra_preview_page.not_applicable"))}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t("fate_extra_preview_page.allow_overlength")}</dt>
-                    <dd>
-                      {current.capacity.allow_overlength
-                        ? t("fate_extra_preview_page.yes")
-                        : t("fate_extra_preview_page.no")}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>{t("fate_extra_preview_page.allow_relocation")}</dt>
-                    <dd>
-                      {current.capacity.allow_relocation
-                        ? t("fate_extra_preview_page.yes")
-                        : t("fate_extra_preview_page.no")}
-                    </dd>
-                  </div>
-                </dl>
-                {current.capacity.translator_message !== "" ? (
-                  <p>{current.capacity.translator_message}</p>
-                ) : null}
-              </section>
+              {layout.issues.map((issue) => (
+                <p className="fate-extra-preview__issue" key={issue}>
+                  {issue}
+                </p>
+              ))}
 
               <div className="fate-extra-preview__actions">
                 <AppButton

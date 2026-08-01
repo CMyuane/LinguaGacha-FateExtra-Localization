@@ -15,7 +15,10 @@ import type { ProjectSessionState } from "../project/project-session";
 import type { ProjectWriteStore } from "../project/project-write-store";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 import * as AppErrors from "../../shared/error";
-import { layout_fate_extra_preview } from "../../shared/fate-extra/fate-extra-layout";
+import {
+  has_fate_extra_psp_overflow,
+  layout_fate_extra_preview,
+} from "../../shared/fate-extra/fate-extra-layout";
 import {
   FATE_EXTRA_INDEX_LINE_PATTERN,
   parse_fate_extra_indexed_text,
@@ -29,6 +32,7 @@ import {
   FATE_EXTRA_DEFAULT_INDEXED_SOURCE_DIRECTORY,
   FATE_EXTRA_DEFAULT_LEGACY_PROJECT,
   FATE_EXTRA_DEFAULT_UNINDEXED_TRANSLATION_DIRECTORY,
+  FATE_EXTRA_OVERFLOW_WARNING_CODE,
   FATE_EXTRA_SCHEMA_VERSION,
   merge_fate_extra_item_metadata,
   read_fate_extra_item_metadata,
@@ -37,7 +41,6 @@ import {
   type FateExtraItemMetadata,
 } from "../../shared/fate-extra/fate-extra-types";
 import type { FateExtraFontService } from "./fate-extra-font-service";
-import { FateExtraGameTextCodec } from "./fate-extra-text-codec";
 
 type JsonRecord = Record<string, ApiJsonValue>;
 type MutableRecord = Record<string, unknown>;
@@ -418,14 +421,9 @@ export class FateExtraService {
         const src = String(item["src"] ?? "");
         const dst = String(item["dst"] ?? "");
         const effective = dst === "" ? src : dst;
-        const classification = metadata.classification;
-        const measurement = this.get_game_text_codec().measure(
-          effective,
-          classification.slot_capacity,
-        );
-        const capacity_violation = measurement.over_capacity && !classification.allow_overlength;
+        const overflow = has_fate_extra_psp_overflow(effective);
         const warnings = [
-          ...(capacity_violation ? ["FE_STORAGE_CAPACITY"] : []),
+          ...(overflow ? [FATE_EXTRA_OVERFLOW_WARNING_CODE] : []),
           ...(metadata.migration_review ? ["FE_MIGRATION_REVIEW"] : []),
         ];
         return [
@@ -437,21 +435,8 @@ export class FateExtraService {
             dst,
             status: String(item["status"] ?? "NONE"),
             warnings,
+            overflow,
             index: { path: metadata.path, char_offset: metadata.char_offset },
-            capacity: {
-              category: classification.category,
-              category_zh: classification.category_zh,
-              encoded_bytes: measurement.encoded_bytes,
-              slot_capacity: measurement.slot_capacity,
-              remaining_bytes: measurement.remaining_bytes,
-              exceeded_bytes: measurement.exceeded_bytes,
-              over_capacity: measurement.over_capacity,
-              capacity_violation,
-              allow_overlength: classification.allow_overlength,
-              allow_relocation: classification.allow_relocation,
-              translator_message: classification.translator_message,
-              address_limit: classification.address_limit,
-            },
           },
         ];
       })
@@ -513,16 +498,11 @@ export class FateExtraService {
     this.native_fs.make_dir(output_directory);
     const font_output = path.join(output_directory, "fate-extra-font", "NPJH50247");
     const font_manifest = this.font_service.sync_items(items, font_output);
-    const output_codec = FateExtraGameTextCodec.from_fontpack_directory(
-      font_output,
-      this.native_fs,
-    );
     const warnings = this.build_qa_warnings(
       item_rows as Array<{
         item: MutableRecord;
         metadata: FateExtraItemMetadata;
       }>,
-      output_codec,
     );
     const formats = Array.isArray(adapter["file_formats"])
       ? (adapter["file_formats"] as unknown as FateExtraFileFormat[])
@@ -929,7 +909,6 @@ export class FateExtraService {
 
   private build_qa_warnings(
     rows: Array<{ item: MutableRecord; metadata: FateExtraItemMetadata }>,
-    codec: FateExtraGameTextCodec = this.get_game_text_codec(),
   ): Array<Record<string, string | number>> {
     const warnings: Array<Record<string, string | number>> = [];
     for (const row of rows) {
@@ -943,6 +922,13 @@ export class FateExtraService {
         path: row.metadata.path,
         char_offset: row.metadata.char_offset,
       };
+      if (has_fate_extra_psp_overflow(text)) {
+        warnings.push({
+          ...base,
+          warning: FATE_EXTRA_OVERFLOW_WARNING_CODE,
+          message: "任一从者或性别条件分支超过 432px、3 行或 Ruby 宽度上限。",
+        });
+      }
       const ruby_open = text.match(/#RUBS/gu)?.length ?? 0;
       const ruby_base = text.match(/#RUBE/gu)?.length ?? 0;
       const ruby_end = text.match(/#REND/gu)?.length ?? 0;
@@ -961,27 +947,19 @@ export class FateExtraService {
         });
       }
       const capacity = row.metadata.classification.slot_capacity;
-      const capacity_measurement = codec.measure(text, capacity);
       if (
         capacity !== null &&
         !row.metadata.classification.allow_overlength &&
-        capacity_measurement.over_capacity
+        Buffer.byteLength(text, "utf-8") > capacity
       ) {
         warnings.push({
           ...base,
           warning: "FE_STORAGE_CAPACITY",
-          message: `译文按游戏编码为 ${capacity_measurement.encoded_bytes} 字节，超过槽位 ${capacity} 字节，需人工缩短 ${capacity_measurement.exceeded_bytes} 字节。`,
+          message: `文本可能超过固定槽位 ${capacity} 字节；重新导入前需要确认。`,
         });
       }
     }
     return warnings;
-  }
-
-  private get_game_text_codec(): FateExtraGameTextCodec {
-    return FateExtraGameTextCodec.from_fontpack_directory(
-      this.paths.get_resource_path("fate-extra", "fontpack", "NPJH50247"),
-      this.native_fs,
-    );
   }
 
   private create_project_backup(project_path: string): string {

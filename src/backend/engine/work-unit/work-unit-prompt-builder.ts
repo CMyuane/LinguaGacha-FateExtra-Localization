@@ -26,7 +26,6 @@ import {
   type TranslationLine,
   type TranslationPromptMode,
 } from "./translation-line";
-import { FateExtraGameTextCodec } from "../../toolbox/fate-extra-text-codec";
 
 /**
  * 提示词构造所需的最小配置快照，worker 只读取语言与界面语言
@@ -117,12 +116,6 @@ export class PromptBuilder {
       console_log.push(control_samples);
     }
 
-    const fate_extra_constraints = this.build_fate_extra_constraints(lines);
-    if (fate_extra_constraints !== "") {
-      user_parts.push(fate_extra_constraints);
-      console_log.push(fate_extra_constraints);
-    }
-
     const inputs = this.build_inputs(lines, mode);
     if (inputs !== "") {
       user_parts.push(inputs);
@@ -136,11 +129,7 @@ export class PromptBuilder {
   /**
    * 生成 SakuraLLM 固定提示词，保持旧模型专用语义
    */
-  public generate_prompt_sakura(
-    srcs: string[],
-    fate_extra = false,
-    lines: TranslationLine[] = [],
-  ): PromptBuildResult {
+  public generate_prompt_sakura(srcs: string[], fate_extra = false): PromptBuildResult {
     const messages: LLMMessage[] = [
       {
         role: "system",
@@ -160,11 +149,6 @@ export class PromptBuilder {
         content = `根据以下术语表（可以为空）：\n${glossary}\n将下面的日文文本根据对应关系和备注翻译成中文：\n${srcs.join("\n")}`;
         console_log.push(glossary);
       }
-    }
-    const fate_extra_constraints = this.build_fate_extra_constraints(lines);
-    if (fate_extra_constraints !== "") {
-      content = `${fate_extra_constraints}\n\n${content}`;
-      console_log.push(fate_extra_constraints);
     }
     messages.push({ role: "user", content });
     return { messages, console_log };
@@ -340,71 +324,6 @@ export class PromptBuilder {
       )
       .join("\n");
     return `${this.t("app.prompt.builder_input")}\n\`\`\`jsonline\n${inputs}\n\`\`\``;
-  }
-
-  public build_fate_extra_constraints(lines: TranslationLine[]): string {
-    const by_item = new Map<
-      number,
-      {
-        request_indices: number[];
-        constraint: NonNullable<TranslationLine["fate_extra_constraint"]>;
-      }
-    >();
-    for (const line of lines) {
-      const constraint = line.fate_extra_constraint;
-      if (constraint === undefined) {
-        continue;
-      }
-      const existing = by_item.get(line.item_index);
-      if (existing === undefined) {
-        by_item.set(line.item_index, {
-          request_indices: [line.request_index],
-          constraint,
-        });
-      } else {
-        existing.request_indices.push(line.request_index);
-      }
-    }
-    if (by_item.size === 0) {
-      return "";
-    }
-    let codec: FateExtraGameTextCodec | null = null;
-    const constraints = [...by_item.entries()].map(([item_index, entry]) => {
-      const constraint = entry.constraint;
-      const output: Record<string, unknown> = {
-        item: item_index,
-        request_indices: entry.request_indices,
-        category: constraint.category,
-        slot_capacity: constraint.slot_capacity,
-        allow_overlength: constraint.allow_overlength,
-        allow_relocation: constraint.allow_relocation,
-      };
-      if (constraint.address_limit !== null) {
-        output["address_limit"] = constraint.address_limit;
-      }
-      if (
-        constraint.current_translation !== "" &&
-        constraint.slot_capacity !== null &&
-        !constraint.allow_overlength
-      ) {
-        codec ??= FateExtraGameTextCodec.from_fontpack_directory(
-          path.join(this.app_root, "resource", "fate-extra", "fontpack", "NPJH50247"),
-        );
-        const previous = codec.measure(constraint.current_translation, constraint.slot_capacity);
-        if (previous.over_capacity) {
-          output["previous_translation"] = constraint.current_translation;
-          output["previous_encoded_bytes"] = previous.encoded_bytes;
-          output["must_reduce_bytes"] = previous.exceeded_bytes;
-        }
-      }
-      return JsonTool.stringifyStrict(output);
-    });
-    return [
-      "Fate/Extra 逐条存储约束（仅用于翻译判断，禁止在输出中复述）：",
-      "```jsonline",
-      ...constraints,
-      "```",
-    ].join("\n");
   }
 
   /**

@@ -1,5 +1,3 @@
-import path from "node:path";
-
 import type { ApiJsonValue } from "../../../api/api-types";
 import {
   TextProcessingConfigTool,
@@ -34,7 +32,6 @@ import { resolve_app_locale } from "../../../../domain/app-language";
 import { format_i18n_message, type LocaleKey } from "../../../../shared/i18n";
 import type { LogError } from "../../../../shared/error";
 import { has_translation_retry_reached_review_threshold } from "../../../../shared/text/translation-quality-rules";
-import { FateExtraGameTextCodec } from "../../../toolbox/fate-extra-text-codec";
 
 /**
  * worker 边界传入的公共请求字段，全部来自任务启动时的不可变快照。
@@ -72,13 +69,6 @@ interface TranslationWorkUnitResult {
 }
 
 type TranslationAlignmentFailureReason = "no_valid_translation" | "line_count_mismatch";
-
-type FateExtraCapacityFailure = {
-  item_id: number | string;
-  encoded_bytes: number;
-  slot_capacity: number;
-  exceeded_bytes: number;
-};
 
 /**
  * 对齐结果同时服务日志和提交；失败时仍保留可解析输出，供阈值 fallback 裁决。
@@ -293,7 +283,6 @@ export class TranslationWorkUnitRunner {
         ? prompt_builder.generate_prompt_sakura(
             read_translation_text_srcs(lines),
             lines.some((line) => line.fate_extra === true),
-            lines,
           )
         : await prompt_builder.generate_prompt(lines, mode, samples, precedings);
     return {
@@ -359,8 +348,6 @@ export class TranslationWorkUnitRunner {
       request_error: context.request_error,
       request: context.request,
     });
-    const capacity_failures: FateExtraCapacityFailure[] = [];
-    const structure_failure_ids: Array<number | string> = [];
     let updated_count = 0;
     if (decision.used_fallback && decision.fallback_dst !== null) {
       const item = context.items[0];
@@ -391,46 +378,14 @@ export class TranslationWorkUnitRunner {
             item_lines,
             context.mode,
           );
-          if (!this.has_matching_fate_extra_physical_lines(pipeline_context, post_result.dst)) {
-            structure_failure_ids.push(item.id ?? "(unknown)");
-            continue;
-          }
           item.dst = post_result.dst;
           if (Object.prototype.hasOwnProperty.call(post_result, "name_dst")) {
             item.name_dst = post_result.name_dst ?? null;
-          }
-          const capacity_failure = this.measure_fate_extra_capacity_failure(
-            pipeline_context,
-            post_result.dst,
-          );
-          if (capacity_failure !== null) {
-            capacity_failures.push({
-              item_id: item.id ?? "(unknown)",
-              ...capacity_failure,
-            });
-            continue;
           }
           item.status = "PROCESSED";
           updated_count += 1;
         }
       }
-    }
-    if (structure_failure_ids.length > 0) {
-      logs.push({
-        level: "error",
-        message: `Fate/Extra 译文物理换行结构不一致，必须保持原文行数、空行位置和换行边界：${structure_failure_ids.join(", ")}\n`,
-      });
-    }
-    if (capacity_failures.length > 0) {
-      logs.push({
-        level: "warning",
-        message: `${capacity_failures
-          .map(
-            (failure) =>
-              `Fate/Extra 条目 ${String(failure.item_id)} 需要人工缩短或自动重试：当前 ${failure.encoded_bytes} 字节，容量 ${failure.slot_capacity} 字节，至少缩短 ${failure.exceeded_bytes} 字节。`,
-          )
-          .join("\n")}\n`,
-      });
     }
     if (
       updated_count === 0 &&
@@ -542,8 +497,7 @@ export class TranslationWorkUnitRunner {
       alignment.ok &&
       reached_threshold &&
       checks.some((check) => check !== "NONE") &&
-      !checks.every((check) => check === "FAIL_DATA") &&
-      !this.has_fate_extra_structure_failure(context.lines, checks);
+      !checks.every((check) => check === "FAIL_DATA");
     return {
       checks,
       submit_checks: release_aligned ? context.lines.map(() => "NONE") : checks,
@@ -578,7 +532,6 @@ export class TranslationWorkUnitRunner {
       alignment.reason !== "line_count_mismatch" ||
       !reached_threshold ||
       items.length !== 1 ||
-      this.is_fate_extra_item(items[0]) ||
       alignment.decoded_lines.length === 0
     ) {
       return null;
@@ -630,73 +583,12 @@ export class TranslationWorkUnitRunner {
         () => pipeline_context.item?.skip_internal_filter === true,
       ),
     );
-    const checks = ResponseChecker.check_aligned(
+    return ResponseChecker.check_aligned(
       srcs,
       alignment.dsts,
       context.config,
       skip_internal_filter_by_line,
     );
-    return checks.map((check, index) =>
-      context.lines[index]?.fate_extra === true &&
-      /[\r\n]/u.test(alignment.decoded_lines[index]?.text_dst ?? "")
-        ? "FAIL_LINE_COUNT"
-        : check,
-    );
-  }
-
-  private has_fate_extra_structure_failure(lines: TranslationLine[], checks: string[]): boolean {
-    return checks.some(
-      (check, index) => check === "FAIL_LINE_COUNT" && lines[index]?.fate_extra === true,
-    );
-  }
-
-  private is_fate_extra_item(item: TextTaskItemRecord | undefined): boolean {
-    if (item === undefined || typeof item.extra_field !== "object" || item.extra_field === null) {
-      return false;
-    }
-    return Object.prototype.hasOwnProperty.call(item.extra_field, "__linguagacha_fe_v1");
-  }
-
-  private has_matching_fate_extra_physical_lines(
-    pipeline_context: TranslationPrePipelineContext,
-    dst: string,
-  ): boolean {
-    if (!pipeline_context.lines.some((line) => line.fate_extra === true)) {
-      return true;
-    }
-    const source_lines = pipeline_context.source_text.split(/\r\n|\r|\n/u);
-    const destination_lines = dst.split(/\r\n|\r|\n/u);
-    if (source_lines.length !== destination_lines.length) {
-      return false;
-    }
-    return source_lines.every(
-      (line, index) => (line.trim() === "") === (destination_lines[index]?.trim() === ""),
-    );
-  }
-
-  private measure_fate_extra_capacity_failure(
-    pipeline_context: TranslationPrePipelineContext,
-    dst: string,
-  ): Omit<FateExtraCapacityFailure, "item_id"> | null {
-    const constraint = pipeline_context.lines[0]?.fate_extra_constraint;
-    if (
-      constraint === undefined ||
-      constraint.slot_capacity === null ||
-      constraint.allow_overlength
-    ) {
-      return null;
-    }
-    const codec = FateExtraGameTextCodec.from_fontpack_directory(
-      path.join(this.app_root, "resource", "fate-extra", "fontpack", "NPJH50247"),
-    );
-    const measurement = codec.measure(dst, constraint.slot_capacity);
-    return measurement.over_capacity
-      ? {
-          encoded_bytes: measurement.encoded_bytes,
-          slot_capacity: constraint.slot_capacity,
-          exceeded_bytes: measurement.exceeded_bytes,
-        }
-      : null;
   }
 
   /**

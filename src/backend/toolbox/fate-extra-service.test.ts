@@ -83,60 +83,6 @@ describe("FateExtraService", () => {
       applied_at: "2026-07-28T00:00:00.000Z",
     });
   });
-
-  it("条目接口按游戏编码返回容量派生字段和非阻断警告", () => {
-    const { service } = create_service({
-      meta: revision_meta({}),
-      items: [
-        {
-          id: 7,
-          file_path: "route.txt",
-          row: 3,
-          src: "原文",
-          dst: "A中",
-          status: "PROCESSED",
-          extra_field: {
-            __linguagacha_fe_v1: {
-              schema_version: 1,
-              path: "field/test.dat",
-              char_offset: 42,
-              migration_review: false,
-              classification: {
-                category: "ordinary_independent_slot",
-                category_zh: "普通独立槽位",
-                slot_capacity: 2,
-                allow_overlength: false,
-                allow_relocation: false,
-                translator_message: "请缩短",
-                address_limit: null,
-              },
-            },
-          },
-        },
-      ],
-    });
-
-    expect(service.list_items({ project_path: PROJECT_PATH })).toMatchObject({
-      total: 1,
-      items: [
-        {
-          item_id: 7,
-          warnings: ["FE_STORAGE_CAPACITY"],
-          capacity: {
-            category: "ordinary_independent_slot",
-            encoded_bytes: 3,
-            slot_capacity: 2,
-            remaining_bytes: -1,
-            exceeded_bytes: 1,
-            over_capacity: true,
-            capacity_violation: true,
-            allow_overlength: false,
-            allow_relocation: false,
-          },
-        },
-      ],
-    });
-  });
 });
 
 function assert_draft(service: FateExtraService): void {
@@ -155,17 +101,14 @@ function assert_draft(service: FateExtraService): void {
   });
 }
 
-function create_service(args: {
-  meta: Record<string, unknown>;
-  items?: Array<Record<string, unknown>>;
-}): {
+function create_service(args: { meta: Record<string, unknown> }): {
   service: FateExtraService;
   stat: ReturnType<typeof vi.fn>;
 } {
   const database = {
     execute: vi.fn((operation: { name: string }) => {
       if (operation.name === "getAllMeta") return args.meta;
-      if (operation.name === "getAllItems") return args.items ?? [];
+      if (operation.name === "getAllItems") return [];
       return [];
     }),
   };
@@ -180,15 +123,9 @@ function create_service(args: {
   const native_fs = {
     stat,
     to_identity_path: (file_path: string) => file_path.toLocaleLowerCase(),
-    read_text_file: (file_path: string) =>
-      file_path.endsWith("jp-font-map.json")
-        ? '{"records":[{"char":"A","encoded_hex":"8140"}]}'
-        : '{"records":[{"char":"A","encoded_hex":"41"},{"char":"中","encoded_hex":"F040"}]}',
   };
   const service = new FateExtraService(
-    {
-      get_resource_path: (...parts: string[]) => parts.join("/"),
-    } as AppPathService,
+    {} as AppPathService,
     database as unknown as ProjectDatabase,
     session_state as unknown as ProjectSessionState,
     {} as ProjectOperationGate,

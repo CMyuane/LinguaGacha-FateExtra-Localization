@@ -98,12 +98,3 @@ POST /api/toolbox/fate-extra/export
 导出；字库同步失败、编码槽耗尽、索引结构损坏和输出不可写属于系统错误。项目元数据
 只记录语料、manifest 哈希及剩余槽数，不把分类数据库、译文或字体生成临时目录写入
 `.lg`。
-
-FE 翻译预处理从 `extra_field.__linguagacha_fe_v1.classification` 按逻辑条目生成容量
-约束；同一条目的多行共享一个 `slot_capacity`。译后 pipeline 恢复控制符、空白和换行
-后，统一编码器按 `chinese-glyph-codec.json`、日版字形映射和未来双字节扩展规则计数。
-禁止超长的条目保持 `NONE` 以便只重试违规项；最多三次后 Engine 保留最后草稿并标记
-`ERROR`。物理行数、空行位置与换行边界也是 FE 硬规则，不受通用质量阈值放行。
-
-`/api/toolbox/fate-extra/items` 额外返回容量派生字段供预览使用，但不改变 `.lg` 表结构
-或 FE 元数据版本。手动超限保存允许；导出的 `FE_STORAGE_CAPACITY` 是非阻断警告。
