@@ -11,6 +11,7 @@
   gap: 10px;
   padding: 14px;
   overflow: hidden;
+  container-type: inline-size;
 }
 
 .fate-extra-preview__header,
@@ -46,7 +47,13 @@
 }
 
 .fate-extra-preview__filters input {
+  min-width: 180px;
+  flex: 1 1 280px;
   max-width: 360px;
+}
+
+.fate-extra-preview__filters {
+  flex-wrap: wrap;
 }
 
 .fate-extra-preview select {
@@ -63,13 +70,16 @@
 .fate-extra-preview__main {
   display: grid;
   min-height: 0;
-  grid-template-columns: minmax(500px, 1.15fr) minmax(300px, 0.85fr);
+  min-width: 0;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
   gap: 12px;
+  overflow: hidden;
 }
 
 .fate-extra-preview__stage,
 .fate-extra-preview__details {
   min-height: 0;
+  min-width: 0;
   border: 1px solid var(--border);
   border-radius: var(--card-radius-current);
   background: var(--card);
@@ -120,8 +130,15 @@
 
 .fate-extra-preview__identity {
   display: flex;
+  min-width: 0;
   flex-direction: column;
   gap: 6px;
+}
+
+.fate-extra-preview__identity strong,
+.fate-extra-preview__identity span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .fate-extra-preview__details code {
@@ -150,7 +167,23 @@
 .fate-extra-preview__editor {
   --app-editor-min-height: 128px;
   --app-editor-scroller-min-height: 126px;
+  min-width: 0;
+  max-width: 100%;
   flex: 1 1 128px;
+}
+
+.fate-extra-preview__editor .cm-editor,
+.fate-extra-preview__editor .cm-scroller,
+.fate-extra-preview__editor .cm-content {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.fate-extra-preview__editor .cm-lineWrapping,
+.fate-extra-preview__editor .cm-line {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fate-extra-preview__badges,
@@ -172,11 +205,39 @@
 }
 
 .fate-extra-preview__footer {
+  grid-row: 5;
   justify-content: center;
+  position: sticky;
+  z-index: 5;
+  bottom: 0;
+  min-height: 46px;
+  flex: 0 0 auto;
+  border-top: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  background: color-mix(in srgb, var(--background) 94%, transparent);
+  box-shadow: 0 -10px 24px color-mix(in srgb, black 8%, transparent);
+  backdrop-filter: blur(10px);
 }
 
-.fate-extra-preview__footer span {
-  min-width: 100px;
+.fate-extra-preview__jump-control {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.fate-extra-preview__jump-control input {
+  width: 78px;
+  min-width: 0;
+  height: 32px;
+  flex: 0 0 78px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.fate-extra-preview__jump-control span {
+  min-width: 64px;
   text-align: center;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
@@ -184,6 +245,7 @@
 }
 
 .fate-extra-preview__feedback {
+  grid-row: 4;
   min-height: 18px;
   text-align: center;
   font-size: 12px;
@@ -197,9 +259,35 @@
   color: var(--success);
 }
 
-@media (max-width: 980px) {
+@container (max-width: 900px) {
   .fate-extra-preview__main {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto;
     overflow: auto;
+  }
+
+  .fate-extra-preview__stage {
+    min-height: 360px;
+  }
+
+  .fate-extra-preview__details {
+    min-height: 520px;
+    overflow: visible;
+  }
+}
+
+@container (max-width: 540px) {
+  .fate-extra-preview__footer {
+    flex-wrap: wrap;
+    padding-block: 6px;
+  }
+
+  .fate-extra-preview__footer > button {
+    flex: 1 1 120px;
+  }
+
+  .fate-extra-preview__jump-control {
+    order: -1;
+    width: 100%;
   }
 }

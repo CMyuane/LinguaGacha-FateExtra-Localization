@@ -253,4 +253,43 @@ describe("FateExtraPreviewPage", () => {
       limit: 500,
     });
   });
+
+  it("支持输入条目序号并按回车跳转到对应批次", async () => {
+    await render_page();
+    const jump_input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="fate_extra_preview_page.jump_to"]',
+    );
+    expect(jump_input?.value).toBe("1");
+
+    await act(async () => {
+      if (jump_input !== null) {
+        const value_setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        value_setter?.call(jump_input, "501");
+        jump_input.dispatchEvent(new Event("input", { bubbles: true }));
+        jump_input.dispatchEvent(new Event("change", { bubbles: true }));
+        jump_input.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+        );
+      }
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api_fetch_mock).toHaveBeenLastCalledWith("/api/toolbox/fate-extra/items", {
+      project_path: "D:\\project.lg",
+      search: "",
+      file_path: "",
+      warning: "",
+      offset: 500,
+      limit: 500,
+    });
+    expect(jump_input?.value).toBe("501");
+  });
 });

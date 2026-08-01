@@ -9,6 +9,8 @@ export const en_us_fate_extra_preview_page = {
   translation: "Translation",
   previous: "Previous",
   next: "Next",
+  jump_to: "Jump to item",
+  jump: "Go",
   search: "Search text or file",
   all_files: "All files",
   all_warnings: "All warnings",

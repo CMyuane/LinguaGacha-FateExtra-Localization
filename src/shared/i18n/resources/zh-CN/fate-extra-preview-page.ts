@@ -5,6 +5,8 @@ export const zh_cn_fate_extra_preview_page = {
   translation: "译文",
   previous: "上一条",
   next: "下一条",
+  jump_to: "跳转到条目",
+  jump: "跳转",
   search: "搜索正文或文件",
   all_files: "全部文件",
   all_warnings: "全部警告",

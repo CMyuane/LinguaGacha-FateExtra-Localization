@@ -154,6 +154,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [total, set_total] = useState(0);
   const [offset, set_offset] = useState(0);
   const [selected, set_selected] = useState(0);
+  const [jump_value, set_jump_value] = useState("0");
   const [search, set_search] = useState("");
   const [file_path, set_file_path] = useState("");
   const [warning, set_warning] = useState("");
@@ -206,11 +207,16 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   }, [file_path, offset, project_change_signal.seq, project_path, search, t, warning]);
 
   const current = items[selected] ?? null;
+  const current_position = current === null ? 0 : offset + selected + 1;
   useEffect(() => {
     set_draft_dst(current?.dst ?? "");
     set_feedback("");
     set_error("");
   }, [current?.dst, current?.item_id]);
+
+  useEffect(() => {
+    set_jump_value(String(current_position));
+  }, [current_position]);
 
   const dirty = current !== null && draft_dst !== current.dst;
   const writing = busy !== "" || readonly;
@@ -398,6 +404,20 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       set_offset(offset + PREVIEW_PAGE_SIZE);
       set_selected(0);
     }
+  }
+
+  function jump_to_entry(): void {
+    if (dirty || writing || total <= 0) return;
+    const requested_position = Number(jump_value);
+    if (!Number.isFinite(requested_position)) {
+      set_jump_value(String(current_position));
+      return;
+    }
+    const target_position = Math.min(total, Math.max(1, Math.trunc(requested_position)));
+    const target_index = target_position - 1;
+    set_offset(Math.floor(target_index / PREVIEW_PAGE_SIZE) * PREVIEW_PAGE_SIZE);
+    set_selected(target_index % PREVIEW_PAGE_SIZE);
+    set_jump_value(String(target_position));
   }
 
   const status_label =
@@ -652,9 +672,34 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           <ChevronLeft data-icon="inline-start" />
           {t("fate_extra_preview_page.previous")}
         </AppButton>
-        <span>
-          {items.length === 0 ? 0 : offset + selected + 1} / {total}
-        </span>
+        <div className="fate-extra-preview__jump-control">
+          <Input
+            type="number"
+            inputMode="numeric"
+            min={total > 0 ? 1 : 0}
+            max={total}
+            step={1}
+            value={jump_value}
+            disabled={dirty || writing || total <= 0}
+            aria-label={t("fate_extra_preview_page.jump_to")}
+            onChange={(event) => set_jump_value(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                jump_to_entry();
+              }
+            }}
+          />
+          <span>/ {total}</span>
+          <AppButton
+            variant="outline"
+            size="sm"
+            disabled={dirty || writing || total <= 0 || jump_value.trim() === ""}
+            onClick={jump_to_entry}
+          >
+            {t("fate_extra_preview_page.jump")}
+          </AppButton>
+        </div>
         <AppButton
           variant="outline"
           disabled={dirty || writing || offset + selected + 1 >= total}
