@@ -6,6 +6,7 @@ export const de_de_fate_extra_page = {
   description:
     "Indizierte Quellen und Klassifikationsdaten prüfen, Übersetzungen sicher migrieren und PSP-Reimporttexte sowie Schriften exportieren.",
   source_directory: "Ordner der indizierten japanischen Quellen",
+  complete_jp_source_file: "Vollständige kanonische JP-Extraktion",
   classification_database: "FE-Textsicherheitsdatenbank",
   migration_project: "Altes Übersetzungsprojekt (optional)",
   migration_text_directory: "Ordner mit sechs Übersetzungen ohne Index (optional)",
@@ -27,4 +28,7 @@ export const de_de_fate_extra_page = {
   workflow_hint: "Reihenfolge: Prüfbericht erstellen → prüfen → FE-Adapter anwenden → exportieren.",
   export_done: "Export abgeschlossen. Hinweise haben die Ausgabe nicht blockiert.",
   font_ready: "Schriftabdeckung für den aktuellen Textbestand wurde geprüft.",
+  compact_create: "Kompaktes Projekt erstellen",
+  compact_done: "Kompaktes Projekt erstellt:",
+  compact_already: "Das aktuelle Projekt ist bereits kompakt.",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_page>;

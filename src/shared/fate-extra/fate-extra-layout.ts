@@ -2,9 +2,18 @@ export const FATE_EXTRA_PSP_WIDTH = 480;
 export const FATE_EXTRA_PSP_HEIGHT = 272;
 export const FATE_EXTRA_TEXT_WIDTH = 432;
 export const FATE_EXTRA_MAX_VISIBLE_LINES = 3;
-export const FATE_EXTRA_GLYPH_ADVANCE = 24;
+export const FATE_EXTRA_GLYPH_ADVANCE = 21;
 export const FATE_EXTRA_RUBY_GLYPH_ADVANCE = 12;
 export const FATE_EXTRA_RUBY_MAX_WIDTH = 192;
+
+export type FateExtraResolvedDisplayMode = "dialogue" | "fullscreen" | "poem" | "unknown";
+
+export const FATE_EXTRA_LAYOUT_PROFILES = {
+  dialogue: { line_limits: [20, 20, 20], max_lines: 3 },
+  fullscreen: { line_limits: [30, 30, 30, 30, 30, 30, 30, 30], max_lines: 8 },
+  poem: { line_limits: [24, 24, 24, 24, 24, 24, 24, 24], max_lines: 8 },
+  unknown: { line_limits: [Number.POSITIVE_INFINITY], max_lines: Number.POSITIVE_INFINITY },
+} as const;
 
 export type FateExtraPreviewVariables = {
   family: string;
@@ -31,12 +40,39 @@ export type FateExtraPreviewLayout = {
   runs: FateExtraPreviewRun[];
   visible_text: string;
   line_widths_px: number[];
+  line_has_ruby: boolean[];
   max_width_px: number;
   visible_line_count: number;
+  line_visible_units: number[];
+  display_mode: FateExtraResolvedDisplayMode;
+  glyph_advance_px: number;
   ruby_overflow: boolean;
   overflow: boolean;
   issues: string[];
 };
+
+const FATE_EXTRA_GLYPH_ADVANCE_BY_MODE: Record<FateExtraResolvedDisplayMode, number> = {
+  dialogue: FATE_EXTRA_GLYPH_ADVANCE,
+  fullscreen: 14,
+  poem: 18,
+  unknown: FATE_EXTRA_GLYPH_ADVANCE,
+};
+
+const FATE_EXTRA_CONTROL_TOKEN_PATTERN =
+  /#(?:RUBS|RUBE|REND|C(?:DEF|\d{8,9})|ROFS-?\d+|SIZE\([^)]*\)|SP(?:\([^)]*\)|\d+)|SVT|FAMILY\d*|GIVEN\d*|NICK\d*|ITEM\d*|TITM\d*|TVAL\d*|VAL\d*|TRG\d*|ITALICS|[12])|<ICON[^>]*>/gu;
+
+export function collect_fate_extra_control_tokens(text: string): string[] {
+  return text.match(FATE_EXTRA_CONTROL_TOKEN_PATTERN) ?? [];
+}
+
+export function has_fate_extra_control_sequence_mismatch(source: string, target: string): boolean {
+  const source_tokens = collect_fate_extra_control_tokens(source);
+  const target_tokens = collect_fate_extra_control_tokens(target);
+  return (
+    source_tokens.length !== target_tokens.length ||
+    source_tokens.some((token, index) => token !== target_tokens[index])
+  );
+}
 
 export const FATE_EXTRA_DEFAULT_PREVIEW_VARIABLES: FateExtraPreviewVariables = {
   family: "岸波",
@@ -288,9 +324,24 @@ export function layout_fate_extra_preview(args: {
   text: string;
   state?: Partial<FateExtraBranchState>;
   variables?: Partial<FateExtraPreviewVariables>;
+  display_mode?: FateExtraResolvedDisplayMode;
+  line_limit?: number;
 }): FateExtraPreviewLayout {
   const runs = resolve_fate_extra_preview_runs(args);
+  const display_mode = args.display_mode ?? "dialogue";
+  const base_profile = FATE_EXTRA_LAYOUT_PROFILES[display_mode];
+  const glyph_advance_px = FATE_EXTRA_GLYPH_ADVANCE_BY_MODE[display_mode];
+  const requested_limit = Math.trunc(Number(args.line_limit ?? 0));
+  const profile =
+    requested_limit > 0 && Number.isFinite(requested_limit)
+      ? {
+          line_limits: Array.from({ length: base_profile.max_lines }, () => requested_limit),
+          max_lines: base_profile.max_lines,
+        }
+      : base_profile;
   const line_widths_px = [0];
+  const line_visible_units = [0];
+  const line_has_ruby = [false];
   const visible_parts: string[] = [];
   let line = 0;
   let ruby_overflow = false;
@@ -300,49 +351,80 @@ export function layout_fate_extra_preview(args: {
       visible_parts.push("\n");
       line += 1;
       line_widths_px.push(0);
+      line_visible_units.push(0);
+      line_has_ruby.push(false);
       continue;
     }
     const width =
-      run.advance_px ??
-      (run.icon ? FATE_EXTRA_GLYPH_ADVANCE : [...run.text].length * FATE_EXTRA_GLYPH_ADVANCE);
+      run.advance_px ?? (run.icon ? glyph_advance_px : [...run.text].length * glyph_advance_px);
     line_widths_px[line] = (line_widths_px[line] ?? 0) + width;
+    line_visible_units[line] =
+      (line_visible_units[line] ?? 0) +
+      (run.advance_px !== null
+        ? Math.ceil(run.advance_px / glyph_advance_px)
+        : run.icon
+          ? 1
+          : [...run.text].length);
     visible_parts.push(run.text);
+    if (run.ruby !== "") {
+      line_has_ruby[line] = true;
+    }
     if ([...run.ruby].length * FATE_EXTRA_RUBY_GLYPH_ADVANCE > FATE_EXTRA_RUBY_MAX_WIDTH) {
       ruby_overflow = true;
     }
   }
 
   const max_width_px = Math.max(...line_widths_px);
-  const width_overflow = max_width_px > FATE_EXTRA_TEXT_WIDTH;
-  const line_overflow = line_widths_px.length > FATE_EXTRA_MAX_VISIBLE_LINES;
+  const width_overflow =
+    display_mode !== "unknown" &&
+    line_visible_units.some(
+      (units, index) => units > (profile.line_limits[index] ?? profile.line_limits.at(-1) ?? 0),
+    );
+  const line_overflow = display_mode !== "unknown" && line_widths_px.length > profile.max_lines;
   const issues: string[] = [];
   if (width_overflow) {
-    issues.push(`正文宽度 ${max_width_px}px 超过 PSP 对话区域 ${FATE_EXTRA_TEXT_WIDTH}px。`);
+    const details = line_visible_units
+      .map((units, index) => `${index + 1}:${units}/${profile.line_limits[index] ?? "-"}`)
+      .join("，");
+    issues.push(`${display_mode} 文本可见字符超过当前行上限（${details}）。`);
   }
   if (line_overflow) {
-    issues.push(`正文共有 ${line_widths_px.length} 行，超过 PSP 对话框可见的 3 行。`);
+    issues.push(
+      `正文共有 ${line_widths_px.length} 行，超过 ${display_mode} 模式上限 ${profile.max_lines} 行。`,
+    );
   }
   if (ruby_overflow) {
     issues.push(`Ruby 读音宽度超过 ${FATE_EXTRA_RUBY_MAX_WIDTH}px。`);
+  }
+  if (display_mode === "unknown") {
+    issues.push("脚本显示类型尚未解析；请人工确认对白、全屏文本或诗文模式后再判定溢出。");
   }
   return {
     runs,
     visible_text: visible_parts.join(""),
     line_widths_px,
+    line_has_ruby,
     max_width_px,
     visible_line_count: line_widths_px.length,
+    line_visible_units,
+    display_mode,
+    glyph_advance_px,
     ruby_overflow,
     overflow: width_overflow || line_overflow || ruby_overflow,
     issues,
   };
 }
 
-export function has_fate_extra_psp_overflow(text: string): boolean {
+export function has_fate_extra_psp_overflow(
+  text: string,
+  display_mode: FateExtraResolvedDisplayMode = "dialogue",
+): boolean {
   for (let servant_index = 0; servant_index < 4; servant_index += 1) {
     for (let gender_index = 0; gender_index < 2; gender_index += 1) {
       if (
         layout_fate_extra_preview({
           text,
+          display_mode,
           state: { servant_index, gender_index },
         }).overflow
       ) {

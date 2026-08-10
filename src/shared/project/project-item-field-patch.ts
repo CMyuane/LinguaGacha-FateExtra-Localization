@@ -2,7 +2,13 @@ import { Item, is_item_status, type ItemNameField, type ItemStatus } from "../..
 import { are_item_name_fields_equal } from "../item-name";
 import type { ProjectChangeItemFieldPatch } from "../project-event";
 
-export const PROJECT_ITEM_FIELD_PATCH_KEYS = ["dst", "name_dst", "status", "retry_count"] as const;
+export const PROJECT_ITEM_FIELD_PATCH_KEYS = [
+  "dst",
+  "name_dst",
+  "status",
+  "retry_count",
+  "extra_field",
+] as const;
 
 type ProjectItemFieldPatchKey = (typeof PROJECT_ITEM_FIELD_PATCH_KEYS)[number];
 
@@ -11,6 +17,7 @@ type ProjectItemFieldPatchSource = {
   name_dst?: unknown;
   status?: unknown;
   retry_count?: unknown;
+  extra_field?: unknown;
 };
 
 type ProjectItemFieldPatchTarget = {
@@ -18,6 +25,7 @@ type ProjectItemFieldPatchTarget = {
   name_dst: ItemNameField;
   status: string;
   retry_count: number;
+  extra_field?: unknown;
 };
 
 function has_own_field(
@@ -58,6 +66,9 @@ export function normalize_project_item_field_patch(
   if (Number.isFinite(retry_count)) {
     patch.retry_count = Math.trunc(retry_count);
   }
+  if (has_own_field(value, "extra_field")) {
+    patch.extra_field = value.extra_field as ProjectChangeItemFieldPatch["extra_field"];
+  }
 
   return is_project_item_field_patch_empty(patch) ? null : patch;
 }
@@ -91,6 +102,10 @@ export function apply_project_item_field_patch<TItem extends ProjectItemFieldPat
     next_item.retry_count = patch.retry_count;
     touched = true;
   }
+  if (Object.prototype.hasOwnProperty.call(patch, "extra_field")) {
+    next_item.extra_field = patch.extra_field;
+    touched = true;
+  }
 
   return touched ? next_item : null;
 }
@@ -116,6 +131,9 @@ export function build_project_item_field_patch(
   const retry_count = Number(next.retry_count);
   if (Number.isFinite(retry_count) && retry_count !== Number(current.retry_count)) {
     patch.retry_count = Math.max(0, Math.trunc(retry_count));
+  }
+  if (has_own_field(next, "extra_field") && next.extra_field !== current.extra_field) {
+    patch.extra_field = next.extra_field as ProjectChangeItemFieldPatch["extra_field"];
   }
 
   return is_project_item_field_patch_empty(patch) ? null : patch;

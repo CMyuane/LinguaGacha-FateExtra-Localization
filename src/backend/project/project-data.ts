@@ -13,6 +13,7 @@ import {
   type ProjectDataSection,
 } from "../../shared/project-event";
 import * as AppErrors from "../../shared/error";
+import { FATE_EXTRA_ADAPTER_META_KEY } from "../../shared/fate-extra/fate-extra-types";
 
 type JsonRecord = Record<string, ApiJsonValue>;
 
@@ -137,12 +138,13 @@ export class ProjectDataReader {
   }): ProjectDataRecord {
     const project_path = args.projectState.loaded ? args.projectState.projectPath : "";
     const meta = project_path === "" ? {} : this.get_all_meta(project_path);
+    const use_lightweight_items = this.is_fate_extra_adapter(meta);
     let items_snapshot: ProjectDataItemsSnapshot | null = null;
     const read_items_snapshot = (): ProjectDataItemsSnapshot => {
       if (items_snapshot === null) {
         // 同一次 section 组装最多读取一次 items，避免 files/items 同取时重复扫表
         items_snapshot =
-          project_path === ""
+          project_path === "" || use_lightweight_items
             ? this.empty_items_snapshot()
             : this.build_runtime_items_snapshot(project_path);
       }
@@ -478,6 +480,16 @@ export class ProjectDataReader {
         : this.build_analysis_block(args.meta);
     }
     return this.build_proofreading_block(args.meta);
+  }
+
+  /**
+   * FE adaptation can expose close to one million logical extraction candidates.
+   * Its dedicated preview API is database-paged, so publishing the same rows again
+   * through the generic in-memory items section would exhaust Electron's heap.
+   */
+  private is_fate_extra_adapter(meta: ProjectDataJsonRecord): boolean {
+    const adapter = meta[FATE_EXTRA_ADAPTER_META_KEY];
+    return this.is_record(adapter) && adapter["enabled"] === true;
   }
 
   /**

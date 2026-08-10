@@ -8,7 +8,6 @@ import { FateExtraPreviewPage } from "@frontend/pages/fate-extra-preview-page/pa
 import { GlossaryPage } from "@frontend/pages/glossary-page/page";
 import { LaboratoryPage } from "@frontend/pages/laboratory-page/page";
 import { ModelPage } from "@frontend/pages/model-page/page";
-import { ProofreadingPage } from "@frontend/pages/proofreading-page/page";
 import { ProjectPage } from "@frontend/pages/project-page/page";
 import { TextPreservePage } from "@frontend/pages/text-preserve-page/page";
 import { ToolboxPage } from "@frontend/pages/toolbox-page/page";
@@ -50,10 +49,6 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
   model: {
     component: ModelPage,
     title_key: "model_page.title",
-  },
-  proofreading: {
-    component: ProofreadingPage,
-    title_key: "proofreading_page.title",
   },
   workbench: {
     component: WorkbenchPage,

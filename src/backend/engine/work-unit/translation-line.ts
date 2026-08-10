@@ -14,6 +14,13 @@ export interface TranslationLine {
   text_src: string;
   actor_src: TranslationActor;
   fate_extra?: boolean;
+  fate_extra_safety?: {
+    category: string;
+    instruction: string;
+    source_bytes: number | null;
+    slot_capacity: number | null;
+    allow_overlength: boolean;
+  };
 }
 
 /**

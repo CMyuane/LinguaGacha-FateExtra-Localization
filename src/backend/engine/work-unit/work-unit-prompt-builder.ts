@@ -116,6 +116,12 @@ export class PromptBuilder {
       console_log.push(control_samples);
     }
 
+    const fate_extra_constraints = this.build_fate_extra_constraints(lines);
+    if (fate_extra_constraints !== "") {
+      user_parts.push(fate_extra_constraints);
+      console_log.push(fate_extra_constraints);
+    }
+
     const inputs = this.build_inputs(lines, mode);
     if (inputs !== "") {
       user_parts.push(inputs);
@@ -324,6 +330,27 @@ export class PromptBuilder {
       )
       .join("\n");
     return `${this.t("app.prompt.builder_input")}\n\`\`\`jsonline\n${inputs}\n\`\`\``;
+  }
+
+  private build_fate_extra_constraints(lines: TranslationLine[]): string {
+    const records = lines.flatMap((line) => {
+      const safety = line.fate_extra_safety;
+      if (line.fate_extra !== true || safety === undefined) return [];
+      return [
+        JsonTool.stringifyStrict({
+          [String(line.request_index)]: {
+            category: safety.category,
+            instruction: safety.instruction,
+            source_bytes: safety.source_bytes,
+            slot_capacity: safety.slot_capacity,
+            allow_overlength: safety.allow_overlength,
+          },
+        }),
+      ];
+    });
+    return records.length === 0
+      ? ""
+      : `Fate/EXTRA 逐条安全约束（键与翻译输入一致，只作为约束，不得输出）：\n\`\`\`jsonline\n${records.join("\n")}\n\`\`\``;
   }
 
   /**

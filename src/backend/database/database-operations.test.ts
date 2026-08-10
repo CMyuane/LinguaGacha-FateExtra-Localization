@@ -56,6 +56,129 @@ afterEach(() => {
 });
 
 describe("ProjectDatabase", () => {
+  it("为 FE 原文建立严格去重映射并按组保存校对稿", () => {
+    const { database, lg_path } = create_database_project("fate-extra-dedup");
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 3 },
+      },
+    });
+    for (const [id, src] of [
+      [1, "同文#RUBSどう#RUBE文#REND"],
+      [2, "同文#RUBSどう#RUBE文#REND"],
+      [3, "不同文本"],
+    ] as const) {
+      database.execute({
+        name: "setItem",
+        args: {
+          projectPath: lg_path,
+          item: {
+            id,
+            src,
+            dst: "初翻",
+            status: "NONE",
+            file_path: "route.txt",
+            row: id - 1,
+            extra_field: {
+              __linguagacha_fe_v1: {
+                proofread_translation: "",
+                display_mode: "auto",
+                classification: { category: "ordinary_independent_slot" },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    database.execute_transaction([
+      { name: "rebuildFateExtraTextUnitIndex", args: { projectPath: lg_path } },
+    ]);
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({
+      ready: true,
+      item_count: 3,
+      occurrence_count: 3,
+      unit_count: 2,
+      file_count: 1,
+    });
+
+    const page = database.execute({
+      name: "getFateExtraItemsPage",
+      args: {
+        projectPath: lg_path,
+        search: "",
+        filePath: "",
+        category: "",
+        offset: 0,
+        limit: 10,
+        includeFiles: true,
+        includeTotal: true,
+        viewMode: "unique",
+      },
+    }) as Record<string, unknown>;
+    expect(page["total"]).toBe(2);
+    expect(page["files"]).toEqual(["route.txt"]);
+    expect(page["file_counts"]).toEqual({ "route.txt": 3 });
+    expect(page["items"]).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ fe_occurrence_count: 2, src: "同文#RUBSどう#RUBE文#REND" }),
+      ]),
+    );
+    const duplicate = (page["items"] as Array<Record<string, unknown>>).find(
+      (item) => item["fe_occurrence_count"] === 2,
+    );
+    database.execute_transaction([
+      {
+        name: "patchFateExtraReviewByUnitId",
+        args: {
+          projectPath: lg_path,
+          unitId: Number(duplicate?.["fe_text_unit_id"] ?? 0),
+          itemId: Number(duplicate?.["id"] ?? 0),
+          proofreadTranslation: "统一校对",
+          displayMode: "dialogue",
+        },
+      },
+    ]);
+    const items = database.execute({
+      name: "getAllItems",
+      args: { projectPath: lg_path },
+    }) as Array<Record<string, unknown>>;
+    expect(
+      items.filter((item) => item["src"] === "同文#RUBSどう#RUBE文#REND").map((item) => item),
+    ).toEqual([
+      expect.objectContaining({ status: "PROCESSED" }),
+      expect.objectContaining({ status: "PROCESSED" }),
+    ]);
+    expect(
+      items
+        .filter((item) => item["src"] === "同文#RUBSどう#RUBE文#REND")
+        .map(
+          (item) =>
+            (item["extra_field"] as Record<string, Record<string, unknown>>)[
+              "__linguagacha_fe_v1"
+            ]?.["proofread_translation"],
+        ),
+    ).toEqual(["统一校对", "统一校对"]);
+    expect(
+      items
+        .filter((item) => item["src"] === "同文#RUBSどう#RUBE文#REND")
+        .map(
+          (item) =>
+            (item["extra_field"] as Record<string, Record<string, unknown>>)[
+              "__linguagacha_fe_v1"
+            ]?.["display_mode"],
+        ),
+    ).toEqual(["dialogue", "auto"]);
+  });
+
   it("创建工程并读写 meta", () => {
     const database = create_database();
     const lg_path = project_path("demo.lg");

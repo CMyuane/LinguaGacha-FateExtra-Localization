@@ -45,6 +45,12 @@ export class EpubRubyBlockTextMigration {
    * 发现旧 ruby_clean_candidate 后，按原始 EPUB asset 重建当前 item 形状并迁移用户事实。
    */
   public async build_operations(project_path: string): Promise<DatabaseOperation[]> {
+    // Most projects are not EPUB projects.  Checking the tiny asset index first is
+    // essential for very large adapters (FE has ~941k items): reading every item
+    // merely to discover that no EPUB exists can exhaust Electron's heap.
+    if (!this.has_epub_asset(project_path)) {
+      return [];
+    }
     const current_items = this.read_all_items(project_path);
     const epub_paths = this.collect_legacy_epub_paths(current_items);
     if (epub_paths.size === 0) {
@@ -112,6 +118,20 @@ export class EpubRubyBlockTextMigration {
         },
       },
     ];
+  }
+
+  private has_epub_asset(project_path: string): boolean {
+    const value = this.database.execute({
+      name: "getAllAssetRecords",
+      args: { projectPath: project_path },
+    });
+    return (
+      Array.isArray(value) &&
+      value.some((record) => {
+        if (typeof record !== "object" || record === null || Array.isArray(record)) return false;
+        return String(record["path"] ?? "").toLocaleLowerCase().endsWith(".epub");
+      })
+    );
   }
 
   /**

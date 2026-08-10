@@ -3,14 +3,19 @@ import type { JsonValue } from "../utils/json-tool";
 export const FATE_EXTRA_ADAPTER_META_KEY = "fate_extra.adapter.v1";
 export const FATE_EXTRA_ITEM_NAMESPACE = "__linguagacha_fe_v1";
 export const FATE_EXTRA_OVERFLOW_WARNING_CODE = "FE_PSP_OVERFLOW";
+export const FATE_EXTRA_STORAGE_WARNING_CODE = "FE_STORAGE_CAPACITY";
+export const FATE_EXTRA_CONTROL_WARNING_CODE = "FE_CONTROL_SYNTAX";
+export const FATE_EXTRA_SAFETY_BLOCKER_CODE = "FE_SAFETY_BLOCKER";
 export const FATE_EXTRA_SCHEMA_VERSION = 1;
 
-export const FATE_EXTRA_DEFAULT_CLASSIFICATION_DATABASE =
-  "D:\\AA_Fe_Transition\\文本安全分类\\FE文本安全分类.sqlite";
-export const FATE_EXTRA_DEFAULT_INDEXED_SOURCE_DIRECTORY =
-  "D:\\AA_Fe_Transition\\灵瓜处理\\最终文本分支_带索引日文原版";
-export const FATE_EXTRA_DEFAULT_LEGACY_PROJECT = "D:\\灵瓜\\FE_尼禄线_凛分支_保留索引日文.lg";
-export const FATE_EXTRA_DEFAULT_UNINDEXED_TRANSLATION_DIRECTORY = "D:\\AA_Fe_Transition\\灵瓜处理";
+// Runtime paths are deliberately user-selected.  Never bake a developer machine path
+// into a distributable build.
+export const FATE_EXTRA_DEFAULT_CLASSIFICATION_DATABASE = "";
+export const FATE_EXTRA_DEFAULT_INDEXED_SOURCE_DIRECTORY = "";
+export const FATE_EXTRA_DEFAULT_LEGACY_PROJECT = "";
+export const FATE_EXTRA_DEFAULT_UNINDEXED_TRANSLATION_DIRECTORY = "";
+
+export type FateExtraDisplayMode = "auto" | "dialogue" | "fullscreen" | "poem";
 
 export type FateExtraClassification = {
   category: string;
@@ -33,6 +38,11 @@ export type FateExtraClassification = {
   shared_group_end: number | null;
   shared_group_members: number | null;
   format_handler: string;
+  /** Script opcode that displays this logical string (for example 0x3926 or 0x0126). */
+  display_opcode?: number | null;
+  /** Value of variable-block slot 4 when opcode 0x3926 is executed. */
+  portrait_id?: number | null;
+  display_evidence?: string;
 };
 
 export type FateExtraPassThroughLine = {
@@ -51,6 +61,10 @@ export type FateExtraItemMetadata = {
   classification: FateExtraClassification;
   migration_review: boolean;
   migration_source: string;
+  /** Human-edited final text.  `item.dst` remains the immutable-ish machine draft. */
+  proofread_translation?: string;
+  /** Preview/QA profile. Auto is resolved from format metadata and can be overridden per item. */
+  display_mode?: FateExtraDisplayMode;
 };
 
 export type FateExtraAdapterMetadata = {
@@ -58,11 +72,14 @@ export type FateExtraAdapterMetadata = {
   enabled: true;
   applied_at: string;
   source_directory: string;
+  /** Canonical full JP extraction used to compute the six-route complement. */
+  complete_jp_source_file?: string;
   classification_database: string;
   source_file_count: number;
   logical_text_count: number;
   unique_index_count: number;
   matched_classification_count: number;
+  supplemental_text_count?: number;
   rules_version: string;
   file_formats: FateExtraFileFormat[];
   font_corpus_hash: string;
@@ -116,4 +133,23 @@ export function merge_fate_extra_item_metadata(
     ...base,
     [FATE_EXTRA_ITEM_NAMESPACE]: metadata as unknown as JsonValue,
   };
+}
+
+export function read_fate_extra_proofread_translation(metadata: FateExtraItemMetadata): string {
+  return typeof metadata.proofread_translation === "string" ? metadata.proofread_translation : "";
+}
+
+export function read_fate_extra_display_mode(
+  metadata: FateExtraItemMetadata,
+): FateExtraDisplayMode {
+  const value = metadata.display_mode;
+  return value === "dialogue" || value === "fullscreen" || value === "poem" ? value : "auto";
+}
+
+export function resolve_fate_extra_effective_translation(
+  machine_translation: string,
+  metadata: FateExtraItemMetadata,
+): string {
+  const proofread = read_fate_extra_proofread_translation(metadata);
+  return proofread !== "" ? proofread : machine_translation;
 }

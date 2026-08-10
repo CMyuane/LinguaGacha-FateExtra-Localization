@@ -8,6 +8,10 @@ import type { ProjectDatabase } from "../database/database-operations";
 import type { ProjectSessionState } from "../project/project-session";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 import { resolve_fate_extra_preview_runs } from "../../shared/fate-extra/fate-extra-layout";
+import {
+  read_fate_extra_item_metadata,
+  resolve_fate_extra_effective_translation,
+} from "../../shared/fate-extra/fate-extra-types";
 
 type JsonRecord = Record<string, ApiJsonValue>;
 
@@ -39,6 +43,7 @@ function read_record(value: unknown): Record<string, unknown> {
  * Missing glyphs are export infrastructure, never proofreading warnings.
  */
 export class FateExtraFontService {
+  private encoded_widths: Map<string, number> | null = null;
   public constructor(
     private readonly paths: AppPathService,
     private readonly database: ProjectDatabase,
@@ -91,9 +96,10 @@ export class FateExtraFontService {
       "fonts",
       "NotoSansCJKsc-Regular.otf",
     );
-    const request_dir = this.paths.get_user_data_path("fate-extra", "font-jobs");
-    this.native_fs.make_dir(request_dir);
-    const request_path = path.join(request_dir, `${randomUUID()}.json`);
+    // Keep build jobs next to the user-selected output.  This avoids silently
+    // consuming the system drive and makes failed jobs discoverable.
+    this.native_fs.make_dir(output_dir);
+    const request_path = path.join(output_dir, `.font-job-${randomUUID()}.json`);
     const request = {
       baseline_dir,
       output_dir,
@@ -120,7 +126,12 @@ export class FateExtraFontService {
     for (const item of items) {
       const dst = String(item["dst"] ?? "");
       const src = String(item["src"] ?? "");
-      const text = dst === "" ? src : dst;
+      const metadata = read_fate_extra_item_metadata(
+        item["extra_field"] as Parameters<typeof read_fate_extra_item_metadata>[0],
+      );
+      const translated =
+        metadata === null ? dst : resolve_fate_extra_effective_translation(dst, metadata);
+      const text = translated === "" ? src : translated;
       for (let servant_index = 0; servant_index < 4; servant_index += 1) {
         for (let gender_index = 0; gender_index < 2; gender_index += 1) {
           const runs = resolve_fate_extra_preview_runs({
@@ -152,6 +163,42 @@ export class FateExtraFontService {
       ruby_characters,
       corpus_sha256: this.sha256_text(main_characters.join("")),
     };
+  }
+
+  /** Measure the bytes that FE's custom Shift-JIS-compatible codec will emit. */
+  public measure_encoded_bytes(text: string): number {
+    const widths = this.read_encoded_widths();
+    let total = 0;
+    for (const char of text) {
+      const mapped = widths.get(char);
+      if (mapped !== undefined) {
+        total += mapped;
+      } else if ((char.codePointAt(0) ?? 0) <= 0x7f) {
+        total += 1;
+      } else {
+        // New visible CJK glyphs are allocated from the two-byte FE extension area.
+        total += 2;
+      }
+    }
+    return total;
+  }
+
+  private read_encoded_widths(): Map<string, number> {
+    if (this.encoded_widths !== null) return this.encoded_widths;
+    const baseline_dir = this.paths.get_resource_path("fate-extra", "fontpack", "NPJH50247");
+    const codec = this.read_json_file(path.join(baseline_dir, "chinese-glyph-codec.json"));
+    const records = Array.isArray(codec["records"]) ? codec["records"] : [];
+    this.encoded_widths = new Map(
+      records.flatMap((raw) => {
+        const record = read_record(raw);
+        const char = String(record["char"] ?? "");
+        const encoded = String(record["encoded_hex"] ?? "");
+        return char === "" || encoded.length % 2 !== 0
+          ? []
+          : [[char, encoded.length / 2] as const];
+      }),
+    );
+    return this.encoded_widths;
   }
 
   private run_helper(request_path: string): string {

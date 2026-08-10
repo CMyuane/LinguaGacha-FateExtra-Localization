@@ -5,7 +5,7 @@ import type { MigrationDescriptor, ProjectDatabaseMigrationContext } from "../mi
 
 type SchemaRow = Record<string, unknown>;
 
-export const PROJECT_DATABASE_SCHEMA_VERSION = 2; // 只表达当前表结构能力，不承载业务写回完成状态
+export const PROJECT_DATABASE_SCHEMA_VERSION = 6; // 只表达当前表结构能力，不承载业务写回完成状态
 
 /**
  * 迁移背景：
@@ -39,6 +39,8 @@ export class ProjectSchemaMigration {
   public static run(db: DatabaseSync): void {
     this.ensure_current_schema(db);
     this.ensure_asset_sort_order_column(db);
+    this.ensure_compact_occurrence_translation_columns(db);
+    this.ensure_compact_machine_drafts(db);
     this.write_meta_version(db, "schema_version", PROJECT_DATABASE_SCHEMA_VERSION);
   }
 
@@ -83,9 +85,66 @@ export class ProjectSchemaMigration {
         last_seen_at TEXT NOT NULL,
         case_sensitive INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS fate_extra_text_unit (
+        unit_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        source TEXT NOT NULL UNIQUE,
+        representative_item_id INTEGER NOT NULL,
+        occurrence_count INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_text_occurrence (
+        item_id INTEGER PRIMARY KEY,
+        unit_id INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_file_summary (
+        file_path TEXT PRIMARY KEY,
+        occurrence_count INTEGER NOT NULL,
+        first_item_id INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_compact_source (
+        source_hash TEXT PRIMARY KEY,
+        source TEXT NOT NULL UNIQUE,
+        representative_original_item_id INTEGER NOT NULL,
+        compact_item_id INTEGER,
+        occurrence_count INTEGER NOT NULL,
+        excluded_reason TEXT NOT NULL DEFAULT '',
+        machine_translation_count INTEGER NOT NULL DEFAULT 0,
+        proofread_translation_count INTEGER NOT NULL DEFAULT 0,
+        safety_category_count INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_compact_occurrence (
+        original_item_id INTEGER PRIMARY KEY,
+        source_hash TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        row_number INTEGER NOT NULL,
+        resource_path TEXT NOT NULL,
+        char_offset INTEGER NOT NULL,
+        original_prefix TEXT NOT NULL,
+        source_line_numbers TEXT NOT NULL,
+        pass_through TEXT NOT NULL,
+        display_mode TEXT NOT NULL DEFAULT 'auto',
+        safety_category TEXT NOT NULL DEFAULT '',
+        slot_capacity INTEGER NOT NULL DEFAULT 0,
+        allow_overlength INTEGER NOT NULL DEFAULT 0,
+        original_machine_translation TEXT NOT NULL DEFAULT '',
+        original_proofread_translation TEXT NOT NULL DEFAULT '',
+        original_status TEXT NOT NULL DEFAULT 'NONE'
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_compact_override (
+        original_item_id INTEGER PRIMARY KEY,
+        translation TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
       CREATE INDEX IF NOT EXISTS idx_assets_path ON assets(path);
       CREATE INDEX IF NOT EXISTS idx_rules_type ON rules(type);
       CREATE INDEX IF NOT EXISTS idx_analysis_item_checkpoint_status ON analysis_item_checkpoint(status);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_text_occurrence_unit_id
+        ON fate_extra_text_occurrence(unit_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_file_summary_first_item_id
+        ON fate_extra_file_summary(first_item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_occurrence_source_hash
+        ON fate_extra_compact_occurrence(source_hash);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_occurrence_file_row
+        ON fate_extra_compact_occurrence(file_path, row_number, original_item_id);
     `);
   }
 
@@ -106,6 +165,65 @@ export class ProjectSchemaMigration {
     for (const [index, row] of rows.entries()) {
       statement.run(index, row_number(row, "id"));
     }
+  }
+
+  /**
+   * Schema v5 retains the translation and status attached to every physical
+   * occurrence. This makes exact-source deduplication auditable and prevents a
+   * blank representative from silently discarding a translated occurrence.
+   */
+  private static ensure_compact_occurrence_translation_columns(db: DatabaseSync): void {
+    const columns = new Set(
+      db
+        .prepare("PRAGMA table_info(fate_extra_compact_occurrence)")
+        .all()
+        .map((row) => row_text(row, "name")),
+    );
+    const additions = [
+      ["original_machine_translation", "TEXT NOT NULL DEFAULT ''"],
+      ["original_proofread_translation", "TEXT NOT NULL DEFAULT ''"],
+      ["original_status", "TEXT NOT NULL DEFAULT 'NONE'"],
+    ] as const;
+    for (const [column, definition] of additions) {
+      if (!columns.has(column)) {
+        db.exec(`ALTER TABLE fate_extra_compact_occurrence ADD COLUMN ${column} ${definition}`);
+      }
+    }
+  }
+
+  /**
+   * Older compact FE projects left `dst` empty when no translation existed.
+   * The preview then fell back to `src`, while the machine-draft editor stayed
+   * blank. Persist the Japanese placeholder so editor, preview and QA agree.
+   * Status is deliberately left unchanged, so a source copy is not counted as
+   * a completed translation.
+   */
+  private static ensure_compact_machine_drafts(db: DatabaseSync): void {
+    const compact_meta = db
+      .prepare("SELECT value FROM meta WHERE key = 'fate_extra.compact.v1'")
+      .get()?.["value"];
+    if (typeof compact_meta !== "string") {
+      return;
+    }
+    let enabled = false;
+    try {
+      const parsed = JsonTool.parseStrict<unknown>(compact_meta);
+      enabled =
+        typeof parsed === "object" &&
+        parsed !== null &&
+        !Array.isArray(parsed) &&
+        (parsed as Record<string, unknown>)["enabled"] === true;
+    } catch {
+      return;
+    }
+    if (!enabled) {
+      return;
+    }
+    db.exec(`
+      UPDATE items
+      SET data = json_set(data, '$.dst', COALESCE(json_extract(data, '$.src'), ''))
+      WHERE COALESCE(json_extract(data, '$.dst'), '') = '';
+    `);
   }
 
   /**

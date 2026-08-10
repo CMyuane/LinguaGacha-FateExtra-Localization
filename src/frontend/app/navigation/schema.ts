@@ -6,7 +6,6 @@ import {
   Boxes,
   FlaskConical,
   GraduationCap,
-  Grid2x2Check,
   LayoutDashboard,
   Palette,
   ScrollText,
@@ -39,40 +38,25 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
     id: "task",
     items: [
       {
-        id: "proofreading",
-        icon: Grid2x2Check,
-        title_key: "proofreading_page.title",
-      },
-      {
         id: "workbench",
         icon: LayoutDashboard,
         title_key: "workbench_page.title",
       },
-    ],
-  },
-  {
-    id: "setting",
-    items: [
       {
-        id: "basic-settings",
-        icon: SlidersHorizontal,
-        title_key: "basic_settings_page.title",
+        id: "fate-extra-preview",
+        icon: MonitorPlay,
+        title_key: "fate_extra_preview_page.title",
       },
       {
-        id: "expert-settings",
-        icon: GraduationCap,
-        title_key: "expert_settings_page.title",
+        id: "glossary",
+        icon: BookA,
+        title_key: "glossary_page.title",
       },
     ],
   },
   {
     id: "quality",
     items: [
-      {
-        id: "glossary",
-        icon: BookA,
-        title_key: "glossary_page.title",
-      },
       {
         id: "text-preserve",
         icon: ShieldCheck,
@@ -127,10 +111,20 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
         icon: Sparkles,
         title_key: "toolbox_page.title",
       },
+    ],
+  },
+  {
+    id: "setting",
+    items: [
       {
-        id: "fate-extra-preview",
-        icon: MonitorPlay,
-        title_key: "fate_extra_preview_page.title",
+        id: "basic-settings",
+        icon: SlidersHorizontal,
+        title_key: "basic_settings_page.title",
+      },
+      {
+        id: "expert-settings",
+        icon: GraduationCap,
+        title_key: "expert_settings_page.title",
       },
     ],
   },

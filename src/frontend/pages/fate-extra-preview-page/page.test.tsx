@@ -54,6 +54,11 @@ vi.mock("@frontend/widgets/app-dropdown-menu", () => ({
   AppDropdownMenuTrigger: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+vi.mock("@frontend/widgets/app-page-dialog", () => ({
+  AppPageDialog: (props: { open: boolean; children: ReactNode }) =>
+    props.open ? <div data-testid="page-dialog">{props.children}</div> : null,
+}));
+
 vi.mock("@frontend/pages/proofreading-page/components/proofreading-confirm-dialog", () => ({
   ProofreadingConfirmDialog: (props: {
     state: { kind: string } | null;
@@ -66,17 +71,48 @@ vi.mock("@frontend/pages/proofreading-page/components/proofreading-confirm-dialo
     ),
 }));
 
-import { FateExtraPreviewPage } from "@frontend/pages/fate-extra-preview-page/page";
+import {
+  calculate_preview_line_baselines,
+  FateExtraPreviewPage,
+} from "@frontend/pages/fate-extra-preview-page/page";
 
 const ITEM = {
   item_id: 7,
+  text_unit_id: 3,
+  occurrence_count: 2,
   file_path: "route.txt",
   row_number: 3,
   src: "原文",
   dst: "旧译文",
+  machine_translation: "旧译文",
+  proofread_translation: "",
+  effective_translation: "旧译文",
   status: "NONE",
   warnings: ["FE_PSP_OVERFLOW"],
   overflow: true,
+  display_mode: "auto",
+  resolved_display_mode: "dialogue",
+  display_resolution: {
+    source: "script",
+    confidence: "high",
+    reason: "0x3926 portrait 9217",
+    opcode: 0x3926,
+    portrait_id: 9217,
+  },
+  encoded_bytes: 6,
+  machine_encoded_bytes: 6,
+  proofread_encoded_bytes: 6,
+  slot_capacity: 32,
+  classification: {
+    category: "ordinary_independent_slot",
+    category_zh: "普通独立槽位",
+    confidence: "high",
+    reason: "独立槽位",
+    translator_message: "不超过容量即可原位替换。",
+    shared_storage_group: "",
+    format_handler: "",
+    allow_overlength: false,
+  },
   index: { path: "field/001.dat", char_offset: 1234 },
 };
 
@@ -84,8 +120,22 @@ describe("FateExtraPreviewPage", () => {
   let container: HTMLDivElement;
   let root: Root;
 
+  it("keeps ruby on a later line clear of the previous base line", () => {
+    expect(
+      calculate_preview_line_baselines({
+        first_y: 111,
+        line_gap: 36,
+        base_font_size: 22,
+        ruby_font_size: 12,
+        line_has_ruby: [false, true],
+        visible_line_count: 2,
+      }),
+    ).toEqual([111, 155]);
+  });
+
   beforeEach(() => {
     vi.useFakeTimers();
+    desktop_state_fixture.current.project_change_signal = { seq: 0 };
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -105,6 +155,25 @@ describe("FateExtraPreviewPage", () => {
       if (path === "/api/session/project/manifest") {
         return Promise.resolve({
           sectionRevisions: { items: 4, proofreading: 5, quality: 6, prompts: 7 },
+        });
+      }
+      if (path === "/api/toolbox/fate-extra/context") {
+        return Promise.resolve({
+          found: true,
+          resource_path: "field/001.dat",
+          target_ordinal: 2,
+          block_count: 5,
+          radius: 2,
+          items: [0, 1, 2, 3, 4].map((index) => ({
+            item_id: index + 1,
+            char_offset: 1200 + index,
+            block_ordinal: index,
+            is_current: index === 2,
+            source: `source-${index}`,
+            machine_translation: `machine-${index}`,
+            proofread_translation: index === 2 ? "proof-current" : "",
+            status: "NONE",
+          })),
         });
       }
       return Promise.resolve({ accepted: true, changes: [] });
@@ -129,12 +198,20 @@ describe("FateExtraPreviewPage", () => {
     });
   }
 
-  it("上下显示原文译文，编辑后通过校对写接口保存", async () => {
+  it("同时显示原文、初翻和校对稿，并通过 FE 专用接口保存校对稿", async () => {
     await render_page();
+    expect(container.textContent).toContain("fate_extra_preview_page.machine_assessment");
+    expect(container.textContent).toContain("fate_extra_preview_page.proofread_assessment");
+    expect(container.textContent).toContain("fate_extra_preview_page.dialogue_line_limit");
     const translation = container.querySelector<HTMLTextAreaElement>(
-      'textarea[aria-label="fate_extra_preview_page.translation"]',
+      'textarea[aria-label="fate_extra_preview_page.proofread_translation"]',
     );
-    expect(translation?.value).toBe("旧译文");
+    expect(translation?.value).toBe("");
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="fate_extra_preview_page.machine_translation"]',
+      )?.value,
+    ).toBe("旧译文");
 
     await act(async () => {
       if (translation !== null) {
@@ -158,9 +235,12 @@ describe("FateExtraPreviewPage", () => {
       await Promise.resolve();
     });
 
-    expect(api_fetch_mock).toHaveBeenCalledWith("/api/proofreading/item/save", {
+    expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/review/save", {
       item_id: 7,
-      dst: "新译文\n第二行",
+      text_unit_id: 3,
+      review_scope: "unit",
+      proofread_translation: "新译文\n第二行",
+      display_mode: "auto",
       expected_section_revisions: { items: 4, proofreading: 5 },
     });
   });
@@ -184,8 +264,12 @@ describe("FateExtraPreviewPage", () => {
       await Promise.resolve();
       await Promise.resolve();
     });
-    expect(api_fetch_mock).toHaveBeenCalledWith("/api/proofreading/translations/clear", {
-      item_ids: [7],
+    expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/review/save", {
+      item_id: 7,
+      text_unit_id: 3,
+      review_scope: "unit",
+      proofread_translation: "",
+      display_mode: "auto",
       expected_section_revisions: { items: 4, proofreading: 5 },
     });
 
@@ -249,8 +333,10 @@ describe("FateExtraPreviewPage", () => {
       search: "",
       file_path: "",
       warning: "",
-      offset: 500,
-      limit: 500,
+      category: "",
+      view_mode: "unique",
+      offset: 120,
+      limit: 120,
     });
   });
 
@@ -287,9 +373,110 @@ describe("FateExtraPreviewPage", () => {
       search: "",
       file_path: "",
       warning: "",
-      offset: 500,
-      limit: 500,
+      category: "",
+      view_mode: "unique",
+      offset: 480,
+      limit: 120,
     });
-    expect(jump_input?.value).toBe("501");
+    // The test API returns one row for every page, so selection is clamped to
+    // the first available row of the requested 480-offset page.
+    expect(jump_input?.value).toBe("481");
+  });
+
+  it("refreshes the machine draft after a project translation commit", async () => {
+    await render_page();
+
+    api_fetch_mock.mockImplementation((path: string) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve({
+          total: 501,
+          items: [
+            {
+              ...ITEM,
+              dst: "updated-machine-translation",
+              machine_translation: "updated-machine-translation",
+              effective_translation: "updated-machine-translation",
+            },
+          ],
+          files: ["route.txt"],
+        });
+      }
+      return Promise.resolve({ accepted: true, changes: [] });
+    });
+    desktop_state_fixture.current.project_change_signal = { seq: 1 };
+
+    await act(async () => {
+      root.render(<FateExtraPreviewPage is_sidebar_collapsed={false} />);
+      await Promise.resolve();
+    });
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="fate_extra_preview_page.machine_translation"]',
+      )?.value,
+    ).toBe("updated-machine-translation");
+  });
+
+  it("auto-saves display mode without leaving navigation locked", async () => {
+    await render_page();
+    const display_mode_select = [...container.querySelectorAll("select")].find((select) =>
+      [...select.options].some((option) => option.value === "fullscreen"),
+    );
+    expect(display_mode_select).toBeDefined();
+
+    await act(async () => {
+      if (display_mode_select !== undefined) {
+        const value_setter = Object.getOwnPropertyDescriptor(
+          HTMLSelectElement.prototype,
+          "value",
+        )?.set;
+        value_setter?.call(display_mode_select, "fullscreen");
+        display_mode_select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/review/save", {
+      item_id: 7,
+      text_unit_id: 3,
+      review_scope: "unit",
+      proofread_translation: "",
+      display_mode: "fullscreen",
+      expected_section_revisions: { items: 4, proofreading: 5 },
+    });
+    const next_button = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("fate_extra_preview_page.next"),
+    );
+    expect(next_button?.disabled).toBe(false);
+  });
+
+  it("shows two master-order neighbours on each side of the current entry", async () => {
+    await render_page();
+    const context_button = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("fate_extra_preview_page.view_context"),
+    );
+    await act(async () => {
+      context_button?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/context", {
+      project_path: "D:\\project.lg",
+      resource_path: "field/001.dat",
+      char_offset: 1234,
+      radius: 2,
+    });
+    expect(container.textContent).toContain("source-0");
+    expect(container.textContent).toContain("source-4");
+    expect(container.textContent).toContain("proof-current");
   });
 });

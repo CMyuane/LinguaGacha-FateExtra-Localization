@@ -10,11 +10,15 @@ import {
   type FateExtraParsedIndexedText,
 } from "../src/shared/fate-extra/fate-extra-parser";
 
-const source_directory =
-  process.argv[2] ?? String.raw`D:\AA_Fe_Transition\灵瓜处理\最终文本分支_带索引日文原版`;
-const database_path =
-  process.argv[3] ?? String.raw`D:\AA_Fe_Transition\文本安全分类\FE文本安全分类.sqlite`;
-const unindexed_directory = process.argv[4] ?? String.raw`D:\AA_Fe_Transition\灵瓜处理`;
+const source_directory = process.argv[2];
+const database_path = process.argv[3];
+const unindexed_directory = process.argv[4];
+if (source_directory === undefined || database_path === undefined || unindexed_directory === undefined) {
+  process.stderr.write(
+    "usage: fate-extra-audit <indexed-source-directory> <classification.sqlite> <unindexed-directory>\n",
+  );
+  process.exit(2);
+}
 const source_marker_prefix = "\u0000FE_SOURCE_";
 const source_marker_suffix = "\u0000";
 

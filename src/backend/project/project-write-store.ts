@@ -549,6 +549,74 @@ export class ProjectWriteStore {
   }
 
   /**
+   * FE 专用条目元数据写入。初翻继续使用通用 dst，人工校对稿和显示规则
+   * 保存在 namespaced extra_field 中，避免两层文本互相覆盖。
+   */
+  public async apply_fate_extra_item_metadata(request: {
+    projectPath: string;
+    expectedSectionRevisions: ApiJsonValue | undefined;
+    itemId: number;
+    extraField: ApiJsonValue;
+  }): Promise<ProjectWriteResult> {
+    return await this.commit_runtime_change({
+      projectPath: request.projectPath,
+      expectedSectionRevisions: request.expectedSectionRevisions,
+      requireExpectedSectionRevisions: true,
+      revisionSections: ["items", "proofreading"],
+      source: "fate_extra_proofread_save",
+      updatedSections: ["items", "proofreading"],
+      items: {
+        payloadMode: "field-patch",
+        changedIds: [request.itemId],
+        fieldPatch: { extra_field: request.extraField, status: "PROCESSED" },
+      },
+      buildOperations: (revision_context) => [
+        this.op("patchItemFieldsByIds", {
+          projectPath: request.projectPath,
+          itemIds: [request.itemId] as unknown as DatabaseJsonValue,
+          patch: {
+            extra_field: request.extraField,
+            status: "PROCESSED",
+          } as unknown as DatabaseJsonValue,
+        }),
+        ...this.write_coordinator.build_section_revision_operations(revision_context),
+      ],
+    });
+  }
+
+  /**
+   * FE 严格重复组只同步人工校对稿与显示模式；每个物理条目的路径、分类和索引元数据保持原样。
+   */
+  public async apply_fate_extra_text_unit_review(request: {
+    projectPath: string;
+    expectedSectionRevisions: ApiJsonValue | undefined;
+    unitId: number;
+    itemId: number;
+    proofreadTranslation: string;
+    displayMode: string;
+  }): Promise<ProjectWriteResult> {
+    return await this.commit_runtime_change({
+      projectPath: request.projectPath,
+      expectedSectionRevisions: request.expectedSectionRevisions,
+      requireExpectedSectionRevisions: true,
+      revisionSections: ["items", "proofreading"],
+      source: "fate_extra_text_unit_review_save",
+      updatedSections: ["items", "proofreading"],
+      items: { payloadMode: "section-invalidated" },
+      buildOperations: (revision_context) => [
+        this.op("patchFateExtraReviewByUnitId", {
+          projectPath: request.projectPath,
+          unitId: request.unitId,
+          itemId: request.itemId,
+          proofreadTranslation: request.proofreadTranslation,
+          displayMode: request.displayMode,
+        }),
+        ...this.write_coordinator.build_section_revision_operations(revision_context),
+      ],
+    });
+  }
+
+  /**
    * 翻译重置提交完整后端生成 item 集合，但提交管线仍统一。
    */
   public async reset_translation_state(request: {
