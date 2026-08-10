@@ -1,0 +1,32 @@
+// Fate/EXTRA 校对工具的 GUI-only Windows 发布配置。
+//
+// 上游 afterPack 钩子会额外编译 Go 编写的 CLI 启动器和自动更新器。
+// 本分支的交付目标是独立 GUI 文本工具，因此不把 Go 工具链设为 GUI 发布的
+// 强制依赖。若以后需要上游 CLI/自动更新能力，仍可使用 electron-builder.json5。
+{
+  $schema: "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  appId: "io.github.cmyuane.linguagacha.fe",
+  asar: true,
+  productName: "LinguaGacha FE",
+  directories: {
+    // 独立空资源目录，避免 electron-builder 自动发现 public/icon.png 后
+    // 在 Unicode 路径中调用不稳定的 PNG -> ICO WebAssembly 转换器。
+    buildResources: "buildtools/builder/gui-only-resources",
+    output: "build/release/${version}",
+  },
+  files: [
+    "build/dist/**/*",
+    "build/dist-electron/**/*",
+  ],
+  win: {
+    target: ["zip"],
+    artifactName: "LinguaGacha-FE-GUI-v${version}-win-${arch}.${ext}",
+    executableName: "LinguaGacha-FE",
+    // Unicode 工程路径下 electron-builder 的 PNG -> ICO 辅助工具会返回 EINVAL。
+    // GUI-only 包先使用 Electron 默认图标；以后可直接配置预制的 .ico 文件。
+    extraFiles: [
+      { from: "resource", to: "resource" },
+      { from: "version.txt", to: "version.txt" },
+    ],
+  },
+}

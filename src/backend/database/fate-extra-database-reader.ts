@@ -9,7 +9,7 @@ export type FateExtraClassificationRow = {
   classification: FateExtraClassification;
 };
 
-const CLASSIFICATION_COLUMNS = `
+const REQUIRED_CLASSIFICATION_COLUMNS = `
   path,
   char_offset,
   source,
@@ -79,6 +79,9 @@ function normalize_classification_row(row: Record<string, unknown>): FateExtraCl
       shared_group_end: nullable_number(row["shared_group_end"]),
       shared_group_members: nullable_number(row["shared_group_members"]),
       format_handler: String(row["format_handler"] ?? ""),
+      display_opcode: nullable_number(row["display_opcode"]),
+      portrait_id: nullable_number(row["portrait_id"]),
+      display_evidence: String(row["display_evidence"] ?? ""),
     },
   };
 }
@@ -90,13 +93,23 @@ export function read_fate_extra_classifications(
   const database = new DatabaseSync(database_path, { readOnly: true });
   const output: FateExtraClassificationRow[] = [];
   try {
+    const available_columns = new Set(
+      database
+        .prepare("PRAGMA table_info(entries)")
+        .all()
+        .map((row) => String(row["name"] ?? "")),
+    );
+    const optional_columns = ["display_opcode", "portrait_id", "display_evidence"]
+      .map((column) => (available_columns.has(column) ? column : `NULL AS ${column}`))
+      .join(",\n  ");
+    const classification_columns = `${REQUIRED_CLASSIFICATION_COLUMNS},\n  ${optional_columns}`;
     for (const [indexed_path, all_offsets] of indexed_offsets_by_path) {
       for (let start = 0; start < all_offsets.length; start += 500) {
         const offsets = all_offsets.slice(start, start + 500);
         const values = offsets.map(() => "?").join(", ");
         const rows = database
           .prepare(
-            `SELECT ${CLASSIFICATION_COLUMNS}
+            `SELECT ${classification_columns}
              FROM entries
              WHERE path = ? AND char_offset IN (${values})`,
           )

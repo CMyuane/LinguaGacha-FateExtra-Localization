@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Database, FileCheck2, FolderOpen, ScanSearch, Upload } from "lucide-react";
+import { Database, FileCheck2, FolderOpen, PackageMinus, ScanSearch, Upload } from "lucide-react";
 
 import { api_fetch } from "@frontend/app/desktop/desktop-api";
 import { useI18n } from "@frontend/app/locale/locale-provider";
@@ -12,18 +12,22 @@ import { Spinner } from "@frontend/shadcn/spinner";
 import { AppButton } from "@frontend/widgets/app-button";
 import "@frontend/pages/fate-extra-page/fate-extra-page.css";
 
-const DEFAULT_SOURCE = "D:\\AA_Fe_Transition\\灵瓜处理\\最终文本分支_带索引日文原版";
-const DEFAULT_DATABASE = "D:\\AA_Fe_Transition\\文本安全分类\\FE文本安全分类.sqlite";
-const DEFAULT_MIGRATION = "D:\\灵瓜\\FE_尼禄线_凛分支_保留索引日文.lg";
-const DEFAULT_MIGRATION_TEXT = "D:\\AA_Fe_Transition\\灵瓜处理";
+const DEFAULT_SOURCE = "";
+const DEFAULT_DATABASE = "";
+const DEFAULT_MIGRATION = "";
+const DEFAULT_MIGRATION_TEXT = "";
 
 type ScanReport = {
   scan_id?: string;
   applicable?: boolean;
   source_file_count?: number;
   logical_text_count?: number;
+  route_logical_text_count?: number;
+  complete_jp_text_count?: number;
+  supplemental_text_count?: number;
   unique_index_count?: number;
   matched_classification_count?: number;
+  missing_classification_count?: number;
   classification_match_rate?: number;
   structural_issue_count?: number;
   migration_pending?: number;
@@ -53,6 +57,18 @@ type ApplyPayload = {
   migration_report_json?: string;
 };
 
+type CompactPayload = {
+  target_project_path?: string;
+  physical_item_count?: number;
+  unique_source_count?: number;
+  compact_item_count?: number;
+  excluded_source_count?: number;
+  excluded_occurrence_count?: number;
+  machine_conflict_count?: number;
+  proofread_conflict_count?: number;
+  safety_conflict_count?: number;
+};
+
 function error_message(error: unknown): string {
   if (
     typeof error === "object" &&
@@ -72,6 +88,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
   const { t } = useI18n();
   const { project_snapshot, commit_project_write } = useDesktopState();
   const [source_directory, set_source_directory] = useState(DEFAULT_SOURCE);
+  const [complete_jp_source_file, set_complete_jp_source_file] = useState("");
   const [classification_database, set_classification_database] = useState(DEFAULT_DATABASE);
   const [migration_project, set_migration_project] = useState(DEFAULT_MIGRATION);
   const [migration_text_directory, set_migration_text_directory] = useState(DEFAULT_MIGRATION_TEXT);
@@ -79,6 +96,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
   const [scan_report, set_scan_report] = useState<ScanReport | null>(null);
   const [font_report, set_font_report] = useState<FontReport | null>(null);
   const [adapter_enabled, set_adapter_enabled] = useState(false);
+  const [compact_enabled, set_compact_enabled] = useState(false);
   const [busy, set_busy] = useState("");
   const [feedback, set_feedback] = useState("");
   const [error, set_error] = useState("");
@@ -89,12 +107,16 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     let active = true;
     set_scan_report(null);
     set_adapter_enabled(false);
+    set_compact_enabled(false);
     if (project_path === "") return;
-    void api_fetch<{ enabled?: boolean }>("/api/toolbox/fate-extra/status", {
+    void api_fetch<{ enabled?: boolean; compact_enabled?: boolean }>("/api/toolbox/fate-extra/status", {
       project_path,
     })
       .then((status) => {
-        if (active) set_adapter_enabled(status.enabled === true);
+        if (active) {
+          set_adapter_enabled(status.enabled === true);
+          set_compact_enabled(status.compact_enabled === true);
+        }
       })
       .catch(() => {
         if (active) set_adapter_enabled(false);
@@ -117,6 +139,16 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     return null;
   }
 
+  async function choose_file(update: (value: string) => void): Promise<string | null> {
+    const result = await window.desktopApp.pickWorkbenchFilePath();
+    const selected = result.paths[0];
+    if (!result.canceled && selected !== undefined) {
+      update(selected);
+      return selected;
+    }
+    return null;
+  }
+
   async function request_scan(busy_state: "scan" | "apply"): Promise<ScanReport | null> {
     if (project_path === "") {
       set_error(t("fate_extra_page.no_project"));
@@ -129,6 +161,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
       const report = await api_fetch<ScanReport>("/api/toolbox/fate-extra/scan", {
         project_path,
         source_directory,
+        complete_jp_source_file,
         classification_database,
         migration_project,
         migration_text_directory,
@@ -203,6 +236,34 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     }
   }
 
+  async function create_compact_project(): Promise<void> {
+    const source_name =
+      project_path === ""
+        ? "Fate-Extra"
+        : (project_path.split(/[\\/]/u).at(-1)?.replace(/\.lg$/iu, "") ?? "Fate-Extra");
+    const selected = await window.desktopApp.pickProjectSavePath(`${source_name}-精简工程.lg`);
+    const target_project_path = selected.paths[0];
+    if (selected.canceled || target_project_path === undefined) return;
+    set_busy("compact");
+    set_error("");
+    set_feedback("");
+    try {
+      const result = await api_fetch<CompactPayload>("/api/toolbox/fate-extra/compact/create", {
+        project_path,
+        target_project_path,
+      });
+      set_feedback(
+        `${t("fate_extra_page.compact_done")} ${String(result.target_project_path ?? "")} ` +
+          `(${Number(result.physical_item_count ?? 0).toLocaleString()} → ` +
+          `${Number(result.compact_item_count ?? 0).toLocaleString()})`,
+      );
+    } catch (reason) {
+      set_error(error_message(reason));
+    } finally {
+      set_busy("");
+    }
+  }
+
   async function export_project(restore_index: boolean): Promise<void> {
     let target_directory = output_directory.trim();
     if (target_directory === "") {
@@ -241,7 +302,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         set_source_directory(value);
         set_scan_report(null);
       },
-      browse: true,
+      picker: "directory" as const,
     },
     {
       label: t("fate_extra_page.classification_database"),
@@ -250,7 +311,16 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         set_classification_database(value);
         set_scan_report(null);
       },
-      browse: false,
+      picker: "file" as const,
+    },
+    {
+      label: t("fate_extra_page.complete_jp_source_file"),
+      value: complete_jp_source_file,
+      update: (value: string) => {
+        set_complete_jp_source_file(value);
+        set_scan_report(null);
+      },
+      picker: "file" as const,
     },
     {
       label: t("fate_extra_page.migration_project"),
@@ -259,7 +329,7 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         set_migration_project(value);
         set_scan_report(null);
       },
-      browse: false,
+      picker: "file" as const,
     },
     {
       label: t("fate_extra_page.migration_text_directory"),
@@ -268,13 +338,13 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         set_migration_text_directory(value);
         set_scan_report(null);
       },
-      browse: true,
+      picker: "directory" as const,
     },
     {
       label: t("fate_extra_page.output_directory"),
       value: output_directory,
       update: set_output_directory,
-      browse: true,
+      picker: "directory" as const,
     },
   ];
 
@@ -295,12 +365,16 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
                   disabled={busy !== ""}
                   onChange={(event) => field.update(event.target.value)}
                 />
-                {field.browse ? (
+                {field.picker !== undefined ? (
                   <AppButton
                     size="sm"
                     variant="outline"
                     disabled={busy !== ""}
-                    onClick={() => void choose_directory(field.value, field.update)}
+                    onClick={() =>
+                      void (field.picker === "file"
+                        ? choose_file(field.update)
+                        : choose_directory(field.value, field.update))
+                    }
                   >
                     <FolderOpen data-icon="inline-start" />
                     {t("fate_extra_page.browse")}
@@ -334,6 +408,21 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         </AppButton>
         <AppButton
           variant="outline"
+          disabled={busy !== "" || project_path === "" || !adapter_enabled || compact_enabled}
+          title={
+            compact_enabled
+              ? t("fate_extra_page.compact_already")
+              : !adapter_enabled
+                ? t("fate_extra_page.export_requires_adapter")
+                : undefined
+          }
+          onClick={() => void create_compact_project()}
+        >
+          {busy === "compact" ? <Spinner /> : <PackageMinus data-icon="inline-start" />}
+          {t("fate_extra_page.compact_create")}
+        </AppButton>
+        <AppButton
+          variant="outline"
           disabled={busy !== "" || project_path === "" || !adapter_enabled}
           title={!adapter_enabled ? t("fate_extra_page.export_requires_adapter") : undefined}
           onClick={() => void export_project(false)}
@@ -364,10 +453,22 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
           <CardContent>
             <div className="fate-extra-page__metrics">
               <Badge variant="outline">文件 {scan_report.source_file_count ?? 0}/6</Badge>
-              <Badge variant="outline">文本 {scan_report.logical_text_count ?? 0}/34,693</Badge>
-              <Badge variant="outline">唯一索引 {scan_report.unique_index_count ?? 0}/7,867</Badge>
+              <Badge variant="outline">
+                路线文本 {scan_report.route_logical_text_count ?? 0}/34,693
+              </Badge>
+              <Badge variant="outline">
+                完整主库 {scan_report.complete_jp_text_count ?? 0}/914,663
+              </Badge>
+              <Badge variant="outline">
+                主库差集补漏 {scan_report.supplemental_text_count ?? 0}
+              </Badge>
+              <Badge variant="outline">总文本 {scan_report.logical_text_count ?? 0}</Badge>
+              <Badge variant="outline">唯一索引 {scan_report.unique_index_count ?? 0}</Badge>
               <Badge variant="outline">
                 分类匹配 {Math.round(Number(scan_report.classification_match_rate ?? 0) * 100)}%
+              </Badge>
+              <Badge variant="outline">
+                缺少安全分类 {scan_report.missing_classification_count ?? 0}
               </Badge>
               <Badge variant="outline">待确认 {scan_report.migration_pending ?? 0}</Badge>
               <Badge variant="outline">无索引迁移 {scan_report.migrated_unindexed_text ?? 0}</Badge>

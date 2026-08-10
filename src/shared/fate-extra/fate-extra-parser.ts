@@ -1,6 +1,7 @@
 import type { FateExtraPassThroughLine } from "./fate-extra-types";
 
 export const FATE_EXTRA_INDEX_LINE_PATTERN = /^(.*?) \| char:(\d+) \| ?(.*)$/u;
+export const FATE_EXTRA_SECTION_HEADER_PATTERN = /^===== .* \(\d+ strings\) =====$/u;
 
 export type FateExtraExpectedIndexedText = {
   path: string;
@@ -23,6 +24,75 @@ export type FateExtraIndexedParseResult = {
   issues: string[];
   physical_line_count: number;
 };
+
+/**
+ * Parse the canonical full JP extraction directly.  Unlike the route parser,
+ * this source is the authority for text, so it must not depend on the safety
+ * database's `source` column.  Section headers and separator blank lines are
+ * structural and are not attached to the preceding game string.
+ */
+export function parse_fate_extra_complete_source(text: string): FateExtraIndexedParseResult {
+  const lines = split_physical_lines(text);
+  const entries: FateExtraParsedIndexedText[] = [];
+  const issues: string[] = [];
+  let cursor = 0;
+  let seen_section = false;
+
+  while (cursor < lines.length) {
+    const line = lines[cursor] ?? "";
+    if (FATE_EXTRA_SECTION_HEADER_PATTERN.test(line)) {
+      seen_section = true;
+      cursor += 1;
+      continue;
+    }
+    if (line === "" || !seen_section) {
+      cursor += 1;
+      continue;
+    }
+    const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(line);
+    if (header === null) {
+      issues.push(`第 ${cursor + 1} 行不是合法索引头或文件块标题。`);
+      cursor += 1;
+      continue;
+    }
+
+    const path = header[1] ?? "";
+    const char_offset = Number(header[2] ?? Number.NaN);
+    const original_prefix = `${path} | char:${char_offset} | `;
+    const source_lines = [header[3] ?? ""];
+    const source_line_numbers = [cursor + 1];
+    cursor += 1;
+    while (cursor < lines.length) {
+      const next = lines[cursor] ?? "";
+      if (
+        FATE_EXTRA_INDEX_LINE_PATTERN.test(next) ||
+        FATE_EXTRA_SECTION_HEADER_PATTERN.test(next)
+      ) {
+        break;
+      }
+      // The extraction uses a single empty separator before every section
+      // header.  Do not make that separator part of the game string.
+      if (next === "" && FATE_EXTRA_SECTION_HEADER_PATTERN.test(lines[cursor + 1] ?? "")) {
+        cursor += 1;
+        break;
+      }
+      source_lines.push(next);
+      source_line_numbers.push(cursor + 1);
+      cursor += 1;
+    }
+    entries.push({
+      path,
+      char_offset,
+      original_prefix,
+      source: source_lines.join("\n"),
+      source_line_numbers,
+      pass_through: [],
+      header_line_number: source_line_numbers[0] ?? 1,
+    });
+  }
+
+  return { entries, issues, physical_line_count: lines.length };
+}
 
 function split_physical_lines(text: string): string[] {
   const lines = text.split(/\r\n|\n|\r/gu);
@@ -81,9 +151,15 @@ export function parse_fate_extra_indexed_text(args: {
     const block_lines = [header[3] ?? "", ...lines.slice(cursor + 1, block_end)];
     const classified_source_lines = expected.source.split(/\r\n|\n|\r/gu);
     let classified_cursor = 0;
-    for (const block_line of block_lines) {
+    const source_line_numbers: number[] = [];
+    const pass_through: FateExtraPassThroughLine[] = [];
+    for (let block_cursor = 0; block_cursor < block_lines.length; block_cursor += 1) {
+      const block_line = block_lines[block_cursor] ?? "";
       if (block_line === classified_source_lines[classified_cursor]) {
+        source_line_numbers.push(cursor + block_cursor + 1);
         classified_cursor += 1;
+      } else {
+        pass_through.push({ after_source_line: classified_cursor - 1, text: block_line });
       }
     }
     if (classified_cursor !== classified_source_lines.length) {
@@ -93,15 +169,13 @@ export function parse_fate_extra_indexed_text(args: {
       cursor = block_end;
       continue;
     }
-    const source_line_numbers = block_lines.map((_, block_cursor) => cursor + block_cursor + 1);
-
     entries.push({
       path,
       char_offset,
       original_prefix,
-      source: block_lines.join("\n"),
+      source: expected.source,
       source_line_numbers,
-      pass_through: [],
+      pass_through,
       header_line_number: cursor + 1,
     });
     cursor = block_end;

@@ -83,6 +83,64 @@ describe("FateExtraService", () => {
       applied_at: "2026-07-28T00:00:00.000Z",
     });
   });
+
+  it("仅修改显示类型时不触发重复组译文写回", async () => {
+    const item = {
+      id: 7,
+      src: "原文",
+      dst: "",
+      extra_field: {
+        __linguagacha_fe_v1: {
+          schema_version: 1,
+          path: "field/001/0000.dat",
+          char_offset: 123,
+          original_prefix: "field/001/0000.dat | char:123 | ",
+          source_hash: "",
+          source_line_numbers: [1],
+          pass_through: [],
+          migration_review: false,
+          migration_source: "test",
+          proofread_translation: "",
+          display_mode: "auto",
+          classification: {
+            category: "ordinary_independent_slot",
+            category_zh: "普通独立槽位",
+            confidence: "confirmed",
+            reason: "test",
+            resource_path: "field/001/0000.dat",
+            byte_offset: 123,
+            source_bytes: 8,
+            slot_capacity: 16,
+            slot_end: null,
+            allow_overlength: false,
+            allow_relocation: false,
+            translator_message: "",
+            pointer_offsets: [],
+            address_limit: null,
+            preserve_high16: false,
+            shared_storage_group: "",
+            shared_group_start: null,
+            shared_group_end: null,
+            shared_group_members: null,
+            format_handler: "",
+          },
+        },
+      },
+    };
+    const { service, write_store } = create_service({ meta: revision_meta({}), items: [item] });
+
+    await service.save_review({
+      item_id: 7,
+      text_unit_id: 3,
+      review_scope: "unit",
+      proofread_translation: "",
+      display_mode: "fullscreen",
+      expected_section_revisions: { items: 1, proofreading: 2 },
+    });
+
+    expect(write_store.apply_fate_extra_item_metadata).toHaveBeenCalledOnce();
+    expect(write_store.apply_fate_extra_text_unit_review).not.toHaveBeenCalled();
+  });
 });
 
 function assert_draft(service: FateExtraService): void {
@@ -101,13 +159,21 @@ function assert_draft(service: FateExtraService): void {
   });
 }
 
-function create_service(args: { meta: Record<string, unknown> }): {
+function create_service(args: {
+  meta: Record<string, unknown>;
+  items?: Array<Record<string, unknown>>;
+}): {
   service: FateExtraService;
   stat: ReturnType<typeof vi.fn>;
+  write_store: {
+    apply_fate_extra_item_metadata: ReturnType<typeof vi.fn>;
+    apply_fate_extra_text_unit_review: ReturnType<typeof vi.fn>;
+  };
 } {
   const database = {
     execute: vi.fn((operation: { name: string }) => {
       if (operation.name === "getAllMeta") return args.meta;
+      if (operation.name === "getItemsByIds") return args.items ?? [];
       if (operation.name === "getAllItems") return [];
       return [];
     }),
@@ -124,16 +190,20 @@ function create_service(args: { meta: Record<string, unknown> }): {
     stat,
     to_identity_path: (file_path: string) => file_path.toLocaleLowerCase(),
   };
+  const write_store = {
+    apply_fate_extra_item_metadata: vi.fn(async () => ({ accepted: true, changes: [] })),
+    apply_fate_extra_text_unit_review: vi.fn(async () => ({ accepted: true, changes: [] })),
+  };
   const service = new FateExtraService(
     {} as AppPathService,
     database as unknown as ProjectDatabase,
     session_state as unknown as ProjectSessionState,
     {} as ProjectOperationGate,
-    {} as ProjectWriteStore,
+    write_store as unknown as ProjectWriteStore,
     {} as FateExtraFontService,
     native_fs as unknown as NativeFs,
   );
-  return { service, stat };
+  return { service, stat, write_store };
 }
 
 function revision_meta(

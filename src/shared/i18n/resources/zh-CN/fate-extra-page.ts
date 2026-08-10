@@ -2,6 +2,7 @@ export const zh_cn_fate_extra_page = {
   title: "Fate/Extra 汉化适配",
   description: "扫描索引原稿和分类库，安全迁移旧译文，并生成可重新导入 PSP 的文本与字库。",
   source_directory: "带索引日文原稿目录",
+  complete_jp_source_file: "完整日文主库（Fate_Extra_JP_完整文本汇总.txt）",
   classification_database: "FE 文本安全分类数据库",
   migration_project: "旧译文项目（可选）",
   migration_text_directory: "六份无索引译文目录（可选）",
@@ -22,4 +23,7 @@ export const zh_cn_fate_extra_page = {
   workflow_hint: "使用顺序：生成扫描报告 → 检查报告 → 应用 FE 适配 → 导出。",
   export_done: "导出完成；普通 FE 警告不会阻止输出。",
   font_ready: "当前语料字库扫描完成。",
+  compact_create: "生成精简工程",
+  compact_done: "精简工程已生成：",
+  compact_already: "当前已经是精简工程，无需再次精简。",
 } as const;

@@ -6,6 +6,7 @@ export const en_us_fate_extra_page = {
   description:
     "Scan indexed sources and classification data, migrate translations safely, and export PSP reimport text and fonts.",
   source_directory: "Indexed Japanese source folder",
+  complete_jp_source_file: "Canonical full JP extraction file",
   classification_database: "FE text safety database",
   migration_project: "Legacy translation project (optional)",
   migration_text_directory: "Six unindexed translations folder (optional)",
@@ -27,4 +28,7 @@ export const en_us_fate_extra_page = {
   workflow_hint: "Order: create scan report → review it → apply the FE adapter → export.",
   export_done: "Export complete. Advisory FE warnings did not block output.",
   font_ready: "Font coverage scan completed for the current corpus.",
+  compact_create: "Create compact project",
+  compact_done: "Compact project created:",
+  compact_already: "The current project is already compact.",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_page>;

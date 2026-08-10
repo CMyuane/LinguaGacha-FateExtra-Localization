@@ -38,12 +38,25 @@ describe("ProjectSchemaMigration", () => {
       "analysis_candidate_aggregate",
       "analysis_item_checkpoint",
       "assets",
+      "fate_extra_compact_occurrence",
+      "fate_extra_compact_override",
+      "fate_extra_compact_source",
+      "fate_extra_file_summary",
+      "fate_extra_text_occurrence",
+      "fate_extra_text_unit",
       "items",
       "meta",
       "rules",
       "sqlite_sequence",
     ]);
     expect(read_meta_number(db, "schema_version")).toBe(PROJECT_DATABASE_SCHEMA_VERSION);
+    expect(
+      db
+        .prepare(
+          "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name IN ('fate_extra_text_unit', 'fate_extra_text_occurrence')",
+        )
+        .get(),
+    ).toMatchObject({ count: 2 });
   });
 
   it("旧 assets 缺少 sort_order 时按 id 顺序补齐稳定文件顺序", () => {
@@ -75,6 +88,25 @@ describe("ProjectSchemaMigration", () => {
       { path: "b.txt", sort_order: 0 },
       { path: "a.txt", sort_order: 1 },
     ]);
+  });
+  it("fills blank compact machine drafts from source without changing status", () => {
+    const db = open_database("compact-drafts.lg");
+    ProjectSchemaMigration.run(db);
+    db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)").run(
+      "fate_extra.compact.v1",
+      JsonTool.stringifyStrict({ enabled: true }),
+    );
+    db.prepare("INSERT INTO items (data) VALUES (?)").run(
+      JsonTool.stringifyStrict({ src: "おやすみなさい", dst: "", status: "NONE" }),
+    );
+
+    ProjectSchemaMigration.run(db);
+
+    const item = JsonTool.parseStrict<Record<string, unknown>>(
+      String(db.prepare("SELECT data FROM items").get()?.["data"]),
+    );
+    expect(item["dst"]).toBe("おやすみなさい");
+    expect(item["status"]).toBe("NONE");
   });
 });
 

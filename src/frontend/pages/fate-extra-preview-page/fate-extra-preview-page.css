@@ -8,8 +8,8 @@
   display: grid;
   min-height: 0;
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
-  gap: 10px;
-  padding: 14px;
+  gap: 8px;
+  padding: 10px;
   overflow: hidden;
   container-type: inline-size;
 }
@@ -71,8 +71,8 @@
   display: grid;
   min-height: 0;
   min-width: 0;
-  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
-  gap: 12px;
+  grid-template-columns: minmax(440px, 0.92fr) minmax(520px, 1.08fr);
+  gap: 10px;
   overflow: hidden;
 }
 
@@ -89,13 +89,18 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 12px;
-  padding: 16px;
+  justify-content: flex-start;
+  gap: 8px;
+  padding: 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .fate-extra-preview__stage canvas {
-  width: min(100%, 720px);
+  width: min(100%, 540px);
+  flex: 0 0 auto;
   height: auto;
   image-rendering: auto;
   border-radius: var(--ui-radius-card);
@@ -114,7 +119,15 @@
   gap: 6px;
 }
 
+.fate-extra-preview__branch-controls input {
+  width: 64px;
+  height: 32px;
+}
+
 .fate-extra-preview__measurements {
+  width: 100%;
+  flex-wrap: wrap;
+  justify-content: center;
   color: var(--muted-foreground);
   font-family: var(--font-mono);
   font-size: 11px;
@@ -123,9 +136,12 @@
 .fate-extra-preview__details {
   display: flex;
   flex-direction: column;
-  overflow: auto;
-  padding: 14px;
-  gap: 12px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 10px;
+  gap: 8px;
 }
 
 .fate-extra-preview__identity {
@@ -133,12 +149,20 @@
   min-width: 0;
   flex-direction: column;
   gap: 6px;
+  width: 100%;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
 }
 
 .fate-extra-preview__identity strong,
 .fate-extra-preview__identity span {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+
+.fate-extra-preview__supplement-note {
+  color: #e5b85c;
+  font-size: 11px;
 }
 
 .fate-extra-preview__details code {
@@ -150,13 +174,26 @@
 .fate-extra-preview__editor-section,
 .fate-extra-preview__status-section {
   display: flex;
-  min-height: 0;
   flex-direction: column;
   gap: 6px;
 }
 
 .fate-extra-preview__editor-section {
-  flex: 1 0 160px;
+  min-height: 94px;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
+.fate-extra-preview__status-section {
+  min-height: min-content;
+  flex: 0 0 auto;
+}
+
+.fate-extra-preview__status-section p {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .fate-extra-preview__details h3 {
@@ -165,11 +202,46 @@
 }
 
 .fate-extra-preview__editor {
-  --app-editor-min-height: 128px;
-  --app-editor-scroller-min-height: 126px;
+  --app-editor-min-height: 64px;
+  --app-editor-scroller-min-height: 62px;
   min-width: 0;
   max-width: 100%;
-  flex: 1 1 128px;
+  flex: 1 1 64px;
+}
+
+.fate-extra-preview__base-safety {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-card);
+  background: color-mix(in srgb, var(--muted) 42%, transparent);
+  font-size: 11px;
+}
+
+.fate-extra-preview__base-safety p,
+.fate-extra-preview__assessment-card p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.fate-extra-preview__assessments {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fate-extra-preview__assessment-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-card);
+  background: color-mix(in srgb, var(--muted) 30%, transparent);
 }
 
 .fate-extra-preview__editor .cm-editor,
@@ -194,8 +266,119 @@
   gap: 8px;
 }
 
+.fate-extra-preview__badges > [data-slot="badge"] {
+  max-width: 100%;
+}
+
 .fate-extra-preview__actions {
-  padding-top: 2px;
+  flex: 0 0 auto;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.fate-extra-preview__context-dialog {
+  gap: 12px;
+}
+
+.fate-extra-preview__context-header {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fate-extra-preview__context-header h2,
+.fate-extra-preview__context-header p {
+  margin: 0;
+}
+
+.fate-extra-preview__context-header p {
+  margin-top: 4px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.fate-extra-preview__context-header code {
+  max-width: 48%;
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.fate-extra-preview__context-grid {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+  gap: 8px;
+  overflow: auto;
+}
+
+.fate-extra-preview__context-head,
+.fate-extra-preview__context-row {
+  display: grid;
+  grid-template-columns: 112px repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fate-extra-preview__context-head {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  padding: 6px 8px;
+  background: var(--background);
+  font-size: 12px;
+}
+
+.fate-extra-preview__context-row {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--ui-radius-card);
+  background: color-mix(in srgb, var(--muted) 18%, transparent);
+}
+
+.fate-extra-preview__context-row--current {
+  border-color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+}
+
+.fate-extra-preview__context-position {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.fate-extra-preview__context-position code {
+  overflow-wrap: anywhere;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.fate-extra-preview__context-row pre {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.fate-extra-preview__review-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.fate-extra-preview__review-scope select {
+  min-height: 30px;
+  max-width: 230px;
 }
 
 .fate-extra-preview__issue,
@@ -259,7 +442,7 @@
   color: var(--success);
 }
 
-@container (max-width: 900px) {
+@container (max-width: 760px) {
   .fate-extra-preview__main {
     grid-template-columns: 1fr;
     grid-template-rows: auto auto;

@@ -13,6 +13,9 @@ export function register_toolbox_routes(context: ApiRouteContext): void {
   context.postJson("/api/toolbox/fate-extra/status", (body) =>
     context.services.toolbox.fateExtra.status(body),
   );
+  context.postJson("/api/toolbox/fate-extra/compact/create", (body) =>
+    context.services.toolbox.fateExtra.create_compact_project(body),
+  );
   context.postJson("/api/toolbox/fate-extra/font/scan", (body) =>
     context.services.toolbox.fateExtraFont.scan(body),
   );
@@ -25,7 +28,16 @@ export function register_toolbox_routes(context: ApiRouteContext): void {
   context.postJson("/api/toolbox/fate-extra/items", (body) =>
     context.services.toolbox.fateExtra.list_items(body),
   );
+  context.postJson("/api/toolbox/fate-extra/index/rebuild", (body) =>
+    context.services.toolbox.fateExtra.rebuild_duplicate_index(body),
+  );
   context.postJson("/api/toolbox/fate-extra/preview", (body) =>
     context.services.toolbox.fateExtra.preview(body),
+  );
+  context.postJson("/api/toolbox/fate-extra/context", (body) =>
+    context.services.toolbox.fateExtra.context(body),
+  );
+  context.postJson("/api/toolbox/fate-extra/review/save", (body) =>
+    context.services.toolbox.fateExtra.save_review(body),
   );
 }

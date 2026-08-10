@@ -87,6 +87,7 @@ POST /api/toolbox/fate-extra/apply
 POST /api/toolbox/fate-extra/font/scan
 POST /api/toolbox/fate-extra/font/sync
 POST /api/toolbox/fate-extra/export
+POST /api/toolbox/fate-extra/index/rebuild
 ```
 
 `scan` 只读六份索引原稿、旧译文和外置分类 SQLite，并返回可复核报告。`apply` 在 gate
@@ -98,3 +99,16 @@ POST /api/toolbox/fate-extra/export
 导出；字库同步失败、编码槽耗尽、索引结构损坏和输出不可写属于系统错误。项目元数据
 只记录语料、manifest 哈希及剩余槽数，不把分类数据库、译文或字体生成临时目录写入
 `.lg`。
+
+FE 预览的严格去重索引使用 `fate_extra_text_unit`、`fate_extra_text_occurrence` 与
+`fate_extra_file_summary` 三张派生表。前两张表的分组键是完整 `src` 字符串，因此换行、控制符、
+Ruby 与占位符的任一差异都会形成不同单元；`items` 仍是译文和索引事实的唯一来源。
+文件摘要只缓存文件计数与首条位置，不复制译文事实。派生索引绑定 `fate_extra.adapter.v1`
+身份，失配时由独立 rebuild API 在后端工作线程中以单事务重建；普通列表请求不得同步触发
+近百万行重建。索引尚未就绪时列表临时返回物理位置分页，避免阻塞 renderer，完成后由前端
+重新请求唯一文本视图。唯一文本视图读取代表
+条目并返回物理出现次数；整组保存只同步组内每条 item 的校对稿和状态，显示模式仍只写入
+当前物理位置，且不覆盖路径、char offset、安全分类等位置元数据。用户选择“仅此位置”时
+仍走原有单条写入口。
+
+精简工程使用 `POST /api/toolbox/fate-extra/compact/create` 创建新项目文件。数据库层在单事务中复制项目配置与资源、建立精确原文组和完整物理映射，只把有效代表条目写入普通 `items`。`POST /api/toolbox/fate-extra/export` 检测到 `fate_extra.compact.v1` 后按页展开映射并流式写出文本、QA 和安全清单；不得退回 `getAllItems` 读取全部物理位置。

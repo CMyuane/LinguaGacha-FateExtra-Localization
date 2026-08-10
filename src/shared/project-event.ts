@@ -35,6 +35,7 @@ export type ProjectChangeItemFieldPatch = {
   name_dst?: ItemNameField;
   status?: ItemStatus;
   retry_count?: number;
+  extra_field?: ProjectChangeJsonValue;
 };
 
 // items 支持 canonical upsert、field-patch 和 tombstone 删除三种行级表达

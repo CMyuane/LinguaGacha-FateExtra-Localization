@@ -84,6 +84,7 @@ export class TranslationPrePipeline {
         text_src: src,
         actor_src,
         fate_extra: this.is_fate_extra_item(item),
+        fate_extra_safety: this.read_fate_extra_safety(item),
       });
       context.valid_line_indexes.add(line_index);
     }
@@ -102,6 +103,32 @@ export class TranslationPrePipeline {
       !Array.isArray(metadata) &&
       metadata["schema_version"] === 1
     );
+  }
+
+  private read_fate_extra_safety(item: TextTaskItemRecord): TranslationLine["fate_extra_safety"] {
+    const extra = item.extra_field;
+    if (typeof extra !== "object" || extra === null || Array.isArray(extra)) return undefined;
+    const metadata = extra["__linguagacha_fe_v1"];
+    if (typeof metadata !== "object" || metadata === null || Array.isArray(metadata)) {
+      return undefined;
+    }
+    const classification = metadata["classification"];
+    if (
+      typeof classification !== "object" ||
+      classification === null ||
+      Array.isArray(classification)
+    ) {
+      return undefined;
+    }
+    const number_or_null = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+    return {
+      category: String(classification["category"] ?? ""),
+      instruction: String(classification["translator_message"] ?? ""),
+      source_bytes: number_or_null(classification["source_bytes"]),
+      slot_capacity: number_or_null(classification["slot_capacity"]),
+      allow_overlength: classification["allow_overlength"] === true,
+    };
   }
 
   /**

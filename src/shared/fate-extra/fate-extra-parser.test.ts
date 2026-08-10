@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  parse_fate_extra_complete_source,
   parse_fate_extra_indexed_text,
   rebuild_fate_extra_indexed_block,
 } from "./fate-extra-parser";
@@ -8,7 +9,25 @@ import {
 describe("fate extra indexed text", () => {
   const path = String.raw`FE_完整提取\pak_unpacked\field\001\0000.dat`;
 
-  it("validates the indexed first line and merges every physical continuation", () => {
+  it("parses the canonical full extraction without swallowing section headers", () => {
+    const parsed = parse_fate_extra_complete_source(
+      `Fate/Extra (JP) complete text extraction\nCoverage: everything\n\n` +
+        `===== ${path} (2 strings) =====\n` +
+        `${path} | char:42 | 第一行\n第二行\n` +
+        `${path} | char:84 | 另一条\n\n` +
+        `===== next.dat (1 strings) =====\n` +
+        `next.dat | char:1 | 末尾`,
+    );
+
+    expect(parsed.issues).toEqual([]);
+    expect(parsed.entries.map((entry) => [entry.path, entry.char_offset, entry.source])).toEqual([
+      [path, 42, "第一行\n第二行"],
+      [path, 84, "另一条"],
+      ["next.dat", 1, "末尾"],
+    ]);
+  });
+
+  it("validates source lines and preserves non-source physical lines as pass-through", () => {
     const parsed = parse_fate_extra_indexed_text({
       text: `${path} | char:42 | 第一行\n#CONTROL\n第二行\n`,
       expected: [{ path, char_offset: 42, source: "第一行\n第二行" }],
@@ -19,9 +38,9 @@ describe("fate extra indexed text", () => {
     expect(parsed.entries[0]).toMatchObject({
       path,
       char_offset: 42,
-      source: "第一行\n#CONTROL\n第二行",
-      source_line_numbers: [1, 2, 3],
-      pass_through: [],
+      source: "第一行\n第二行",
+      source_line_numbers: [1, 3],
+      pass_through: [{ after_source_line: 0, text: "#CONTROL" }],
     });
   });
 
@@ -35,17 +54,17 @@ describe("fate extra indexed text", () => {
     expect(
       rebuild_fate_extra_indexed_block({
         entry: entry!,
-        translation: "译文一\n#CONTROL\n译文二",
+        translation: "译文一",
         restore_index: false,
       }),
-    ).toEqual(["译文一", "#CONTROL", "译文二"]);
+    ).toEqual(["译文一", "#CONTROL", "第二行"]);
     expect(
       rebuild_fate_extra_indexed_block({
         entry: entry!,
-        translation: "译文一\n#CONTROL\n译文二",
+        translation: "译文一",
         restore_index: true,
       }),
-    ).toEqual([`${path} | char:42 | 译文一`, "#CONTROL", "译文二"]);
+    ).toEqual([`${path} | char:42 | 译文一`, "#CONTROL", "第二行"]);
   });
 
   it("rejects a source block that cannot be reconciled reliably", () => {
