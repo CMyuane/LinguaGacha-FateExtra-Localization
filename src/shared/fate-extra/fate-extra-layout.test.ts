@@ -24,9 +24,13 @@ describe("fate extra PSP layout", () => {
   });
 
   it("uses an independent 30-character fullscreen limit", () => {
-    expect(
-      layout_fate_extra_preview({ text: "全".repeat(30), display_mode: "fullscreen" }).overflow,
-    ).toBe(false);
+    const exact = layout_fate_extra_preview({
+      text: "全".repeat(30),
+      display_mode: "fullscreen",
+    });
+    expect(exact.overflow).toBe(false);
+    expect(exact.glyph_advance_px).toBe(15);
+    expect(exact.max_width_px).toBe(450);
     expect(
       layout_fate_extra_preview({ text: "全".repeat(31), display_mode: "fullscreen" }).overflow,
     ).toBe(true);

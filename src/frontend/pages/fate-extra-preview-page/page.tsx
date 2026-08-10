@@ -47,6 +47,7 @@ const PREVIEW_PAGE_SIZE = 120;
 
 type PreviewItem = {
   item_id: number;
+  occurrence_id: number;
   text_unit_id: number;
   occurrence_count: number;
   file_path: string;
@@ -92,6 +93,7 @@ type PreviewList = {
   file_counts?: Record<string, number>;
   view_mode?: "unique" | "occurrence";
   requested_view_mode?: "unique" | "occurrence";
+  review_scope?: "unit" | "occurrence";
   index_ready?: boolean;
 };
 
@@ -146,9 +148,7 @@ export function calculate_preview_line_baselines(args: {
     const ruby_safe_baseline =
       previous_baseline + 4 + 3 + args.ruby_font_size + ruby_baseline_offset;
     baselines.push(
-      args.line_has_ruby[index]
-        ? Math.max(normal_baseline, ruby_safe_baseline)
-        : normal_baseline,
+      args.line_has_ruby[index] ? Math.max(normal_baseline, ruby_safe_baseline) : normal_baseline,
     );
   }
   return baselines;
@@ -167,7 +167,7 @@ function draw_preview(canvas: HTMLCanvasElement, layout: FateExtraPreviewLayout)
 
   const frame =
     layout.display_mode === "fullscreen"
-      ? { x: 8, y: 12, width: 464, height: 248, text_x: 18, first_y: 39, line_gap: 28, font: 17 }
+      ? { x: 8, y: 12, width: 464, height: 248, text_x: 18, first_y: 39, line_gap: 28, font: 16 }
       : layout.display_mode === "poem"
         ? { x: 42, y: 28, width: 396, height: 216, text_x: 60, first_y: 65, line_gap: 29, font: 18 }
         : {
@@ -264,7 +264,6 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [jump_value, set_jump_value] = useState("0");
   const [search, set_search] = useState("");
   const [view_mode, set_view_mode] = useState<"unique" | "occurrence">("unique");
-  const [actual_view_mode, set_actual_view_mode] = useState<"unique" | "occurrence">("unique");
   const [index_ready, set_index_ready] = useState<boolean | null>(null);
   const [index_building, set_index_building] = useState(false);
   const [reload_seq, set_reload_seq] = useState(0);
@@ -319,7 +318,10 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           const next_items = payload.items ?? [];
           set_items(next_items);
           set_total(Number(payload.total ?? 0));
-          set_actual_view_mode(payload.view_mode ?? view_mode);
+          set_review_scope(
+            payload.review_scope ??
+              ((payload.view_mode ?? view_mode) === "unique" ? "unit" : "occurrence"),
+          );
           set_index_ready(payload.index_ready ?? true);
           if (file_path === "") {
             set_files(payload.files ?? []);
@@ -400,7 +402,12 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     set_feedback("");
     set_error("");
     set_draft_encoded_bytes(current?.proofread_encoded_bytes ?? 0);
-  }, [current?.display_mode, current?.item_id, current?.proofread_translation]);
+  }, [
+    current?.display_mode,
+    current?.item_id,
+    current?.occurrence_id,
+    current?.proofread_translation,
+  ]);
 
   useEffect(() => {
     if (!context_open || current === null || project_path === "") return;
@@ -434,10 +441,6 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       alive = false;
     };
   }, [context_open, current?.index.char_offset, current?.index.path, project_path]);
-
-  useEffect(() => {
-    set_review_scope(actual_view_mode === "unique" ? "unit" : "occurrence");
-  }, [actual_view_mode]);
 
   useEffect(() => {
     set_jump_value(String(current_position));
@@ -1419,7 +1422,8 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
                 <pre>{item.source}</pre>
                 <pre>{item.machine_translation}</pre>
                 <pre>
-                  {item.proofread_translation || t("fate_extra_preview_page.context_empty_proofread")}
+                  {item.proofread_translation ||
+                    t("fate_extra_preview_page.context_empty_proofread")}
                 </pre>
               </div>
             ))}

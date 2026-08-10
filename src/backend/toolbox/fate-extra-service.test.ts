@@ -141,6 +141,59 @@ describe("FateExtraService", () => {
     expect(write_store.apply_fate_extra_item_metadata).toHaveBeenCalledOnce();
     expect(write_store.apply_fate_extra_text_unit_review).not.toHaveBeenCalled();
   });
+
+  it("带索引初翻按资源索引导入并剥离路线透传空行", () => {
+    const { service } = create_service({ meta: revision_meta({}) });
+    const importer = service as unknown as {
+      read_indexed_translation_file(
+        text: string,
+        file: {
+          relative_path: string;
+          kind: "route";
+          entries: Array<{
+            path: string;
+            char_offset: number;
+            source: string;
+            pass_through: Array<{ after_source_line: number; text: string }>;
+          }>;
+        },
+        signature: string,
+      ): { translations: Map<string, string>; indexed_keys: Set<string>; issues: string[] };
+    };
+    const result = importer.read_indexed_translation_file(
+      [
+        "field/016/0000.dat | char:10 | 译文第一行",
+        "译文第二行",
+        "",
+        "field/016/0000.dat | char:20 | 下一条译文",
+      ].join("\r\n"),
+      {
+        relative_path: "FE_尼禄_救拉妮_日文原版_带索引.txt",
+        kind: "route",
+        entries: [
+          {
+            path: "field/016/0000.dat",
+            char_offset: 10,
+            source: "原文一\n原文二",
+            pass_through: [{ after_source_line: 1, text: "" }],
+          },
+          {
+            path: "field/016/0000.dat",
+            char_offset: 20,
+            source: "下一条原文",
+            pass_through: [],
+          },
+        ],
+      },
+      "nero:rani",
+    );
+
+    expect(result.issues).toEqual([]);
+    expect(result.translations.get("nero:rani\u0000field/016/0000.dat\u000010")).toBe(
+      "译文第一行\n译文第二行",
+    );
+    expect(result.translations.get("nero:rani\u0000field/016/0000.dat\u000020")).toBe("下一条译文");
+  });
 });
 
 function assert_draft(service: FateExtraService): void {

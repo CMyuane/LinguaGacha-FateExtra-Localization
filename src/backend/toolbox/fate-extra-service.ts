@@ -37,6 +37,7 @@ import {
   FATE_EXTRA_DEFAULT_UNINDEXED_TRANSLATION_DIRECTORY,
   FATE_EXTRA_OVERFLOW_WARNING_CODE,
   FATE_EXTRA_SCHEMA_VERSION,
+  FATE_EXTRA_SUPPLEMENT_FILE,
   merge_fate_extra_item_metadata,
   read_fate_extra_display_mode,
   read_fate_extra_item_metadata,
@@ -88,14 +89,14 @@ type ScanDraft = {
 
 type FateExtraGuardedSection = "files" | "items" | "analysis" | "proofreading";
 
-type UnindexedTranslationImport = {
+type TranslationImport = {
   translations: Map<string, string>;
+  indexed_keys: Set<string>;
   issues: string[];
 };
 
 const SOURCE_MARKER_PREFIX = "\u0000FE_SOURCE_";
 const SOURCE_MARKER_SUFFIX = "\u0000";
-const FATE_EXTRA_SUPPLEMENT_FILE = "FE_补漏.txt";
 const FATE_EXTRA_GUARDED_SECTIONS: readonly FateExtraGuardedSection[] = [
   "files",
   "items",
@@ -403,12 +404,12 @@ export class FateExtraService {
       "migration_text_directory",
       FATE_EXTRA_DEFAULT_UNINDEXED_TRANSLATION_DIRECTORY,
     );
-    const unindexed = this.read_unindexed_translations(migration_text_directory, files);
+    const translation_import = this.read_translation_imports(migration_text_directory, files);
     const migration = this.build_items(
       files,
       classification_cache,
       legacy_items,
-      unindexed.translations,
+      translation_import,
     );
     const scan_id = randomUUID();
     const report: JsonRecord = {
@@ -442,9 +443,10 @@ export class FateExtraService {
       migration_text_directory,
       migrated_exact: migration.exact,
       migrated_high_confidence: migration.high_confidence,
+      migrated_indexed_text: migration.indexed,
       migrated_unindexed_text: migration.unindexed,
       migration_pending: migration.issues.length,
-      migration_text_issues: unindexed.issues,
+      migration_text_issues: translation_import.issues,
       expected_acceptance: {
         source_file_count: 6,
         route_logical_text_count: 34_693,
@@ -750,6 +752,9 @@ export class FateExtraService {
         return [
           {
             item_id: Number(item["id"] ?? item["item_id"] ?? 0),
+            occurrence_id: Number(
+              item["fe_physical_occurrence_id"] ?? item["id"] ?? item["item_id"] ?? 0,
+            ),
             text_unit_id: Number(item["fe_text_unit_id"] ?? 0),
             occurrence_count: Math.max(1, Number(item["fe_occurrence_count"] ?? 1)),
             file_path: String(item["file_path"] ?? ""),
@@ -807,6 +812,8 @@ export class FateExtraService {
       file_counts: file_summary.file_counts,
       view_mode,
       requested_view_mode,
+      review_scope:
+        page["review_scope"] === "unit" ? "unit" : view_mode === "unique" ? "unit" : "occurrence",
       index_ready: index_state.ready === true,
       index_state,
     } as unknown as JsonRecord;
@@ -869,9 +876,8 @@ export class FateExtraService {
           is_current: Number(row["char_offset"] ?? -1) === char_offset,
           source,
           machine_translation,
-          proofread_translation: metadata === null
-            ? ""
-            : read_fate_extra_proofread_translation(metadata),
+          proofread_translation:
+            metadata === null ? "" : read_fate_extra_proofread_translation(metadata),
           status: String(item["status"] ?? "NONE"),
         };
       }),
@@ -1375,7 +1381,11 @@ export class FateExtraService {
               ? stored_display_mode
               : (representative_metadata?.display_mode ?? "auto"),
         };
-        const machine_translation = String(compact_item["dst"] ?? "");
+        const occurrence_machine_translation = String(row["original_machine_translation"] ?? "");
+        const machine_translation =
+          occurrence_machine_translation === ""
+            ? String(compact_item["dst"] ?? "")
+            : occurrence_machine_translation;
         const override_translation = String(row["override_translation"] ?? "");
         const translation =
           String(row["excluded_reason"] ?? "") !== ""
@@ -1519,12 +1529,13 @@ export class FateExtraService {
     files: ScanFileDraft[],
     classifications: Map<string, FateExtraClassificationRow>,
     legacy_items: MutableRecord[],
-    unindexed_translations: Map<string, string>,
+    translation_import: TranslationImport,
   ): {
     items: MutableRecord[];
     issues: MigrationIssue[];
     exact: number;
     high_confidence: number;
+    indexed: number;
     unindexed: number;
   } {
     const legacy_by_signature = new Map<string, MutableRecord[]>();
@@ -1541,6 +1552,7 @@ export class FateExtraService {
     const issues: MigrationIssue[] = [];
     let exact = 0;
     let high_confidence = 0;
+    let indexed = 0;
     let unindexed = 0;
     let item_id = 1;
 
@@ -1602,20 +1614,35 @@ export class FateExtraService {
         let migrated_text = can_migrate
           ? migrated_rows!.map((item) => String(item["dst"] ?? "")).join("\n")
           : "";
+        const import_key = `${route_signature(file.relative_path)}\u0000${entry.path}\u0000${entry.char_offset}`;
+        const imported = translation_import.translations.get(import_key);
+        if (!is_supplement && imported !== undefined && imported !== "") {
+          can_migrate = true;
+          migrated_text = imported;
+          if (translation_import.indexed_keys.has(import_key)) {
+            migration_source = "indexed-text-exact";
+            indexed += 1;
+          } else {
+            migration_source = "unindexed-text-structural";
+            unindexed += 1;
+          }
+        }
         if (is_supplement) {
           can_migrate = true;
           migrated_text = entry.source;
           migration_source = "supplement-source-copy";
         }
         if (!can_migrate) {
-          const imported = unindexed_translations.get(
-            `${route_signature(file.relative_path)}\u0000${entry.path}\u0000${entry.char_offset}`,
-          );
           if (imported !== undefined && imported !== "") {
             can_migrate = true;
             migrated_text = imported;
-            migration_source = "unindexed-text-structural";
-            unindexed += 1;
+            if (translation_import.indexed_keys.has(import_key)) {
+              migration_source = "indexed-text-exact";
+              indexed += 1;
+            } else {
+              migration_source = "unindexed-text-structural";
+              unindexed += 1;
+            }
           }
         }
         if (!can_migrate) {
@@ -1665,26 +1692,49 @@ export class FateExtraService {
         item_id += 1;
       }
     }
-    return { items: output, issues, exact, high_confidence, unindexed };
+    return { items: output, issues, exact, high_confidence, indexed, unindexed };
   }
 
-  private read_unindexed_translations(
-    directory: string,
-    files: ScanFileDraft[],
-  ): UnindexedTranslationImport {
+  private read_translation_imports(directory: string, files: ScanFileDraft[]): TranslationImport {
     const translations = new Map<string, string>();
+    const indexed_keys = new Set<string>();
     const issues: string[] = [];
     if (!this.native_fs.exists(directory) || !this.native_fs.stat(directory).isDirectory()) {
-      return { translations, issues };
+      return { translations, indexed_keys, issues };
     }
-    const candidates = this.native_fs
+    const text_files = this.native_fs
       .read_dirents(directory)
-      .filter(
-        (entry) =>
-          entry.isFile() &&
-          entry.name.toLowerCase().endsWith(".txt") &&
-          entry.name.includes("无索引译文"),
-      );
+      .filter((entry) => entry.isFile() && entry.name.toLowerCase().endsWith(".txt"));
+    const indexed_candidates = text_files.filter(
+      (entry) => entry.name.includes("初翻") && entry.name.includes("带索引"),
+    );
+    const candidates = text_files.filter((entry) => entry.name.includes("无索引译文"));
+
+    const indexed_by_signature = new Map<string, string[]>();
+    for (const candidate of indexed_candidates) {
+      const signature = route_signature(candidate.name);
+      const group = indexed_by_signature.get(signature) ?? [];
+      group.push(path.join(directory, candidate.name));
+      indexed_by_signature.set(signature, group);
+    }
+    for (const file of files) {
+      if (file.kind !== "route") continue;
+      const signature = route_signature(file.relative_path);
+      const matching = indexed_by_signature.get(signature) ?? [];
+      if (matching.length > 1) {
+        issues.push(`${file.relative_path}: 找到多份同分支带索引初翻，已拒绝自动迁移。`);
+        continue;
+      }
+      if (matching.length === 0) continue;
+      const decoded = this.decode_source_file(matching[0]!, path.basename(matching[0]!));
+      const parsed = this.read_indexed_translation_file(decoded.text, file, signature);
+      issues.push(...parsed.issues.map((issue) => `${path.basename(matching[0]!)}: ${issue}`));
+      for (const [key, value] of parsed.translations) {
+        translations.set(key, value);
+        indexed_keys.add(key);
+      }
+    }
+
     const by_signature = new Map<string, string[]>();
     for (const candidate of candidates) {
       const signature = route_signature(candidate.name);
@@ -1758,9 +1808,96 @@ export class FateExtraService {
           `${path.basename(matching[0]!)}: ${ambiguous_keys.size} 个重复索引存在不同译文，已留空待确认。`,
         );
       }
-      for (const [key, value] of staged) translations.set(key, value);
+      for (const [key, value] of staged) {
+        if (!translations.has(key)) translations.set(key, value);
+      }
     }
-    return { translations, issues };
+    return { translations, indexed_keys, issues };
+  }
+
+  private read_indexed_translation_file(
+    text: string,
+    file: ScanFileDraft,
+    signature: string,
+  ): TranslationImport {
+    const translations = new Map<string, string>();
+    const indexed_keys = new Set<string>();
+    const issues: string[] = [];
+    const expected = new Map(
+      file.entries.map((entry) => [`${entry.path}\u0000${entry.char_offset}`, entry]),
+    );
+    const lines = text.split(/\r\n|\n|\r/gu);
+    if (lines.at(-1) === "") lines.pop();
+    const ambiguous = new Set<string>();
+    let cursor = 0;
+    while (cursor < lines.length) {
+      const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(lines[cursor] ?? "");
+      if (header === null) {
+        if ((lines[cursor] ?? "") !== "") {
+          issues.push(`第 ${cursor + 1} 行不是合法索引头。`);
+        }
+        cursor += 1;
+        continue;
+      }
+      const resource_path = header[1] ?? "";
+      const char_offset = Number(header[2] ?? Number.NaN);
+      let block_end = cursor + 1;
+      while (
+        block_end < lines.length &&
+        FATE_EXTRA_INDEX_LINE_PATTERN.exec(lines[block_end] ?? "") === null
+      ) {
+        block_end += 1;
+      }
+      const entry = expected.get(`${resource_path}\u0000${char_offset}`);
+      if (entry === undefined) {
+        issues.push(`索引 ${resource_path} / char:${char_offset} 不在对应日文分支中。`);
+        cursor = block_end;
+        continue;
+      }
+      const translated_lines = [header[3] ?? "", ...lines.slice(cursor + 1, block_end)];
+      this.remove_fate_extra_pass_through_lines(translated_lines, entry.pass_through);
+      const key = `${signature}\u0000${resource_path}\u0000${char_offset}`;
+      const value = translated_lines.join("\n");
+      const previous = translations.get(key);
+      if (previous !== undefined && previous !== value) {
+        translations.delete(key);
+        indexed_keys.delete(key);
+        ambiguous.add(key);
+      } else if (!ambiguous.has(key)) {
+        translations.set(key, value);
+        indexed_keys.add(key);
+      }
+      cursor = block_end;
+    }
+    if (ambiguous.size > 0) {
+      issues.push(`${ambiguous.size} 个重复索引存在不同译文，已留空待确认。`);
+    }
+    return { translations, indexed_keys, issues };
+  }
+
+  private remove_fate_extra_pass_through_lines(
+    lines: string[],
+    pass_through: FateExtraParsedIndexedText["pass_through"],
+  ): void {
+    for (const pass_line of [...pass_through].reverse()) {
+      const preferred = Math.max(0, Math.min(lines.length - 1, pass_line.after_source_line + 1));
+      let found = lines[preferred] === pass_line.text ? preferred : -1;
+      if (found < 0) {
+        for (let distance = 1; distance < lines.length; distance += 1) {
+          const after = preferred + distance;
+          const before = preferred - distance;
+          if (after < lines.length && lines[after] === pass_line.text) {
+            found = after;
+            break;
+          }
+          if (before >= 0 && lines[before] === pass_line.text) {
+            found = before;
+            break;
+          }
+        }
+      }
+      if (found >= 0) lines.splice(found, 1);
+    }
   }
 
   private read_legacy_items(legacy_path: string, project_path: string): MutableRecord[] {

@@ -17,6 +17,8 @@ export const FATE_EXTRA_DEFAULT_UNINDEXED_TRANSLATION_DIRECTORY = "";
 
 export type FateExtraDisplayMode = "auto" | "dialogue" | "fullscreen" | "poem";
 
+export const FATE_EXTRA_SUPPLEMENT_FILE = "FE_补漏.txt";
+
 export type FateExtraClassification = {
   category: string;
   category_zh: string;
