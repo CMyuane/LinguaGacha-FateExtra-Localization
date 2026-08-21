@@ -17,6 +17,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   MonitorPlay,
+  SpellCheck2,
 } from "lucide-react";
 
 import type { BottomAction, NavigationGroup, RouteId } from "@frontend/app/navigation/types";
@@ -46,6 +47,11 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
         id: "fate-extra-preview",
         icon: MonitorPlay,
         title_key: "fate_extra_preview_page.title",
+      },
+      {
+        id: "proofreading",
+        icon: SpellCheck2,
+        title_key: "proofreading_page.title",
       },
       {
         id: "glossary",

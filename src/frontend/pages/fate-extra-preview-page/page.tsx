@@ -1398,34 +1398,43 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           <p className="fate-extra-preview__error">{context_error}</p>
         ) : (
           <div className="fate-extra-preview__context-grid">
-            <div className="fate-extra-preview__context-head">
-              <span />
-              <strong>{t("fate_extra_preview_page.source_japanese")}</strong>
-              <strong>{t("fate_extra_preview_page.machine_translation")}</strong>
-              <strong>{t("fate_extra_preview_page.proofread_translation")}</strong>
-            </div>
             {(context_payload?.items ?? []).map((item) => (
-              <div
+              <article
                 className={`fate-extra-preview__context-row${item.is_current ? " fate-extra-preview__context-row--current" : ""}`}
                 key={`${item.char_offset}-${item.item_id}`}
               >
-                <div className="fate-extra-preview__context-position">
-                  <Badge variant={item.is_current ? "default" : "outline"}>
-                    {item.is_current
-                      ? t("fate_extra_preview_page.context_current")
-                      : item.block_ordinal < (context_payload?.target_ordinal ?? 0)
-                        ? t("fate_extra_preview_page.context_previous")
-                        : t("fate_extra_preview_page.context_next")}
-                  </Badge>
+                <header className="fate-extra-preview__context-position">
+                  <div className="fate-extra-preview__context-position-main">
+                    <Badge variant={item.is_current ? "default" : "outline"}>
+                      {item.is_current
+                        ? t("fate_extra_preview_page.context_current")
+                        : item.block_ordinal < (context_payload?.target_ordinal ?? 0)
+                          ? t("fate_extra_preview_page.context_previous")
+                          : t("fate_extra_preview_page.context_next")}
+                    </Badge>
+                    <strong>{item.block_ordinal + 1}</strong>
+                  </div>
                   <code>char:{item.char_offset}</code>
+                </header>
+
+                <section className="fate-extra-preview__context-text fate-extra-preview__context-text--source">
+                  <strong>{t("fate_extra_preview_page.source_japanese")}</strong>
+                  <pre>{item.source}</pre>
+                </section>
+                <div className="fate-extra-preview__context-translations">
+                  <section className="fate-extra-preview__context-text">
+                    <strong>{t("fate_extra_preview_page.machine_translation")}</strong>
+                    <pre>{item.machine_translation}</pre>
+                  </section>
+                  <section className="fate-extra-preview__context-text">
+                    <strong>{t("fate_extra_preview_page.proofread_translation")}</strong>
+                    <pre className={item.proofread_translation === "" ? "fate-extra-preview__context-empty" : undefined}>
+                      {item.proofread_translation ||
+                        t("fate_extra_preview_page.context_empty_proofread")}
+                    </pre>
+                  </section>
                 </div>
-                <pre>{item.source}</pre>
-                <pre>{item.machine_translation}</pre>
-                <pre>
-                  {item.proofread_translation ||
-                    t("fate_extra_preview_page.context_empty_proofread")}
-                </pre>
-              </div>
+              </article>
             ))}
           </div>
         )}

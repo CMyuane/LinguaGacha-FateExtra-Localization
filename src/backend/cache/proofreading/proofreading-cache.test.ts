@@ -133,6 +133,51 @@ function create_delta_change(overrides: Partial<CacheChange> = {}): CacheChange 
 }
 
 describe("ProofreadingCache", () => {
+  it("FE 精简工程从数据库读取去重 item，而不是把空的轻量缓存当成空工程", async () => {
+    const worker = create_worker();
+    const cache_port = create_cache_read_port({ items: [] });
+    cache_port.snapshot = () => ({
+      projectPath: "E:/Project/compact-fe.lg",
+      epoch: 1,
+      freshness: "fresh",
+      sectionRevisions: { files: 1, items: 1, quality: 1, proofreading: 0 },
+      itemCount: 2,
+    });
+    const execute = vi.fn((operation: { name: string }) => {
+      if (operation.name === "getFateExtraCompactState") return { enabled: true };
+      if (operation.name === "getAllItems") {
+        return [
+          { id: 11, file_path: "route.txt", row: 1, src: "原文一", dst: "初翻一" },
+          { id: 12, file_path: "route.txt", row: 2, src: "原文二", dst: "初翻二" },
+        ];
+      }
+      throw new Error(`unexpected operation: ${operation.name}`);
+    });
+    const cache = new ProofreadingCache({
+      cache: cache_port,
+      appSettingService: create_settings(),
+      workerClient: worker,
+      service: createProofreadingListReader(),
+      database: { execute } as never,
+    });
+
+    const sync = await cache.sync({});
+    const view = await cache.list({
+      filters: sync.data.defaultFilters,
+      keyword: "",
+      scope: "all",
+      is_regex: false,
+      sort_state: null,
+    });
+
+    expect(view.data.row_count).toBe(2);
+    expect(worker.sync_inputs[0]?.upsertItems.map((item) => item.src)).toEqual(["原文一", "原文二"]);
+    expect(execute).toHaveBeenCalledWith({
+      name: "getAllItems",
+      args: { projectPath: "E:/Project/compact-fe.lg" },
+    });
+  });
+
   it("同一工程身份下只执行一次 sync task 并用本地列表 service 查询", async () => {
     const worker = create_worker();
     const cache = new ProofreadingCache({

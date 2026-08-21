@@ -26,6 +26,7 @@ import type { ProofreadingListWindow } from "../../../shared/proofreading/proofr
 import type { QualitySlice, QualitySnapshot } from "../../../shared/quality/snapshot";
 import type { ProjectDataSectionRevisions } from "../../../shared/project-event";
 import type { CacheChange } from "../cache-change";
+import type { ProjectDatabase } from "../../database/database-operations";
 
 const PROOFREADING_CACHE_VERSION = 2;
 
@@ -54,6 +55,7 @@ export class ProofreadingCache {
   private readonly app_setting_service: AppSettingService;
   private readonly worker_client: BackendWorkerClient;
   private readonly service: ReturnType<typeof createProofreadingListReader>;
+  private readonly database: Pick<ProjectDatabase, "execute"> | null;
   private synced_key: string | null = null;
   private synced_state: ProofreadingSyncState | null = null;
   private sync_promises = new Map<string, Promise<ProofreadingSyncState>>();
@@ -63,11 +65,13 @@ export class ProofreadingCache {
     appSettingService: AppSettingService;
     workerClient: BackendWorkerClient;
     service: ReturnType<typeof createProofreadingListReader>;
+    database?: Pick<ProjectDatabase, "execute">;
   }) {
     this.cache = options.cache;
     this.app_setting_service = options.appSettingService;
     this.worker_client = options.workerClient;
     this.service = options.service;
+    this.database = options.database ?? null;
   }
 
   public async sync(input: {
@@ -356,9 +360,34 @@ export class ProofreadingCache {
    */
   private build_items(): ProofreadingItemRecord[] {
     const file_order_by_path = this.build_file_order_by_path(this.cache.files.readFileEntries());
-    return this.cache.items
-      .readItems()
-      .map((item) => this.to_runtime_item(item, file_order_by_path));
+    const cached_items = this.cache.items.readItems();
+    const source_items =
+      cached_items.length > 0 || this.cache.snapshot().itemCount === 0
+        ? cached_items
+        : this.read_lightweight_compact_items();
+    return source_items.map((item) => this.to_runtime_item(item, file_order_by_path));
+  }
+
+  /**
+   * FE 精简工程不会把可编辑 item 热机进通用内存缓存。校对页仍需读取这些
+   * 去重后的 item，因此只在确认工程带 compact 标记后从 SQLite 事实层读取；
+   * 绝不对普通的 90 万条 FE 工程执行 getAllItems。
+   */
+  private read_lightweight_compact_items(): CacheItem[] {
+    if (this.database === null) return [];
+    const project_path = this.cache.snapshot().projectPath;
+    const compact_state = this.database.execute({
+      name: "getFateExtraCompactState",
+      args: { projectPath: project_path },
+    });
+    if (!this.is_record(compact_state) || compact_state["enabled"] !== true) return [];
+    const items = this.database.execute({
+      name: "getAllItems",
+      args: { projectPath: project_path },
+    });
+    return Array.isArray(items)
+      ? items.flatMap((item) => (this.is_record(item) ? [item as CacheItem] : []))
+      : [];
   }
 
   /**
@@ -366,10 +395,25 @@ export class ProofreadingCache {
    */
   private build_delta_items(item_ids: number[]): ProofreadingItemRecord[] {
     const file_order_by_path = this.build_file_order_by_path(this.cache.files.readFileEntries());
-    return item_ids.flatMap((item_id) => {
+    const cached_items = item_ids.flatMap((item_id) => {
       const item = this.cache.items.readItem(item_id);
       return item === null ? [] : [this.to_runtime_item(item, file_order_by_path)];
     });
+    if (cached_items.length > 0 || item_ids.length === 0 || this.database === null) {
+      return cached_items;
+    }
+    const project_path = this.cache.snapshot().projectPath;
+    const items = this.database.execute({
+      name: "getItemsByIds",
+      args: { projectPath: project_path, itemIds: item_ids },
+    });
+    return Array.isArray(items)
+      ? items.flatMap((item) =>
+          this.is_record(item)
+            ? [this.to_runtime_item(item as CacheItem, file_order_by_path)]
+            : [],
+        )
+      : [];
   }
 
   /**
@@ -402,6 +446,10 @@ export class ProofreadingCache {
       retry_count: this.read_number(item["retry_count"], 0),
       extra_field: (item["extra_field"] ?? "") as ApiJsonValue,
     };
+  }
+
+  private is_record(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   private normalize_quality_state(block: Record<string, unknown>): QualitySnapshot {

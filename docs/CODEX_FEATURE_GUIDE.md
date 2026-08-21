@@ -115,3 +115,23 @@ node buildtools/check/index.mjs
 - Windows 免安装版以完整 `win-unpacked` 目录压缩为 ZIP。
 - 每次发布创建新的 GitHub Release 和版本标签，不覆盖旧版本。
 - 发布包根目录必须包含本文件，便于 Codex 在脱离源码仓库时理解新增功能和维护约束。
+
+## 10. 校对工作区与精简工程数据源
+
+本地化版重新启用了 LinguaGacha 的独立“校对”工作区。该页面用于跨条目搜索、筛选、排序和集中检查，不替代 PSP 预览中的原文／初翻／最终校对稿三栏编辑器。
+
+FE 精简工程启用轻量缓存后，通用 `items` 内存缓存会有意保持为空；这是避免把约 91 万条物理出现位置载入 V8 堆的性能设计。校对工作区不得把空的通用缓存解释成空工程：
+
+- 普通工程继续从通用内存缓存同步校对列表。
+- 带 `fate_extra.compact.v1` 标记的精简工程从 SQLite `items` 表读取约 28,433 条去重后的可编辑文本。
+- 只有确认 compact 标记后才能调用 `getAllItems`；禁止对普通 FE 全量工程执行该操作。
+- 精简工程条目修改后，增量校对刷新通过 `getItemsByIds` 读取受影响条目，不得重新同步整个工程。
+- 若轻量缓存为空且工程不带 compact 标记，必须保守返回空列表，不能擅自读取全部物理文本。
+
+核心文件：
+
+- `src/backend/cache/proofreading/proofreading-cache.ts`
+- `src/backend/cache/cache-manager.ts`
+- `src/backend/cache/proofreading/proofreading-cache.test.ts`
+
+本功能的回归测试必须验证：通用缓存为空、逻辑条目数大于零、compact 标记存在时，SQLite 中的去重条目仍能完整进入校对列表；同时验证数据库读取不会作用于非 compact 工程。

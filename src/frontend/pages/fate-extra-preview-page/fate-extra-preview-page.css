@@ -312,44 +312,48 @@
   display: flex;
   min-height: 0;
   flex-direction: column;
-  gap: 8px;
+  gap: 12px;
   overflow: auto;
-}
-
-.fate-extra-preview__context-head,
-.fate-extra-preview__context-row {
-  display: grid;
-  grid-template-columns: 112px repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
-.fate-extra-preview__context-head {
-  position: sticky;
-  z-index: 1;
-  top: 0;
-  padding: 6px 8px;
-  background: var(--background);
-  font-size: 12px;
+  padding: 2px 4px 10px 2px;
+  scrollbar-gutter: stable;
 }
 
 .fate-extra-preview__context-row {
-  padding: 8px;
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fate-extra-preview__context-row {
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--ui-radius-card);
-  background: color-mix(in srgb, var(--muted) 18%, transparent);
+  background: color-mix(in srgb, var(--muted) 14%, var(--card));
+  box-shadow: 0 6px 16px color-mix(in srgb, black 7%, transparent);
 }
 
 .fate-extra-preview__context-row--current {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--primary) 10%, var(--card));
+  border: 2px solid var(--primary);
+  padding: 11px;
+  background: color-mix(in srgb, var(--primary) 12%, var(--card));
+  box-shadow: 0 8px 22px color-mix(in srgb, var(--primary) 15%, transparent);
 }
 
 .fate-extra-preview__context-position {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 6px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.fate-extra-preview__context-position-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .fate-extra-preview__context-position code {
@@ -358,15 +362,61 @@
   font-size: 11px;
 }
 
-.fate-extra-preview__context-row pre {
+.fate-extra-preview__context-text {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 70px minmax(0, 1fr);
+  align-items: start;
+  gap: 10px;
+}
+
+.fate-extra-preview__context-text > strong {
+  padding-top: 2px;
+  color: var(--muted-foreground);
+  font-size: 11px;
+}
+
+.fate-extra-preview__context-text--source {
+  padding-bottom: 10px;
+  border-bottom: 1px dashed color-mix(in srgb, var(--border) 82%, transparent);
+}
+
+.fate-extra-preview__context-translations {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.fate-extra-preview__context-translations .fate-extra-preview__context-text {
+  grid-template-columns: 1fr;
+  gap: 5px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--border) 84%, transparent);
+  border-radius: var(--ui-radius-card);
+  background: color-mix(in srgb, var(--background) 56%, transparent);
+}
+
+.fate-extra-preview__context-text pre {
   min-width: 0;
   margin: 0;
   overflow-wrap: anywhere;
   white-space: pre-wrap;
   word-break: break-word;
   font-family: var(--font-sans);
-  font-size: 12px;
-  line-height: 1.55;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.fate-extra-preview__context-empty {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+@media (max-width: 900px) {
+  .fate-extra-preview__context-translations {
+    grid-template-columns: 1fr;
+  }
 }
 
 .fate-extra-preview__review-scope {

@@ -65,6 +65,7 @@ export class CacheManager implements CacheReadPort {
       appSettingService: options.appSettingService,
       workerClient: options.workerClient,
       service: createProofreadingListReader(),
+      database: options.database,
     });
     this.qualityStatistics = new QualityStatisticsCache({
       cache: this,
