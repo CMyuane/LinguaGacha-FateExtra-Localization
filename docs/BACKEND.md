@@ -14,20 +14,23 @@
 
 ## 2. 状态拥有者
 
-| 状态 / 事实 | 拥有者 | 唯一写入口 / 读出口 |
-| --- | --- | --- |
-| 应用设置、最近工程、语言 | `AppSettingService` | 设置 API、CLI transient overrides、`settings.changed` |
-| loaded 工程身份 | `ProjectSessionState` | `ProjectLifecycleService` |
-| loaded 工程热读数据 | `CacheManager` | 工程热机、committed event、功能 query |
-| 运行态项目事实 | `ProjectWriteStore` / `ProjectWriteCoordinator` | database transaction、内部 event、按需公开 change |
-| 后端内部 committed event | `ProjectEventBus` | 写侧事务成功后的 after-commit 发布 |
-| 公开项目变更 | `ProjectChangePublisher` | 同一 canonical event 进入 SSE 与 HTTP `changes` |
-| 任务类型、scope、status、busy、`run_revision`、请求压力 | `TaskRunState` / `TaskRunPublisher` | 任务命令与 Engine 生命周期 |
-| 任务 progress / extras | `.lg` meta | `ProjectTaskStore` 经 `ProjectWriteStore` 写入 |
-| 任务公开快照 | `TaskSnapshotBuilder` | 组合内存运行态与 `.lg` meta |
-| `.lg` 物理 workflow | `ProjectDatabase` | `DatabaseOperation`、`execute()`、`execute_transaction()` |
-| 平台 IO 与路径身份 | `NativeFs` / `NativePathPolicy` | `src/native` |
-| 后端日志 | `LogManager` | 文件日志、轻量 SSE、当前进程详情池 |
+| 状态 / 事实                                             | 拥有者                                          | 唯一写入口 / 读出口                                       |
+| ------------------------------------------------------- | ----------------------------------------------- | --------------------------------------------------------- |
+| 应用设置、最近工程、语言                                | `AppSettingService`                             | 设置 API、CLI transient overrides、`settings.changed`     |
+| loaded 工程身份                                         | `ProjectSessionState`                           | `ProjectLifecycleService`                                 |
+| loaded 工程热读数据                                     | `CacheManager`                                  | 工程热机、committed event、功能 query                     |
+| 运行态项目事实                                          | `ProjectWriteStore` / `ProjectWriteCoordinator` | database transaction、内部 event、按需公开 change         |
+| 后端内部 committed event                                | `ProjectEventBus`                               | 写侧事务成功后的 after-commit 发布                        |
+| 公开项目变更                                            | `ProjectChangePublisher`                        | 同一 canonical event 进入 SSE 与 HTTP `changes`           |
+| 任务类型、scope、status、busy、`run_revision`、请求压力 | `TaskRunState` / `TaskRunPublisher`             | 任务命令与 Engine 生命周期                                |
+| 任务 progress / extras                                  | `.lg` meta                                      | `ProjectTaskStore` 经 `ProjectWriteStore` 写入            |
+| 任务公开快照                                            | `TaskSnapshotBuilder`                           | 组合内存运行态与 `.lg` meta                               |
+| FE scan / scan-apply / preview-index job                | `FateExtraJobCoordinator`                       | job API、隔离 worker 通道                                 |
+| FE scan draft                                           | 有期限的 staging SQLite + 小型 handle           | 扫描 worker 创建、FE coordinator 清理                     |
+| FE 预览派生索引                                         | `.lg` 内 generation 化索引表                    | `FateExtraIndexCoordinator` / 索引维护 worker             |
+| `.lg` 物理 workflow                                     | `ProjectDatabase`                               | `DatabaseOperation`、`execute()`、`execute_transaction()` |
+| 平台 IO 与路径身份                                      | `NativeFs` / `NativePathPolicy`                 | `src/native`                                              |
+| 后端日志                                                | `LogManager`                                    | 文件日志、轻量 SSE、当前进程详情池                        |
 
 `ProjectOperationGate` 保护会改变任务输入集合或需要慢准备的结构性项目操作；准备与最终提交必须持有同一 gate lease，避免检查通过后被任务启动插入。
 
@@ -61,7 +64,7 @@ project, files, items, quality, prompts, analysis, proofreading
 - 生命周期和进度提交立即发布完整 `task.snapshot_changed`；只有请求压力允许合并，终态前必须冲刷。请求压力只表示已租约发出的 LLM 请求，不表示队列或 worker 数量。
 - `TaskEngine` 拥有全局运行锁、执行编排和 artifact commit；全量翻译与分析经过 Planner，行级重翻直接从目标 items 构造 context，三者共享同一执行与提交边界。
 - work-unit worker 负责提示词构建、runner、pipeline 和响应处理；planning worker 只承担规划期计算。线程数不等于 LLM 并发，实际并发由模型 key lease 与 limiter 决定。
-- 非 engine 的重型计算通过 `BackendWorkerClient` 提交无状态 worker task；worker 不读数据库、不写 `.lg`、不发布事件、不持有项目 cache。
+- 非 engine 的重型计算通过 `BackendWorkerClient` 提交 worker task；普通 task 保持无状态且不读写数据库。FE 扫描/应用、普通与精简导出、索引维护和预览查询是受控例外，只能访问任务载荷显式授予的工程或 staging 路径，不持有项目 cache、不发布事件；主进程仍拥有 gate、revision 校验、唯一业务写入口和 after-commit 发布。
 - provider policy、request policy、SDK transport 和结果归一归 `src/backend/llm`，任务层不解析供应商异常文本。
 
 ## 5. 数据库与 `.lg` 存储
@@ -84,31 +87,55 @@ FE 百宝箱公开以下项目 API：
 ```text
 POST /api/toolbox/fate-extra/scan
 POST /api/toolbox/fate-extra/apply
+POST /api/toolbox/fate-extra/jobs/status
+POST /api/toolbox/fate-extra/jobs/cancel
 POST /api/toolbox/fate-extra/font/scan
 POST /api/toolbox/fate-extra/font/sync
 POST /api/toolbox/fate-extra/export
 POST /api/toolbox/fate-extra/index/rebuild
 ```
 
-`scan` 只读六份索引原稿、旧译文和外置分类 SQLite，并返回可复核报告。`apply` 在 gate
-持有期间再次验证源文件身份，先备份 `.lg`，再于一个数据库事务内替换 files/items、
-写入 `fate_extra.adapter.v1`、更新 section revision 并发布 canonical project change。
-结构或分类匹配不可靠时不得进入事务。
+`scan`、`apply` 与 `index/rebuild` 快速返回统一 job snapshot，运行态不借用翻译任务或通用 worker 队列：
+
+```ts
+type FateExtraJobSnapshot = {
+  job_id: string;
+  kind: "scan" | "scan-apply" | "preview-index";
+  status: "queued" | "running" | "cancelling" | "succeeded" | "cancelled" | "failed";
+  phase: string;
+  completed: number;
+  total: number | null;
+  project_epoch: number;
+  source_revision: number;
+  cancellable: boolean;
+  result?: ApiJsonValue;
+  error?: ApiErrorPayload;
+};
+```
+
+`jobs/status` 读取权威快照，`jobs/cancel` 只发出幂等取消请求；取消是正常终态，不包装为 500。相同项目、kind 和源 identity 的索引启动合并为同一 job；成功索引在数据库 identity 仍就绪时继续返回原完成快照，失败、取消或 identity 变化才允许重建。job 终态必须核对 `project_epoch` 和源 revision，迟到结果不得覆盖新工程状态。`scan-apply` 失败时只有 `error.details.scan_draft_retryable === true` 明确保留 staging 重试资格，字段缺失或为 `false` 时前端不得继续使用旧 `scan_id`。
+
+### 7.1 扫描 staging 与唯一写入口
+
+扫描 worker 流式读取六份索引原稿、旧译文、完整日文主库和外置只读分类 SQLite，不用整文件 `split`，也不向主进程传递近百万对象。序列化 items、assets、迁移问题、计数、去重字库 corpus 和输入指纹写入带版本号的临时 staging SQLite。主进程只保留 `scan_id`、project epoch/revisions、输入 SHA-256/size/mtime、staging 路径、状态、摘要与过期时间组成的 handle。
+
+每个 loaded project 至多一个 draft；新扫描先取消并清理旧 draft，ready draft 默认 30 分钟过期。取消、输入失效、成功应用、工程卸载、backend dispose 和启动时发现的残留都必须删除 staging。精简工程已经拥有另一套代表项与物理映射事实，scan/apply 入口必须在取消旧任务或清理 draft 前拒绝它，不能把全量扫描结果写入仍带 compact 身份的工程。瞬时写入失败可以在 TTL 内重试，输入或 revision 前置条件失效则立即销毁 draft。
+
+`apply` 仍由 `ProjectWriteStore` 作为唯一业务写入口，并先通过 `ProjectOperationGate` 取得独占写租约。主进程复核 project identity、section revisions 与输入指纹后，应用 worker 才能在一个 SQLite 事务中从 staging 批量导入；中止 worker 必须触发回滚。事务提交后由 `ProjectWriteStore` 更新 files/items/analysis/proofreading revisions 并发布 canonical change，失败或取消不得发布半成品事件。worker 在创建全量备份前写入带 UUID token 的 pending manifest，并把同 token durable receipt 放入提交事务；项目重新打开时只在路径身份、manifest 与 receipt 三者一致时保留已提交备份，旧 receipt 未变化时删除未提交备份和报告临时文件，损坏或歧义状态一律保守保留。
 
 `font/sync` 和 `export` 以独立 helper 处理 CPU/IO 密集字库生成。普通 FE QA 警告不阻止
 导出；字库同步失败、编码槽耗尽、索引结构损坏和输出不可写属于系统错误。项目元数据
 只记录语料、manifest 哈希及剩余槽数，不把分类数据库、译文或字体生成临时目录写入
 `.lg`。
 
-FE 预览的严格去重索引使用 `fate_extra_text_unit`、`fate_extra_text_occurrence` 与
-`fate_extra_file_summary` 三张派生表。前两张表的分组键是完整 `src` 字符串，因此换行、控制符、
-Ruby 与占位符的任一差异都会形成不同单元；`items` 仍是译文和索引事实的唯一来源。
-文件摘要只缓存文件计数与首条位置，不复制译文事实。派生索引绑定 `fate_extra.adapter.v1`
-身份，失配时由独立 rebuild API 在后端工作线程中以单事务重建；普通列表请求不得同步触发
-近百万行重建。索引尚未就绪时列表临时返回物理位置分页，避免阻塞 renderer，完成后由前端
-重新请求唯一文本视图。唯一文本视图读取代表
-条目并返回物理出现次数；整组保存只同步组内每条 item 的校对稿和状态，显示模式仍只写入
-当前物理位置，且不覆盖路径、char offset、安全分类等位置元数据。用户选择“仅此位置”时
-仍走原有单条写入口。
+精简工程使用 `POST /api/toolbox/fate-extra/compact/create` 创建新项目文件。数据库层在单事务中复制项目配置与资源、建立精确原文组和完整物理映射，只把有效代表条目写入普通 `items`。普通与精简工程共用专用 FE 导出 worker：普通工程按 item 主键分页，精简工程按 `original_item_id` 主键分页；输出文件各只打开一次并按页批量流写，去重字库 corpus 和 helper 构建也留在 worker。精简工程的分类 SQLite 先生成一致性快照，并在完成前以第二份逻辑快照复核主库/WAL 的有效内容。JSON、CSV、安全清单与路线文件全部先进入同一暂存目录，复核 items/proofreading revisions 后才发布。精简目录整体切换并保留可回滚旧版本；普通目录只替换本次拥有的文件，以逐文件备份和逆序回滚保留无关内容。冲突、writer 或发布失败必须恢复旧结果、清理临时输出且不更新 adapter meta。
 
-精简工程使用 `POST /api/toolbox/fate-extra/compact/create` 创建新项目文件。数据库层在单事务中复制项目配置与资源、建立精确原文组和完整物理映射，只把有效代表条目写入普通 `items`。`POST /api/toolbox/fate-extra/export` 检测到 `fate_extra.compact.v1` 后按页展开映射并流式写出文本、QA 和安全清单；不得退回 `getAllItems` 读取全部物理位置。
+### 7.2 Generation 索引与预览查询
+
+工程 schema 7 只创建可删除、可重建的 generation 化派生索引结构，打开旧普通、FE 或精简项目时不得同步重建近百万行。`FateExtraIndexCoordinator` 令维护 worker 分批构建并只标记完成非活动 generation；查询继续读取旧完整 generation。身份变化时，替代任务必须等待旧任务的 worker 终止和 inactive cleanup 完整退出后才开始构建，防止旧 cleanup 删除新 generation。worker 返回后，`FateExtraService` 同步复核 project epoch 与 items revision，并在同一事件循环 tick 内调用 `ProjectDatabase` 的短事务；该事务再次核对 generation、revision 和 adapter 原值后才切换 active meta。构建 worker 不具备激活权限，取消、崩溃或身份变化只清理非活动 generation。
+
+FE 搜索索引由去重搜索文档和整数物理位置映射组成。`src`、`dst`、`proofread` 分字段建文档，文件路径独立建文档；共享规范化只做现有大小写折叠，不 trim、不做 Unicode 归一化。按 Unicode code point 为 1 字符建立 unigram、2 字符建立 bigram、3 字符以上建立 FTS5 trigram 候选，候选再以精确 `includes` 复核。三字以上查询先物化 FTS 命中 rowid，再以文档主键复核 generation 和原子串，禁止让 SQLite 反向遍历全部 generation 文档。文本、文件和分类筛选的 COUNT、分页、上一条、下一条和序号跳转都从派生索引读取，不得对 `items.data` 或 `filtered_item` JSON 执行 `LOWER/LIKE` 全表扫描。四类布局/编码 warning 不能用 JSON SQL 近似：专用只读 worker 先应用上述索引候选，再按物理主键游标精确计算 occurrence warning，并以 project epoch、generation、revision 和筛选身份缓存数字 ID/unit 映射；主进程只接收命中页，翻页不重复扫描或物化百万 item 对象。
+
+项目写入后，`dst` / `proofread` 变化增量更新搜索文档；`src`、文件路径或分类变化把索引标为 dirty 并后台重建。索引 revision 落后时 query 明确返回 `search_state: "updating"`，不得回退主线程全表扫描。预览响应同时携带 `query_id`、`index_generation` 和 `applied_items_revision`，使客户端能丢弃旧 query 或旧 generation。
+
+预览只读查询通道实行 latest-wins：每个页面通道最多一个 active 和一个 latest pending；取消正在执行的同步 SQLite 查询时终止并重建该专用 worker。查询 worker 只读活动 generation，不能切换 generation 或写项目事实。唯一文本视图读取代表条目并返回物理出现次数；整组保存进入 `ProjectWriteStore` 事务后必须先验证 `(item_id, unit_id)` 仍属于当前 generation，再同步组内每条 item 的校对稿和状态，错配时整组回滚且不推进 revision。显示模式只写当前位置，且不覆盖路径、char offset 或安全分类。用户选择“仅此位置”时仍走原有单条写入口。
