@@ -44,25 +44,40 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
         title_key: "workbench_page.title",
       },
       {
-        id: "fate-extra-preview",
-        icon: MonitorPlay,
-        title_key: "fate_extra_preview_page.title",
-      },
-      {
         id: "proofreading",
         icon: SpellCheck2,
         title_key: "proofreading_page.title",
       },
       {
-        id: "glossary",
-        icon: BookA,
-        title_key: "glossary_page.title",
+        id: "fate-extra-preview",
+        icon: MonitorPlay,
+        title_key: "fate_extra_preview_page.title",
+      },
+    ],
+  },
+  {
+    id: "setting",
+    items: [
+      {
+        id: "basic-settings",
+        icon: SlidersHorizontal,
+        title_key: "basic_settings_page.title",
+      },
+      {
+        id: "expert-settings",
+        icon: GraduationCap,
+        title_key: "expert_settings_page.title",
       },
     ],
   },
   {
     id: "quality",
     items: [
+      {
+        id: "glossary",
+        icon: BookA,
+        title_key: "glossary_page.title",
+      },
       {
         id: "text-preserve",
         icon: ShieldCheck,
@@ -116,21 +131,6 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
         id: "toolbox",
         icon: Sparkles,
         title_key: "toolbox_page.title",
-      },
-    ],
-  },
-  {
-    id: "setting",
-    items: [
-      {
-        id: "basic-settings",
-        icon: SlidersHorizontal,
-        title_key: "basic_settings_page.title",
-      },
-      {
-        id: "expert-settings",
-        icon: GraduationCap,
-        title_key: "expert_settings_page.title",
       },
     ],
   },
