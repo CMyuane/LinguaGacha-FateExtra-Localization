@@ -34,6 +34,7 @@ describe("ToolboxTsConversionExportService", () => {
     const service = new ToolboxTsConversionExportService({
       sessionState: create_loaded_session_state(),
       cache: {
+        snapshot: () => ({ itemMode: "standard" }),
         items: {
           readItems: () => source_items,
         },
@@ -82,6 +83,26 @@ describe("ToolboxTsConversionExportService", () => {
       { dst: "滑鼠", name_dst: "滑鼠" },
     ]);
     expect(result).toEqual({ accepted: true, output_path: "E:/Project/demo_译文_S2T" });
+  });
+
+  it("拒绝 FE 工程走通用繁简转换导出", async () => {
+    const worker_run = vi.fn();
+    const service = new ToolboxTsConversionExportService({
+      sessionState: create_loaded_session_state(),
+      cache: {
+        snapshot: () => ({ itemMode: "fate-extra-compact" }),
+      } as unknown as CacheReadPort,
+      workerClient: { run: worker_run } as unknown as BackendWorkerClient,
+      presetReader: {} as QualityRulePresetReader,
+      fileExportService: {} as TranslationFileExportService,
+    });
+
+    await expect(service.export_files({ direction: "s2t" })).rejects.toMatchObject({
+      diagnostic_context: expect.objectContaining({
+        reason: "fate_extra_ts_conversion_requires_specialized_export",
+      }),
+    });
+    expect(worker_run).not.toHaveBeenCalled();
   });
 });
 

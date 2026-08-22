@@ -48,6 +48,11 @@ export class ToolboxTsConversionExportService {
    */
   public async export_files(request: JsonRecord): Promise<JsonRecord> {
     this.require_loaded_project_path();
+    if (this.cache.snapshot().itemMode !== "standard") {
+      throw new AppErrors.RequestValidationError({
+        diagnostic_context: { reason: "fate_extra_ts_conversion_requires_specialized_export" },
+      });
+    }
     const direction = this.read_direction(request["direction"]);
     const convert_name = request["convert_name"] !== false;
     const preserve_text = request["preserve_text"] !== false;

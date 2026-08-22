@@ -219,6 +219,7 @@ export class BackendServices {
       this.database,
       this.project_event_bus,
       this.project_change_publisher,
+      this.cache_manager,
     );
     this.workbench_query_service = new WorkbenchQueryService(
       this.project_session_state,

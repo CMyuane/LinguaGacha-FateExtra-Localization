@@ -1,4 +1,5 @@
 import type { ApiJsonValue } from "../api/api-types";
+import type { CacheItemSummary, CacheReadPort } from "../cache/cache-types";
 import { ProjectDatabase } from "../database/database-operations";
 import type { DatabaseJsonValue, DatabaseOperation } from "../database/database-types";
 import {
@@ -113,12 +114,16 @@ export class ProjectWriteStore {
 
   private readonly write_coordinator: ProjectWriteCoordinator; // coordinator 统一 revision guard 与 committed event 发布
 
+  private readonly cache: CacheReadPort | null;
+
   public constructor(
     database: ProjectDatabase,
     project_event_bus: ProjectEventBus,
     project_change_publisher: ProjectChangePublisher | null,
+    cache: CacheReadPort | null = null,
   ) {
     this.database = database;
+    this.cache = cache;
     this.write_coordinator = new ProjectWriteCoordinator(
       database,
       project_change_publisher,
@@ -1162,11 +1167,10 @@ export class ProjectWriteStore {
     revision_context: ProjectWriteRevisionContext,
     changes: ProofreadingItemChange[],
   ): Record<string, unknown> {
-    const stored_progress = this.normalize_object(revision_context.meta["translation_extras"]);
     const progress = this.read_translation_progress(revision_context.meta);
-    const counters = this.has_translation_progress_counters(stored_progress)
-      ? this.read_translation_progress_counters(progress)
-      : this.get_translation_status_summary(project_path);
+    const counters =
+      this.read_cached_translation_status_summary(project_path, revision_context) ??
+      this.get_translation_status_summary(project_path);
     const next_counters = this.apply_translation_status_deltas(counters, changes);
     return {
       ...progress,
@@ -1182,21 +1186,34 @@ export class ProjectWriteStore {
     };
   }
 
-  private has_translation_progress_counters(progress: Record<string, unknown>): boolean {
-    return (
-      this.is_finite_number(progress["total_line"]) &&
-      this.is_finite_number(progress["processed_line"]) &&
-      this.is_finite_number(progress["error_line"])
-    );
+  private read_cached_translation_status_summary(
+    project_path: string,
+    revision_context: ProjectWriteRevisionContext,
+  ): TranslationProgressCounters | null {
+    if (this.cache === null) {
+      return null;
+    }
+    const snapshot = this.cache.snapshot();
+    if (
+      snapshot.projectPath !== project_path ||
+      snapshot.freshness !== "fresh" ||
+      snapshot.itemMode === "fate-extra-unmaterialized" ||
+      this.read_number(snapshot.sectionRevisions.items, 0) !==
+        get_section_revision(revision_context.meta, "items")
+    ) {
+      return null;
+    }
+    return this.build_translation_counters_from_summary(this.cache.items.readSummary());
   }
 
-  private read_translation_progress_counters(
-    progress: Record<string, unknown>,
+  private build_translation_counters_from_summary(
+    summary: CacheItemSummary,
   ): TranslationProgressCounters {
-    const processed_line = this.read_non_negative_integer(progress["processed_line"]);
-    const error_line = this.read_non_negative_integer(progress["error_line"]);
+    const pending_line = this.read_non_negative_integer(summary.statusCounts["NONE"]);
+    const processed_line = this.read_non_negative_integer(summary.statusCounts["PROCESSED"]);
+    const error_line = this.read_non_negative_integer(summary.statusCounts["ERROR"]);
     return {
-      total_line: this.read_non_negative_integer(progress["total_line"]),
+      total_line: pending_line + processed_line + error_line,
       processed_line,
       error_line,
       line: processed_line + error_line,

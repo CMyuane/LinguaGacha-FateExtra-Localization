@@ -148,7 +148,15 @@ describe("ProjectWriteStore", () => {
       name: "upsertMetaEntries",
       args: {
         projectPath: project_path,
-        meta: { translation_extras: { total_line: 1, processed_line: 0, error_line: 0, line: 0 } },
+        meta: {
+          translation_extras: {
+            total_line: 28_433,
+            processed_line: 6_288,
+            error_line: 0,
+            line: 6_288,
+            total_tokens: 42,
+          },
+        },
       },
     });
 
@@ -180,6 +188,7 @@ describe("ProjectWriteStore", () => {
         processed_line: 1,
         error_line: 0,
         line: 1,
+        total_tokens: 42,
       }),
     });
     expect(published_changes.at(-1)).toMatchObject({

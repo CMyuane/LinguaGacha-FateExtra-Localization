@@ -97,7 +97,7 @@ export class ProjectTaskStore {
     });
     return {
       items: items as unknown as ApiJsonValue,
-      meta: this.get_all_meta(project_path),
+      meta: this.get_translation_meta(project_path),
     };
   }
 
@@ -270,7 +270,7 @@ export class ProjectTaskStore {
       }));
     return {
       items: items as unknown as ApiJsonValue,
-      meta: this.get_all_meta(project_path),
+      meta: this.get_translation_meta(project_path),
     };
   }
 
@@ -447,6 +447,36 @@ export class ProjectTaskStore {
     return this.normalize_object(
       this.database.execute(this.op("getAllMeta", { projectPath: project_path })),
     );
+  }
+
+  private get_translation_meta(project_path: string): MutableJsonRecord {
+    const meta = this.get_all_meta(project_path);
+    const snapshot = this.cache.snapshot();
+    if (
+      snapshot.projectPath !== project_path ||
+      snapshot.freshness !== "fresh" ||
+      snapshot.itemMode === "fate-extra-unmaterialized" ||
+      this.read_number(snapshot.sectionRevisions.items, 0) !==
+        this.read_number(meta["project_runtime_revision.items"], 0)
+    ) {
+      return meta;
+    }
+    const summary = this.cache.items.readSummary();
+    const extras = this.normalize_object(meta["translation_extras"]);
+    const processed_line = this.read_number(summary.statusCounts["PROCESSED"], 0);
+    const error_line = this.read_number(summary.statusCounts["ERROR"], 0);
+    const total_line =
+      this.read_number(summary.statusCounts["NONE"], 0) + processed_line + error_line;
+    return {
+      ...meta,
+      translation_extras: {
+        ...extras,
+        total_line,
+        processed_line,
+        error_line,
+        line: processed_line + error_line,
+      },
+    };
   }
 
   /**
