@@ -76,6 +76,7 @@ npm run format -- --check
 
 - 导航测试完整断言五个区域、四条分隔线、区域内顺序、既有子菜单和展开/折叠。
 - 校对缓存测试覆盖热命中零读取、同身份单飞、项目或 revision 切换，以及旧 generation 迟到。
+- 工作台缓存测试覆盖普通、精简 FE、完整 FE 三态；精简工程必须以 28,433 个代表项得到 7,869 个 `PROCESSED`，即使 `dst` 全部非空且 `translation_extras` 过期。完整 FE 打开及热查询不得调用 `getAllItems`，精简工程连续 100 次热快照不得读取完整 items 或数据库。
 - 普通与精简 FE 导出测试覆盖主键游标跨 ID 空洞无重漏、查询计划无 OFFSET、格式兼容、路径越界拒绝、无关文件保留、临时输出、revision 冲突和 writer 失败清理；主进程不得调用 `getAllItems` 或接收全量 item payload。
 - FE 扫描与应用测试覆盖 golden fixture 等价、单项目至多一个 draft、精简工程入口拒绝、取消、过期、卸载、dispose、事务回滚，以及 pending manifest 在提交前/后的重启恢复和歧义状态误删保护。
 - 索引测试覆盖重复启动合并、取消、worker 崩溃、revision 变化、旧 cleanup 与新 generation 构建串行化、非活动 generation 清理、原子切换、同路径 close/reopen epoch 隔离和旧完整 generation 可读；warning 查询覆盖第 121 条以后唯一命中仍有精确 total/分页，并覆盖四类 warning 与普通/精简工程。
@@ -95,6 +96,7 @@ npm run format -- --check
 | -------- | ------------------------------------------------------------------------------------------------------------ |
 | 正式数据 | 941,489 物理位置、28,433 可编辑精简 items、941,489 映射；零孤儿、零缺代表、零路径/原文/hash 错配             |
 | 校对缓存 | 热命中 p95 ≤10ms；160 行窗口 p95 ≤16ms；100 次热请求主堆增量 <5MiB                                           |
+| 工作台   | 精简工程热快照 p95 ≤10ms；100 次热请求数据库读取和完整 item 克隆均为 0、主堆增量 <5MiB；热机 heap 增量 <128MiB |
 | 精简导出 | 189 页时每个 JSON/CSV 流写入次数 ≤191；100k→1m 耗时增长 ≤12 倍；无二次 OFFSET 曲线                           |
 | FE 扫描  | 主进程 50ms 心跳最大漂移 ≤100ms；主进程 heap 增量 <128MiB；ready draft <5MiB；worker RSS 目标 <512MiB        |
 | 索引任务 | 启动/取消请求 ACK p95 ≤100ms；worker 完全退出 ≤500ms；冷建期间 `/health` p95 ≤100ms；取消后 1 秒内无 staging |

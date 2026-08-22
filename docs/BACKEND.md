@@ -45,6 +45,8 @@ project, files, items, quality, prompts, analysis, proofreading
 - `/api/session/project/manifest` 只返回项目身份、revision 索引和 counts，不预热大 section。
 - 功能 query 返回其结果依赖的 `sectionRevisions`，用户写入和任务命令以这些 revision 做乐观锁；`projectRevision` 只是所有 section revision 的最大值，不是独立全序或可写锁。
 - `CacheManager` 是当前 session 的热读缓存根；query 只组合 cache、按需数据库读取和 shared 纯规则，不建立第二套项目事实。
+- item 热机分为普通工程、精简 FE 和完整 FE 三态：普通工程与精简 FE 缓存可编辑 `items`，其中精简 FE 只包含去重代表项；完整 FE 只保留逻辑计数，不把近百万物理条目装入主进程。`ItemCache` 同步维护状态与文件摘要，工作台热查询不得复制完整 item 数组；renderer 的通用 FE `items` section 仍保持轻量。
+- 工作台翻译统计只认当前 item `status`；非空 `dst` 可能是精简工程的日文占位，`translation_extras` 可能是任务历史进度，两者都不能替代状态事实。状态写入在 revision 一致时以缓存摘要纠正行数进度，不一致时回到数据库聚合，不在项目打开阶段主动写回派生进度。
 - `QualityStatisticsCache` 的身份由规则和实际文本依赖决定；`items` 变化只在能证明文本源范围时局部失效，否则全量失效。
 - 客户端只提交用户意图、设置镜像和 revision 依赖；canonical items、task extras、prefilter 结果和 analysis 结果由后端计算。
 - 需要乐观锁的用户写入在最终提交点完成 revision guard 与单 `.lg` 事务；任务 artifact 等内部写入可以不带预期 revision，但仍通过 `ProjectWriteStore` 更新事实和 section revision。
