@@ -26,4 +26,8 @@ export const zh_cn_fate_extra_page = {
   compact_create: "生成精简工程",
   compact_done: "精简工程已生成：",
   compact_already: "当前已经是精简工程，无需再次精简。",
+  job_progress: "后台任务",
+  job_cancel: "取消任务",
+  job_cancelled: "后台任务已取消，临时数据已清理。",
+  job_failed: "FE 后台任务失败，请检查原因后重试。",
 } as const;

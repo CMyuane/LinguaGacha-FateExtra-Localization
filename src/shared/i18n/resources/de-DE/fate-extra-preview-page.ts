@@ -69,6 +69,8 @@ export const de_de_fate_extra_preview_page = {
     "Der strikte Deduplizierungsindex wird im Hintergrund erstellt. Die Seite bleibt bedienbar und wechselt danach automatisch zur eindeutigen Textansicht.",
   index_fallback:
     "Der strikte Deduplizierungsindex ist noch nicht bereit. Vorübergehend werden physische Vorkommen seitenweise angezeigt.",
+  index_cancel: "Indizierung abbrechen",
+  index_retry: "Indizierung erneut versuchen",
   view_context: "Kontext anzeigen (2 davor / 2 danach)",
   context_title: "Kontext in derselben DAT",
   context_description:

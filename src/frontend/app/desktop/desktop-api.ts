@@ -42,6 +42,10 @@ export type GithubReleaseUpdate = {
   windows_zip_urls: WindowsReleaseZipUrls; // renderer 只保存 release 解析结果，目标架构由 main 判定
 };
 
+export type ApiFetchOptions = {
+  signal?: AbortSignal;
+};
+
 type EventSourceJsonEvent = {
   type: string;
   [key: string]: unknown;
@@ -384,8 +388,11 @@ export async function check_github_release_update(
 export async function api_fetch<data_type>(
   path: string,
   body: Record<string, unknown> = {},
+  options: ApiFetchOptions = {},
 ): Promise<data_type> {
+  options.signal?.throwIfAborted();
   const base_url = await resolve_backend_api_base_url();
+  options.signal?.throwIfAborted();
   let response: Response;
   try {
     response = await fetch(build_api_url(base_url, path), {
@@ -394,8 +401,10 @@ export async function api_fetch<data_type>(
         "Content-Type": "application/json",
       },
       body: JsonTool.stringifyStrict(body),
+      signal: options.signal,
     });
   } catch (error) {
+    if (options.signal?.aborted === true) throw error;
     throw create_network_error(path, error);
   }
   const payload = await read_api_envelope<data_type>(response);
