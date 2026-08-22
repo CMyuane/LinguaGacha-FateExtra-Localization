@@ -440,34 +440,9 @@ export class ProofreadingCache {
    */
   private build_items(): ProofreadingItemRecord[] {
     const file_order_by_path = this.build_file_order_by_path(this.cache.files.readFileEntries());
-    const cached_items = this.cache.items.readItems();
-    const source_items =
-      cached_items.length > 0 || this.cache.snapshot().itemCount === 0
-        ? cached_items
-        : this.read_lightweight_compact_items();
-    return source_items.map((item) => this.to_runtime_item(item, file_order_by_path));
-  }
-
-  /**
-   * FE 精简工程不会把可编辑 item 热机进通用内存缓存。校对页仍需读取这些
-   * 去重后的 item，因此只在确认工程带 compact 标记后从 SQLite 事实层读取；
-   * 绝不对普通的 90 万条 FE 工程执行 getAllItems。
-   */
-  private read_lightweight_compact_items(): CacheItem[] {
-    if (this.database === null) return [];
-    const project_path = this.cache.snapshot().projectPath;
-    const compact_state = this.database.execute({
-      name: "getFateExtraCompactState",
-      args: { projectPath: project_path },
-    });
-    if (!this.is_record(compact_state) || compact_state["enabled"] !== true) return [];
-    const items = this.database.execute({
-      name: "getAllItems",
-      args: { projectPath: project_path },
-    });
-    return Array.isArray(items)
-      ? items.flatMap((item) => (this.is_record(item) ? [item as CacheItem] : []))
-      : [];
+    return this.cache.items
+      .readItems()
+      .map((item) => this.to_runtime_item(item, file_order_by_path));
   }
 
   /**

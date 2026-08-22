@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { CacheManager } from "../cache/cache-manager";
 import { ProjectDatabase } from "../database/database-operations";
@@ -140,6 +140,76 @@ describe("WorkbenchQueryService", () => {
     });
   });
 
+  it("精简 FE 以 status 统计 7,869 条译文并保持热快照零完整条目读取", async () => {
+    const file_counts = [3_710, 834, 182, 6, 163, 17, 23_521];
+    const asset_records = file_counts.map((_, index) => ({
+      path: `route-${index + 1}.txt`,
+      sort_order: index,
+    }));
+    let item_id = 0;
+    const items = file_counts.flatMap((count, file_index) =>
+      Array.from({ length: count }, () => {
+        item_id += 1;
+        return create_item({
+          id: item_id,
+          file_path: `route-${file_index + 1}.txt`,
+          src: `日文原文 ${item_id}`,
+          dst: `日文原文 ${item_id}`,
+          status: item_id <= 7_869 ? "PROCESSED" : "NONE",
+        });
+      }),
+    );
+    const heap_before_warm = process.memoryUsage().heapUsed;
+    const { service, cache, execute } = await create_service(items, asset_records, {
+      "fate_extra.adapter.v1": { enabled: true, logical_text_count: 28_433 },
+      "fate_extra.compact.v1": { enabled: true, compact_item_count: 28_433 },
+      translation_extras: {
+        total_line: 28_433,
+        processed_line: 6_288,
+        error_line: 0,
+      },
+    });
+    const warm_heap_delta = Math.max(0, process.memoryUsage().heapUsed - heap_before_warm);
+    const read_items = vi.spyOn(cache.items, "readItems");
+    const durations: number[] = [];
+    let last_result: ReturnType<WorkbenchQueryService["read_workbench_snapshot"]> | null = null;
+    const heap_before_hot_reads = process.memoryUsage().heapUsed;
+
+    for (let index = 0; index < 100; index += 1) {
+      const started_at = performance.now();
+      last_result = service.read_workbench_snapshot();
+      durations.push(performance.now() - started_at);
+    }
+
+    expect(last_result).toMatchObject({
+      snapshot: {
+        total_items: 28_433,
+        translation_stats: {
+          total_items: 28_433,
+          completed_count: 7_869,
+          failed_count: 0,
+          pending_count: 20_564,
+          skipped_count: 0,
+        },
+        entries: file_counts.map((item_count, index) => ({
+          rel_path: `route-${index + 1}.txt`,
+          sort_index: index,
+          item_count,
+        })),
+      },
+    });
+    expect(read_items).not.toHaveBeenCalled();
+    expect(
+      execute.mock.calls.filter(([operation]) => operation.name === "getAllItems"),
+    ).toHaveLength(1);
+    durations.sort((left, right) => left - right);
+    expect(durations[94] ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(10);
+    expect(Math.max(0, process.memoryUsage().heapUsed - heap_before_hot_reads)).toBeLessThan(
+      5 * 1024 * 1024,
+    );
+    expect(warm_heap_delta).toBeLessThan(128 * 1024 * 1024);
+  });
+
   it("返回自定义提示词查询视图与 prompts revision", async () => {
     const { service } = await create_service([]);
 
@@ -191,43 +261,44 @@ describe("WorkbenchQueryService", () => {
     meta_overrides: Record<string, unknown> = {},
   ): Promise<{
     service: WorkbenchQueryService;
+    cache: CacheManager;
+    execute: ReturnType<typeof vi.fn>;
   }> {
     // database fake 汇总项目 meta、资源、规则和提示词，避免测试绕过 CacheManager。
-    const database = {
-      execute(operation: { name: string; args?: Record<string, unknown> }) {
-        if (operation.name === "getAllMeta") {
-          return {
-            "project_runtime_revision.items": 7,
-            "project_runtime_revision.prompts": 3,
-            "quality_rule_revision.glossary": 5,
-            glossary_enable: true,
-            text_preserve_mode: "smart",
-            translation_prompt_enable: true,
-            "quality_prompt_revision.translation": 2,
-            ...meta_overrides,
-          };
+    const execute = vi.fn((operation: { name: string; args?: Record<string, unknown> }) => {
+      if (operation.name === "getAllMeta") {
+        return {
+          "project_runtime_revision.items": 7,
+          "project_runtime_revision.prompts": 3,
+          "quality_rule_revision.glossary": 5,
+          glossary_enable: true,
+          text_preserve_mode: "smart",
+          translation_prompt_enable: true,
+          "quality_prompt_revision.translation": 2,
+          ...meta_overrides,
+        };
+      }
+      if (operation.name === "getAllItems") {
+        return items;
+      }
+      if (operation.name === "getAllAssetRecords") {
+        return asset_records;
+      }
+      if (operation.name === "getRules") {
+        if (operation.args?.ruleType === "glossary") {
+          return [{ src: "HP", dst: "生命值" }];
         }
-        if (operation.name === "getAllItems") {
-          return items;
+        if (operation.args?.ruleType === "text_preserve") {
+          return [{ src: "\\[[^\\]]+\\]" }];
         }
-        if (operation.name === "getAllAssetRecords") {
-          return asset_records;
-        }
-        if (operation.name === "getRules") {
-          if (operation.args?.ruleType === "glossary") {
-            return [{ src: "HP", dst: "生命值" }];
-          }
-          if (operation.args?.ruleType === "text_preserve") {
-            return [{ src: "\\[[^\\]]+\\]" }];
-          }
-          return [];
-        }
-        if (operation.name === "getRuleText") {
-          return operation.args?.ruleType === "translation_prompt" ? "翻译提示词" : "";
-        }
-        return null;
-      },
-    } as unknown as ProjectDatabase;
+        return [];
+      }
+      if (operation.name === "getRuleText") {
+        return operation.args?.ruleType === "translation_prompt" ? "翻译提示词" : "";
+      }
+      return null;
+    });
+    const database = { execute } as unknown as ProjectDatabase;
     const cache = new CacheManager({
       database,
       logManager: null,
@@ -244,6 +315,8 @@ describe("WorkbenchQueryService", () => {
     session_state.mark_loaded("E:/Project/demo.lg");
     return {
       service: new WorkbenchQueryService(session_state, cache),
+      cache,
+      execute,
     };
   }
 });

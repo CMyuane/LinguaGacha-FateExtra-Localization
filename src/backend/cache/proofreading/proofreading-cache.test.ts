@@ -24,6 +24,7 @@ function create_cache_read_port(options: {
       freshness: "fresh",
       sectionRevisions: options.revisions ?? { files: 1, items: 1, quality: 1, proofreading: 0 },
       itemCount: options.items?.length ?? 1,
+      itemMode: "standard",
     }),
     readSectionRevisions: () =>
       options.revisions ?? { files: 1, items: 1, quality: 1, proofreading: 0 },
@@ -57,6 +58,12 @@ function create_cache_read_port(options: {
         const item = items.find((entry) => Number(entry["item_id"] ?? entry["id"] ?? 0) === itemId);
         return item === undefined ? null : { ...item };
       },
+      readSummary: () => ({
+        totalCount: options.items?.length ?? 1,
+        statusCounts: {},
+        nonemptySourceStatusCounts: {},
+        fileEntries: [],
+      }),
     },
     files: {
       readFileEntries: () => [{ rel_path: "script.txt", file_type: "TXT", sort_index: 0 }],
@@ -161,9 +168,14 @@ function create_delta_change(overrides: Partial<CacheChange> = {}): CacheChange 
 }
 
 describe("ProofreadingCache", () => {
-  it("FE 精简工程从数据库读取去重 item，而不是把空的轻量缓存当成空工程", async () => {
+  it("FE 精简工程从基础缓存读取去重 item，不再重复查询数据库", async () => {
     const worker = create_worker();
-    const cache_port = create_cache_read_port({ items: [] });
+    const cache_port = create_cache_read_port({
+      items: [
+        { id: 11, file_path: "route.txt", row: 1, src: "原文一", dst: "初翻一" },
+        { id: 12, file_path: "route.txt", row: 2, src: "原文二", dst: "初翻二" },
+      ],
+    });
     const read_items = vi.spyOn(cache_port.items, "readItems");
     cache_port.snapshot = () => ({
       projectPath: "E:/Project/compact-fe.lg",
@@ -171,17 +183,9 @@ describe("ProofreadingCache", () => {
       freshness: "fresh",
       sectionRevisions: { files: 1, items: 1, quality: 1, proofreading: 0 },
       itemCount: 2,
+      itemMode: "fate-extra-compact",
     });
-    const execute = vi.fn((operation: { name: string }) => {
-      if (operation.name === "getFateExtraCompactState") return { enabled: true };
-      if (operation.name === "getAllItems") {
-        return [
-          { id: 11, file_path: "route.txt", row: 1, src: "原文一", dst: "初翻一" },
-          { id: 12, file_path: "route.txt", row: 2, src: "原文二", dst: "初翻二" },
-        ];
-      }
-      throw new Error(`unexpected operation: ${operation.name}`);
-    });
+    const execute = vi.fn();
     const cache = new ProofreadingCache({
       cache: cache_port,
       appSettingService: create_settings(),
@@ -204,11 +208,8 @@ describe("ProofreadingCache", () => {
       "原文一",
       "原文二",
     ]);
-    expect(execute).toHaveBeenCalledWith({
-      name: "getAllItems",
-      args: { projectPath: "E:/Project/compact-fe.lg" },
-    });
-    expect(execute).toHaveBeenCalledTimes(2);
+    expect(execute).not.toHaveBeenCalled();
+    expect(read_items).toHaveBeenCalledTimes(1);
 
     execute.mockClear();
     read_items.mockClear();

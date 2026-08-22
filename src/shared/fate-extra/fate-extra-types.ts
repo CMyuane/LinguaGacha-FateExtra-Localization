@@ -1,6 +1,7 @@
 import type { JsonValue } from "../utils/json-tool";
 
 export const FATE_EXTRA_ADAPTER_META_KEY = "fate_extra.adapter.v1";
+export const FATE_EXTRA_COMPACT_META_KEY = "fate_extra.compact.v1";
 export const FATE_EXTRA_ITEM_NAMESPACE = "__linguagacha_fe_v1";
 export const FATE_EXTRA_OVERFLOW_WARNING_CODE = "FE_PSP_OVERFLOW";
 export const FATE_EXTRA_STORAGE_WARNING_CODE = "FE_STORAGE_CAPACITY";
