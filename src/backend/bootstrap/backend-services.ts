@@ -131,6 +131,10 @@ export class BackendServices {
   private readonly project_write_store: ProjectWriteStore;
   private readonly workbench_query_service: WorkbenchQueryService;
   private readonly backend_worker_client: BackendWorkerClient;
+  private readonly fate_extra_worker_client: BackendWorkerClient;
+  private readonly fate_extra_export_worker_client: BackendWorkerClient;
+  private readonly fate_extra_index_worker_client: BackendWorkerClient;
+  private readonly fate_extra_preview_worker_client: BackendWorkerClient;
   private readonly proofreading_query_service: ProofreadingQueryService;
   private readonly quality_statistics_service: QualityStatisticsService;
   private readonly ts_conversion_service: ToolboxTsConversionExportService;
@@ -177,6 +181,23 @@ export class BackendServices {
     this.project_data_reader = new ProjectDataReader(this.database);
     this.backend_worker_client = new BackendWorkerClient({
       execution: options.workerExecution,
+    });
+    this.fate_extra_worker_client = new BackendWorkerClient({
+      execution: options.workerExecution,
+      terminateOnAbort: true,
+    });
+    this.fate_extra_export_worker_client = new BackendWorkerClient({
+      execution: options.workerExecution,
+      terminateOnAbort: true,
+    });
+    this.fate_extra_index_worker_client = new BackendWorkerClient({
+      execution: options.workerExecution,
+      terminateOnAbort: true,
+    });
+    this.fate_extra_preview_worker_client = new BackendWorkerClient({
+      execution: options.workerExecution,
+      terminateOnAbort: true,
+      latestWins: true,
     });
     this.cache_manager = new CacheManager({
       database: this.database,
@@ -316,7 +337,15 @@ export class BackendServices {
       this.project_operation_gate,
       this.project_write_store,
       this.fate_extra_font_service,
+      undefined,
+      {
+        scanApply: this.fate_extra_worker_client,
+        export: this.fate_extra_export_worker_client,
+        index: this.fate_extra_index_worker_client,
+        preview: this.fate_extra_preview_worker_client,
+      },
     );
+    this.fate_extra_service.subscribe(this.project_event_bus);
     this.quality_service = new QualityService(
       this.paths,
       this.app_setting_service,
@@ -380,10 +409,15 @@ export class BackendServices {
   public async dispose(): Promise<void> {
     this.app_setting_service.set_stream_publisher(null);
     this.api_stream_hub.stop();
+    this.fate_extra_service.dispose();
     await Promise.all([
       this.work_unit_worker_pool.dispose(),
       this.planning_worker_pool.dispose(),
       this.backend_worker_client.dispose(),
+      this.fate_extra_worker_client.dispose(),
+      this.fate_extra_export_worker_client.dispose(),
+      this.fate_extra_index_worker_client.dispose(),
+      this.fate_extra_preview_worker_client.dispose(),
     ]);
     this.started = false;
   }

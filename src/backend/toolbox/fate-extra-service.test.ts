@@ -6,48 +6,29 @@ import type { ProjectOperationGate } from "../project/project-gate";
 import type { ProjectSessionState } from "../project/project-session";
 import type { ProjectWriteStore } from "../project/project-write-store";
 import type { NativeFs } from "../../native/native-fs";
-import { RequestValidationError } from "../../shared/error";
 import { FATE_EXTRA_ADAPTER_META_KEY } from "../../shared/fate-extra/fate-extra-types";
 import type { FateExtraFontService } from "./fate-extra-font-service";
 import { FateExtraService } from "./fate-extra-service";
 
-type DraftGuardProbe = {
-  assert_draft_unchanged(draft: unknown): void;
-};
-
 const PROJECT_PATH = String.raw`D:\work\project.lg`;
-const SOURCE_DIRECTORY = String.raw`D:\work\indexed`;
-const CLASSIFICATION_DATABASE = String.raw`D:\work\classification.sqlite`;
 
 describe("FateExtraService", () => {
-  it("扫描后读取 manifest 即使改变 SQLite 文件时间也不会让草稿失效", () => {
-    const { service, stat } = create_service({
-      meta: revision_meta({ files: 8, items: 817, analysis: 295, proofreading: 51 }),
-    });
-
-    expect(() => assert_draft(service)).not.toThrow();
-    expect(stat).not.toHaveBeenCalledWith(PROJECT_PATH);
-  });
-
-  it("项目语义 revision 变化时拒绝应用旧扫描草稿并返回可读原因", () => {
-    const { service } = create_service({
-      meta: revision_meta({ files: 8, items: 818, analysis: 295, proofreading: 51 }),
-    });
+  it("缺少专用 preview worker 时拒绝同步查询兼容路径", () => {
+    const { service, database_execute } = create_service({ meta: revision_meta({}) });
+    database_execute.mockClear();
 
     let thrown: unknown;
     try {
-      assert_draft(service);
+      void service.list_items({ project_path: PROJECT_PATH });
     } catch (error) {
       thrown = error;
     }
 
-    expect(thrown).toBeInstanceOf(RequestValidationError);
     expect(thrown).toMatchObject({
-      code: "request.validation_failed",
-      public_details: {
-        reason: "项目、索引原稿或分类数据库已变化，请重新扫描。",
-      },
+      code: "runtime.internal_invariant",
+      diagnostic_context: { reason: "fate_extra_preview_query_worker_missing" },
     });
+    expect(database_execute).not.toHaveBeenCalled();
   });
 
   it("未启用适配时导出返回业务校验错误而不是内部状态异常", async () => {
@@ -81,6 +62,9 @@ describe("FateExtraService", () => {
       schema_version: 1,
       logical_text_count: 34_693,
       applied_at: "2026-07-28T00:00:00.000Z",
+      compact_enabled: false,
+      compact_item_count: 0,
+      physical_item_count: 0,
     });
   });
 
@@ -142,82 +126,83 @@ describe("FateExtraService", () => {
     expect(write_store.apply_fate_extra_text_unit_review).not.toHaveBeenCalled();
   });
 
-  it("带索引初翻按资源索引导入并剥离路线透传空行", () => {
-    const { service } = create_service({ meta: revision_meta({}) });
-    const importer = service as unknown as {
-      read_indexed_translation_file(
-        text: string,
-        file: {
-          relative_path: string;
-          kind: "route";
-          entries: Array<{
-            path: string;
-            char_offset: number;
-            source: string;
-            pass_through: Array<{ after_source_line: number; text: string }>;
-          }>;
+  it("保留 readonly worker 的精确 warning total 和 unit occurrence 命中标记", () => {
+    const item = {
+      id: 7,
+      src: "同文",
+      dst: "短文",
+      file_path: "representative.txt",
+      row: 7,
+      status: "NONE",
+      fe_warning_codes: ["FE_MIGRATION_REVIEW"],
+      fe_warning_occurrence_id: 130,
+      extra_field: {
+        __linguagacha_fe_v1: {
+          schema_version: 1,
+          path: "representative.dat",
+          char_offset: 7,
+          original_prefix: "",
+          source_hash: "",
+          source_line_numbers: [],
+          pass_through: [],
+          migration_review: false,
+          migration_source: "",
+          proofread_translation: "",
+          display_mode: "dialogue",
+          classification: {
+            category: "ordinary_independent_slot",
+            slot_capacity: null,
+            allow_overlength: false,
+          },
         },
-        signature: string,
-      ): { translations: Map<string, string>; indexed_keys: Set<string>; issues: string[] };
-    };
-    const result = importer.read_indexed_translation_file(
-      [
-        "field/016/0000.dat | char:10 | 译文第一行",
-        "译文第二行",
-        "",
-        "field/016/0000.dat | char:20 | 下一条译文",
-      ].join("\r\n"),
-      {
-        relative_path: "FE_尼禄_救拉妮_日文原版_带索引.txt",
-        kind: "route",
-        entries: [
-          {
-            path: "field/016/0000.dat",
-            char_offset: 10,
-            source: "原文一\n原文二",
-            pass_through: [{ after_source_line: 1, text: "" }],
-          },
-          {
-            path: "field/016/0000.dat",
-            char_offset: 20,
-            source: "下一条原文",
-            pass_through: [],
-          },
-        ],
       },
-      "nero:rani",
+    };
+    const { service, database_execute } = create_service({ meta: revision_meta({}) });
+    database_execute.mockClear();
+    const result = (
+      service as unknown as {
+        assemble_preview_items_page: (
+          body: Record<string, unknown>,
+          page: Record<string, unknown>,
+          state: Record<string, unknown>,
+          file_summary: {
+            files: string[];
+            file_counts: Record<string, unknown>;
+            total: number;
+          },
+        ) => Record<string, unknown>;
+      }
+    ).assemble_preview_items_page(
+      { warning: "FE_MIGRATION_REVIEW", view_mode: "unique" },
+      { total: 1, items: [item], review_scope: "unit" },
+      {
+        ready: true,
+        search_ready: true,
+        search_generation: 3,
+        search_items_revision: 0,
+        items_revision: 0,
+      },
+      { files: [], file_counts: {}, total: 1 },
     );
 
-    expect(result.issues).toEqual([]);
-    expect(result.translations.get("nero:rani\u0000field/016/0000.dat\u000010")).toBe(
-      "译文第一行\n译文第二行",
-    );
-    expect(result.translations.get("nero:rani\u0000field/016/0000.dat\u000020")).toBe("下一条译文");
+    expect(database_execute).not.toHaveBeenCalled();
+    expect(result["total"]).toBe(1);
+    expect(result["items"]).toEqual([
+      expect.objectContaining({
+        item_id: 7,
+        warnings: expect.arrayContaining(["FE_MIGRATION_REVIEW"]),
+        classification: expect.objectContaining({ category: "ordinary_independent_slot" }),
+      }),
+    ]);
   });
 });
-
-function assert_draft(service: FateExtraService): void {
-  (service as unknown as DraftGuardProbe).assert_draft_unchanged({
-    project_path: PROJECT_PATH,
-    project_section_revisions: {
-      files: 8,
-      items: 817,
-      analysis: 295,
-      proofreading: 51,
-    },
-    source_directory: SOURCE_DIRECTORY,
-    source_mtime_ms: 10,
-    classification_database: CLASSIFICATION_DATABASE,
-    database_mtime_ms: 20,
-  });
-}
 
 function create_service(args: {
   meta: Record<string, unknown>;
   items?: Array<Record<string, unknown>>;
 }): {
   service: FateExtraService;
-  stat: ReturnType<typeof vi.fn>;
+  database_execute: ReturnType<typeof vi.fn>;
   write_store: {
     apply_fate_extra_item_metadata: ReturnType<typeof vi.fn>;
     apply_fate_extra_text_unit_review: ReturnType<typeof vi.fn>;
@@ -234,14 +219,9 @@ function create_service(args: {
   const session_state = {
     snapshot: vi.fn(() => ({ loaded: true, projectPath: PROJECT_PATH })),
   };
-  const stat = vi.fn((file_path: string) => {
-    if (file_path === SOURCE_DIRECTORY) return { mtimeMs: 10 };
-    if (file_path === CLASSIFICATION_DATABASE) return { mtimeMs: 20 };
-    throw new Error(`不应使用文件时间保护项目数据库：${file_path}`);
-  });
   const native_fs = {
-    stat,
     to_identity_path: (file_path: string) => file_path.toLocaleLowerCase(),
+    exists: () => false,
   };
   const write_store = {
     apply_fate_extra_item_metadata: vi.fn(async () => ({ accepted: true, changes: [] })),
@@ -251,12 +231,17 @@ function create_service(args: {
     {} as AppPathService,
     database as unknown as ProjectDatabase,
     session_state as unknown as ProjectSessionState,
-    {} as ProjectOperationGate,
+    {
+      run_exclusive_project_write: async <T>(run: () => Promise<T>) => await run(),
+    } as ProjectOperationGate,
     write_store as unknown as ProjectWriteStore,
-    {} as FateExtraFontService,
+    {
+      measure_encoded_bytes: (text: string) => Buffer.byteLength(text, "utf-8"),
+      read_encoded_width_snapshot: () => [],
+    } as unknown as FateExtraFontService,
     native_fs as unknown as NativeFs,
   );
-  return { service, stat, write_store };
+  return { service, database_execute: database.execute, write_store };
 }
 
 function revision_meta(

@@ -55,6 +55,34 @@ describe("TaskService", () => {
     });
   });
 
+  it("重翻请求工程身份与当前工程不一致时拒绝启动", async () => {
+    const calls: Array<Record<string, unknown>> = [];
+    const session_state = new ProjectSessionState();
+    session_state.mark_loaded("E:/Project/current.lg");
+    const service = new TaskService(
+      {
+        start: async (command: Record<string, unknown>) => {
+          calls.push(command);
+        },
+      } as unknown as TaskEngine,
+      create_snapshot_builder({ items: 7, proofreading: 2, quality: 3, prompts: 4 }),
+      create_task_run_publisher(),
+      create_project_operation_gate(),
+      session_state,
+    );
+
+    await expect(
+      service.start_task({
+        project_path: "E:/Project/previous.lg",
+        task_type: "translation",
+        mode: "new",
+        scope: { kind: "items", item_ids: [1] },
+        expected_section_revisions: { items: 7, proofreading: 2, quality: 3, prompts: 4 },
+      }),
+    ).rejects.toThrow("request.validation_failed");
+    expect(calls).toEqual([]);
+  });
+
   it("启动分析任务只校验质量和提示词 revision", async () => {
     const calls: Array<Record<string, unknown>> = [];
     const begin_records: Array<Record<string, unknown>> = [];

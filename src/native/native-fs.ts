@@ -1,5 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
+import { createHash } from "node:crypto";
+import { StringDecoder } from "node:string_decoder";
 
 import { NativePathPolicy, default_native_path_policy } from "./native-path";
 
@@ -9,6 +11,45 @@ import { NativePathPolicy, default_native_path_policy } from "./native-path";
 export interface NativeRemoveOptions {
   readonly recursive?: boolean;
   readonly force?: boolean;
+}
+
+/**
+ * 有界批量文本输出持有单个文件句柄，调用方必须在完成或失败时关闭。
+ */
+export interface NativeTextWriter {
+  write(text: string): void;
+  close(): void;
+}
+
+export type NativeUtf8TextReadResult = {
+  has_bom: boolean;
+  eol: "\r\n" | "\n" | "\r";
+  trailing_eol: boolean;
+  physical_line_count: number;
+};
+
+class NativeSyncTextWriter implements NativeTextWriter {
+  private closed = false;
+
+  public constructor(private readonly file_descriptor: number) {}
+
+  public write(text: string): void {
+    if (this.closed) {
+      throw new Error("不能写入已经关闭的文本输出。");
+    }
+    if (text === "") return;
+    const bytes = Buffer.from(text, "utf-8");
+    let offset = 0;
+    while (offset < bytes.length) {
+      offset += fs.writeSync(this.file_descriptor, bytes, offset, bytes.length - offset);
+    }
+  }
+
+  public close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    fs.closeSync(this.file_descriptor);
+  }
 }
 
 /**
@@ -124,6 +165,97 @@ export class NativeFs {
   }
 
   /**
+   * 流式计算文件 SHA-256，避免为了输入身份校验把大型资源整体读入内存。
+   */
+  public async sha256_file(file_path: string): Promise<string> {
+    const hash = createHash("sha256");
+    const stream = fs.createReadStream(this.to_native_path(file_path));
+    for await (const chunk of stream) {
+      hash.update(chunk);
+    }
+    return hash.digest("hex");
+  }
+
+  /** 把大型 UTF-8 片段流入既有 writer，同时保持跨 chunk 的多字节字符完整。 */
+  public async stream_text_file_to_writer(
+    file_path: string,
+    writer: NativeTextWriter,
+  ): Promise<void> {
+    const decoder = new StringDecoder("utf-8");
+    const stream = fs.createReadStream(this.to_native_path(file_path));
+    for await (const chunk of stream) {
+      writer.write(decoder.write(chunk));
+    }
+    writer.write(decoder.end());
+  }
+
+  /**
+   * 按物理行流式解码 UTF-8。回调只在当前行存活，调用方不得依赖完整文件 payload；
+   * CRLF 跨 chunk 时仍作为一个换行处理，并保持旧 FE 解码器的 BOM / EOL 判定。
+   */
+  public async read_utf8_lines(
+    file_path: string,
+    on_line: (text: string, line_number: number) => void,
+  ): Promise<NativeUtf8TextReadResult> {
+    const decoder = new StringDecoder("utf-8");
+    const stream = fs.createReadStream(this.to_native_path(file_path));
+    let pending = "";
+    let line_number = 1;
+    let has_bom = false;
+    let inspected_bom = false;
+    let seen_eol = false;
+    let seen_crlf = false;
+    let seen_lf = false;
+
+    const consume = (decoded: string, final: boolean): void => {
+      if (decoded.includes("\uFFFD")) {
+        throw new Error(`${path.basename(file_path)} 不是可可靠解码的 UTF-8 文本。`);
+      }
+      pending += decoded;
+      if (!inspected_bom && (pending !== "" || final)) {
+        inspected_bom = true;
+        if (pending.startsWith("\uFEFF")) {
+          has_bom = true;
+          pending = pending.slice(1);
+        }
+      }
+      let start = 0;
+      for (let index = 0; index < pending.length; index += 1) {
+        const code = pending.charCodeAt(index);
+        if (code !== 0x0a && code !== 0x0d) continue;
+        if (code === 0x0d && index + 1 === pending.length && !final) break;
+        on_line(pending.slice(start, index), line_number);
+        line_number += 1;
+        seen_eol = true;
+        if (code === 0x0d && pending.charCodeAt(index + 1) === 0x0a) {
+          seen_crlf = true;
+          index += 1;
+        } else if (code === 0x0a) {
+          seen_lf = true;
+        }
+        start = index + 1;
+      }
+      pending = pending.slice(start);
+    };
+
+    for await (const chunk of stream) {
+      consume(decoder.write(chunk as Buffer), false);
+    }
+    consume(decoder.end(), true);
+    const trailing_eol = seen_eol && pending === "";
+    if (pending !== "") {
+      on_line(pending, line_number);
+      line_number += 1;
+    }
+    return {
+      has_bom,
+      eol: seen_crlf ? "\r\n" : seen_lf ? "\n" : "\r",
+      trailing_eol,
+      physical_line_count: line_number - 1,
+    };
+  }
+
+  /**
    * 异步写入二进制或文本文件，并在写入前创建父目录。
    */
   public async write_file(file_path: string, data: string | Uint8Array): Promise<void> {
@@ -145,6 +277,21 @@ export class NativeFs {
   public append_text_file(file_path: string, text: string): void {
     this.ensure_parent_dir(file_path);
     fs.appendFileSync(this.to_native_path(file_path), text, "utf-8");
+  }
+
+  /**
+   * 截断并打开文本文件，后续批量写入复用同一文件句柄。
+   */
+  public open_text_writer(file_path: string, initial_text = ""): NativeTextWriter {
+    this.ensure_parent_dir(file_path);
+    const writer = new NativeSyncTextWriter(fs.openSync(this.to_native_path(file_path), "w"));
+    try {
+      writer.write(initial_text);
+      return writer;
+    } catch (error) {
+      writer.close();
+      throw error;
+    }
   }
 
   /**

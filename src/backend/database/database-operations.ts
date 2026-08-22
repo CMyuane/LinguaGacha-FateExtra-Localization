@@ -12,7 +12,11 @@ import type { DatabaseJsonValue, DatabaseOperation } from "./database-types";
 import * as AppErrors from "../../shared/error";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 import { normalize_project_item_field_patch } from "../../shared/project/project-item-field-patch";
-import { FATE_EXTRA_SUPPLEMENT_FILE } from "../../shared/fate-extra/fate-extra-types";
+import {
+  activate_fate_extra_preview_search_generation,
+  read_fate_extra_index_state,
+  refresh_fate_extra_preview_search_documents,
+} from "./fate-extra-preview-search-index";
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -273,23 +277,23 @@ export class ProjectDatabase {
         return null;
       case "getAllItems":
         return this.get_all_items(this.require_string(args, "projectPath"));
-      case "getFateExtraItemsPage":
-        return this.get_fate_extra_items_page(
-          this.require_string(args, "projectPath"),
-          this.optional_string(args, "search") ?? "",
-          this.optional_string(args, "filePath") ?? "",
-          this.optional_string(args, "category") ?? "",
-          this.require_number(args, "offset"),
-          this.require_number(args, "limit"),
-          args["includeFiles"] === true,
-          args["includeTotal"] !== false,
-          this.optional_string(args, "viewMode") === "unique" ? "unique" : "occurrence",
-        );
+      case "getFateExtraFontCorpusTexts":
+        return this.get_fate_extra_font_corpus_texts(this.require_string(args, "projectPath"));
       case "getFateExtraTextUnitIndexState":
         return this.get_fate_extra_text_unit_index_state(this.require_string(args, "projectPath"));
-      case "rebuildFateExtraTextUnitIndex":
-        this.rebuild_fate_extra_text_unit_index(this.require_string(args, "projectPath"));
-        return null;
+      case "activateFateExtraPreviewSearchGeneration":
+        return this.activate_fate_extra_preview_search_generation(
+          this.require_string(args, "projectPath"),
+          this.require_number(args, "generation"),
+          this.require_number(args, "expectedItemsRevision"),
+          this.require_string(args, "expectedAdapterValue"),
+        );
+      case "refreshFateExtraPreviewSearchDocuments":
+        return this.refresh_fate_extra_preview_search_documents(
+          this.require_string(args, "projectPath"),
+          this.optional_number_array(args, "itemIds"),
+          this.optional_number(args, "unitId"),
+        );
       case "createFateExtraCompactProject":
         return this.create_fate_extra_compact_project(
           this.require_string(args, "projectPath"),
@@ -306,7 +310,13 @@ export class ProjectDatabase {
       case "getFateExtraCompactExportPage":
         return this.get_fate_extra_compact_export_page(
           this.require_string(args, "projectPath"),
-          this.require_number(args, "offset"),
+          this.require_number(args, "afterOriginalItemId"),
+          this.require_number(args, "limit"),
+        );
+      case "getFateExtraFullExportPage":
+        return this.get_fate_extra_full_export_page(
+          this.require_string(args, "projectPath"),
+          this.require_number(args, "afterOriginalItemId"),
           this.require_number(args, "limit"),
         );
       case "getFateExtraContext":
@@ -1066,6 +1076,27 @@ export class ProjectDatabase {
   }
 
   /**
+   * FE 字库只需要不同的最终有效文本；在 SQLite 去重可避免把近百万 item 对象送入主进程。
+   */
+  private get_fate_extra_font_corpus_texts(project_path: string): DatabaseJsonValue {
+    return this.open_project(project_path)
+      .prepare(`
+        SELECT DISTINCT COALESCE(
+          NULLIF(json_extract(
+            data,
+            '$.extra_field.__linguagacha_fe_v1.proofread_translation'
+          ), ''),
+          NULLIF(json_extract(data, '$.dst'), ''),
+          COALESCE(json_extract(data, '$.src'), '')
+        ) AS text
+        FROM items
+        ORDER BY text
+      `)
+      .all()
+      .map((row) => row_text(row, "text"));
+  }
+
+  /**
    * 条目数量直接由 SQL 聚合读取，manifest 不为计数扫描完整 item payload
    */
   private get_item_count(project_path: string): number {
@@ -1076,378 +1107,55 @@ export class ProjectDatabase {
   }
 
   /**
-   * Fate/EXTRA projects can contain close to one million logical strings.  Preview
-   * queries must therefore filter and page inside SQLite; materialising every item
-   * in V8 first can exceed Electron's heap even though the database itself is valid.
-   */
-  private get_fate_extra_items_page(
-    project_path: string,
-    search: string,
-    file_path: string,
-    category: string,
-    offset: number,
-    limit: number,
-    include_files: boolean,
-    include_total: boolean,
-    view_mode: "unique" | "occurrence",
-  ): DatabaseJsonValue {
-    const db = this.open_project(project_path);
-    const compact_row = db
-      .prepare("SELECT value FROM meta WHERE key = 'fate_extra.compact.v1'")
-      .get();
-    if (compact_row !== undefined) {
-      return this.get_fate_extra_compact_preview_page(
-        db,
-        search,
-        file_path,
-        category,
-        offset,
-        limit,
-        include_files,
-        include_total,
-        view_mode,
-      );
-    }
-    if (view_mode === "unique") {
-      return this.get_fate_extra_text_units_page(
-        db,
-        search,
-        file_path,
-        category,
-        offset,
-        limit,
-        include_files,
-        include_total,
-      );
-    }
-    const conditions: string[] = [];
-    const parameters: Array<string | number> = [];
-    if (file_path !== "") {
-      conditions.push("json_extract(data, '$.file_path') = ?");
-      parameters.push(file_path);
-    }
-    if (category !== "") {
-      conditions.push(
-        "json_extract(data, '$.extra_field.__linguagacha_fe_v1.classification.category') = ?",
-      );
-      parameters.push(category);
-    }
-    if (search !== "") {
-      conditions.push(`LOWER(
-        COALESCE(json_extract(data, '$.src'), '') || CHAR(10) ||
-        COALESCE(json_extract(data, '$.dst'), '') || CHAR(10) ||
-        COALESCE(json_extract(data, '$.extra_field.__linguagacha_fe_v1.proofread_translation'), '') || CHAR(10) ||
-        COALESCE(json_extract(data, '$.file_path'), '')
-      ) LIKE ?`);
-      parameters.push(`%${search.toLocaleLowerCase()}%`);
-    }
-    const where = conditions.length === 0 ? "" : ` WHERE ${conditions.join(" AND ")}`;
-    const total_row = include_total
-      ? db.prepare(`SELECT COUNT(*) AS count FROM items${where}`).get(...parameters)
-      : undefined;
-    const safe_offset = Math.max(0, Math.trunc(offset));
-    const safe_limit = Math.max(1, Math.min(2000, Math.trunc(limit)));
-    const page_rows = db
-      .prepare(`SELECT id, data FROM items${where} ORDER BY id LIMIT ? OFFSET ?`)
-      .all(...parameters, safe_limit, safe_offset)
-      .map((row) => {
-        const item_id = row_number(row, "id");
-        return { ...this.value_record(json_parse(row["data"])), id: item_id };
-      });
-    const file_rows = include_files
-      ? db
-          .prepare(
-            `SELECT file_path, occurrence_count AS count
-             FROM fate_extra_file_summary
-             ORDER BY first_item_id
-             LIMIT 200`,
-          )
-          .all()
-      : [];
-    return {
-      total: total_row === undefined ? -1 : row_number(total_row, "count"),
-      items: page_rows as DatabaseJsonValue,
-      files: file_rows.map((row) => row_text(row, "file_path")),
-      file_counts: Object.fromEntries(
-        file_rows.map((row) => [row_text(row, "file_path"), row_number(row, "count")]),
-      ),
-      view_mode,
-    };
-  }
-
-  /**
-   * A compact FE project stores one editable item per exact source string, while
-   * route order and physical metadata live in fate_extra_compact_occurrence.
-   * Previewing compact `items` directly loses route-only entries and sorts by the
-   * chosen representative.  Always project physical occurrences for a selected
-   * route (and for occurrence mode), but keep the compact item id/unit id so edits
-   * still apply to the shared exact-source translation.
-   */
-  private get_fate_extra_compact_preview_page(
-    db: DatabaseSync,
-    search: string,
-    file_path: string,
-    category: string,
-    offset: number,
-    limit: number,
-    include_files: boolean,
-    include_total: boolean,
-    view_mode: "unique" | "occurrence",
-  ): DatabaseJsonValue {
-    if (view_mode === "unique" && file_path === "") {
-      const page = this.value_record(
-        this.get_fate_extra_text_units_page(
-          db,
-          search,
-          file_path,
-          category,
-          offset,
-          limit,
-          false,
-          include_total,
-        ),
-      );
-      if (!include_files) return page as DatabaseJsonValue;
-      const file_rows = db
-        .prepare(`
-          SELECT
-            occurrence.file_path,
-            CASE WHEN occurrence.file_path = ?
-              THEN COUNT(DISTINCT occurrence.source_hash)
-              ELSE COUNT(*)
-            END AS count,
-            MIN(occurrence.original_item_id) AS first_item_id
-          FROM fate_extra_compact_occurrence AS occurrence
-          JOIN fate_extra_compact_source AS compact_source
-            ON compact_source.source_hash = occurrence.source_hash
-          WHERE compact_source.excluded_reason = ''
-          GROUP BY file_path
-          ORDER BY first_item_id
-          LIMIT 200
-        `)
-        .all(FATE_EXTRA_SUPPLEMENT_FILE);
-      page["files"] = file_rows.map((row) => row_text(row, "file_path"));
-      page["file_counts"] = Object.fromEntries(
-        file_rows.map((row) => [row_text(row, "file_path"), row_number(row, "count")]),
-      );
-      page["review_scope"] = "unit";
-      return page as DatabaseJsonValue;
-    }
-
-    const conditions = ["compact_source.excluded_reason = ''"];
-    const parameters: Array<string | number> = [];
-    const deduplicate_supplement =
-      view_mode === "unique" && file_path === FATE_EXTRA_SUPPLEMENT_FILE;
-    if (file_path !== "") {
-      conditions.push("occurrence.file_path = ?");
-      parameters.push(file_path);
-    }
-    if (category !== "") {
-      conditions.push("occurrence.safety_category = ?");
-      parameters.push(category);
-    }
-    if (search !== "") {
-      conditions.push(`LOWER(
-        compact_source.source || CHAR(10) ||
-        COALESCE(json_extract(item.data, '$.dst'), '') || CHAR(10) ||
-        COALESCE(json_extract(
-          item.data,
-          '$.extra_field.__linguagacha_fe_v1.proofread_translation'
-        ), '') || CHAR(10) ||
-        occurrence.file_path
-      ) LIKE ?`);
-      parameters.push(`%${search.toLocaleLowerCase()}%`);
-    }
-    if (deduplicate_supplement) {
-      conditions.push(`occurrence.original_item_id = (
-        SELECT MIN(candidate.original_item_id)
-        FROM fate_extra_compact_occurrence AS candidate
-        WHERE candidate.file_path = occurrence.file_path
-          AND candidate.source_hash = occurrence.source_hash
-      )`);
-    }
-    const where = ` WHERE ${conditions.join(" AND ")}`;
-    const from = `
-      FROM fate_extra_compact_occurrence AS occurrence
-      JOIN fate_extra_compact_source AS compact_source
-        ON compact_source.source_hash = occurrence.source_hash
-      JOIN items AS item ON item.id = compact_source.compact_item_id
-      LEFT JOIN fate_extra_text_occurrence AS text_occurrence
-        ON text_occurrence.item_id = item.id
-    `;
-    const total_row = include_total
-      ? db.prepare(`SELECT COUNT(*) AS count ${from}${where}`).get(...parameters)
-      : undefined;
-    const safe_offset = Math.max(0, Math.trunc(offset));
-    const safe_limit = Math.max(1, Math.min(2000, Math.trunc(limit)));
-    const order_by =
-      file_path === ""
-        ? "occurrence.original_item_id"
-        : "occurrence.row_number, occurrence.original_item_id";
-    const rows = db
-      .prepare(`
-        SELECT
-          occurrence.original_item_id,
-          occurrence.file_path AS occurrence_file_path,
-          occurrence.row_number AS occurrence_row_number,
-          occurrence.resource_path,
-          occurrence.char_offset,
-          occurrence.original_prefix,
-          occurrence.source_line_numbers,
-          occurrence.pass_through,
-          occurrence.display_mode AS occurrence_display_mode,
-          occurrence.safety_category,
-          occurrence.slot_capacity,
-          occurrence.allow_overlength,
-          occurrence.original_machine_translation,
-          compact_source.source,
-          compact_source.occurrence_count,
-          compact_source.compact_item_id,
-          text_occurrence.unit_id,
-          item.data
-        ${from}${where}
-        ORDER BY ${order_by}
-        LIMIT ? OFFSET ?
-      `)
-      .all(...parameters, safe_limit, safe_offset)
-      .map((row) => {
-        const item = this.value_record(json_parse(row["data"]));
-        const occurrence_machine_translation = row_text(row, "original_machine_translation");
-        if (occurrence_machine_translation !== "") {
-          item["dst"] = occurrence_machine_translation;
-        }
-        const extra_field = this.value_record(item["extra_field"]);
-        const metadata = this.value_record(extra_field["__linguagacha_fe_v1"]);
-        const classification = this.value_record(metadata["classification"]);
-        metadata["path"] = row_text(row, "resource_path");
-        metadata["char_offset"] = row_number(row, "char_offset");
-        metadata["original_prefix"] = row_text(row, "original_prefix");
-        metadata["source_line_numbers"] = json_parse(row["source_line_numbers"]);
-        metadata["pass_through"] = json_parse(row["pass_through"]);
-        metadata["display_mode"] = row_text(row, "occurrence_display_mode");
-        classification["category"] = row_text(row, "safety_category");
-        classification["slot_capacity"] = row_number(row, "slot_capacity");
-        classification["allow_overlength"] = row_number(row, "allow_overlength") === 1;
-        metadata["classification"] = classification;
-        extra_field["__linguagacha_fe_v1"] = metadata;
-        return {
-          ...item,
-          id: row_number(row, "compact_item_id"),
-          src: row_text(row, "source"),
-          file_path: row_text(row, "occurrence_file_path"),
-          row: row_number(row, "occurrence_row_number"),
-          extra_field,
-          fe_text_unit_id: row_number(row, "unit_id"),
-          fe_occurrence_count: row_number(row, "occurrence_count"),
-          fe_physical_occurrence_id: row_number(row, "original_item_id"),
-        };
-      });
-    const file_rows = include_files
-      ? db
-          .prepare(`
-            SELECT
-              occurrence.file_path,
-              CASE WHEN occurrence.file_path = ?
-                THEN COUNT(DISTINCT occurrence.source_hash)
-                ELSE COUNT(*)
-              END AS count,
-              MIN(occurrence.original_item_id) AS first_item_id
-            FROM fate_extra_compact_occurrence AS occurrence
-            JOIN fate_extra_compact_source AS compact_source
-              ON compact_source.source_hash = occurrence.source_hash
-            WHERE compact_source.excluded_reason = ''
-            GROUP BY file_path
-            ORDER BY first_item_id
-            LIMIT 200
-          `)
-          .all(FATE_EXTRA_SUPPLEMENT_FILE)
-      : [];
-    return {
-      total: total_row === undefined ? -1 : row_number(total_row, "count"),
-      items: rows as DatabaseJsonValue,
-      files: file_rows.map((row) => row_text(row, "file_path")),
-      file_counts: Object.fromEntries(
-        file_rows.map((row) => [row_text(row, "file_path"), row_number(row, "count")]),
-      ),
-      view_mode,
-      review_scope: "unit",
-      compact_route_projection: true,
-    };
-  }
-
-  /**
    * FE 严格去重索引只缓存原文与物理位置的映射；译文仍以 items 为唯一事实源。
    */
   private get_fate_extra_text_unit_index_state(project_path: string): DatabaseJsonValue {
     const db = this.open_project(project_path);
-    const item_row = db.prepare("SELECT COUNT(*) AS count FROM items").get();
-    const occurrence_row = db
-      .prepare("SELECT COUNT(*) AS count FROM fate_extra_text_occurrence")
-      .get();
-    const unit_row = db.prepare("SELECT COUNT(*) AS count FROM fate_extra_text_unit").get();
-    const file_summary_row = db
-      .prepare("SELECT COUNT(*) AS count FROM fate_extra_file_summary")
-      .get();
-    const item_count = item_row === undefined ? 0 : row_number(item_row, "count");
-    const occurrence_count = occurrence_row === undefined ? 0 : row_number(occurrence_row, "count");
-    const adapter_value = db
-      .prepare("SELECT value FROM meta WHERE key = 'fate_extra.adapter.v1'")
-      .get()?.["value"];
-    const indexed_adapter_value = db
-      .prepare("SELECT value FROM meta WHERE key = 'fate_extra.text-unit-index.adapter'")
-      .get()?.["value"];
-    return {
-      ready:
-        item_count > 0 &&
-        item_count === occurrence_count &&
-        (file_summary_row === undefined ? 0 : row_number(file_summary_row, "count")) > 0 &&
-        typeof adapter_value === "string" &&
-        adapter_value === indexed_adapter_value,
-      item_count,
-      occurrence_count,
-      unit_count: unit_row === undefined ? 0 : row_number(unit_row, "count"),
-      file_count: file_summary_row === undefined ? 0 : row_number(file_summary_row, "count"),
-    };
+    return read_fate_extra_index_state(db) as unknown as DatabaseJsonValue;
   }
 
-  /**
-   * 用 SQLite 在单事务内重建派生映射，避免把近百万条 item JSON 搬进 V8。
-   */
-  private rebuild_fate_extra_text_unit_index(project_path: string): void {
+  private activate_fate_extra_preview_search_generation(
+    project_path: string,
+    generation: number,
+    expected_items_revision: number,
+    expected_adapter_value: string,
+  ): DatabaseJsonValue {
+    return activate_fate_extra_preview_search_generation(
+      this.open_project(project_path),
+      generation,
+      expected_items_revision,
+      expected_adapter_value,
+    ) as unknown as DatabaseJsonValue;
+  }
+
+  private refresh_fate_extra_preview_search_documents(
+    project_path: string,
+    requested_item_ids: number[] | null,
+    unit_id: number | null,
+  ): boolean {
     const db = this.open_project(project_path);
-    db.exec(`
-      DELETE FROM fate_extra_text_occurrence;
-      DELETE FROM fate_extra_text_unit;
-      DELETE FROM fate_extra_file_summary;
-      DELETE FROM sqlite_sequence WHERE name = 'fate_extra_text_unit';
-      INSERT INTO fate_extra_text_unit (
-        source,
-        representative_item_id,
-        occurrence_count
-      )
-      SELECT
-        COALESCE(json_extract(data, '$.src'), ''),
-        MIN(id),
-        COUNT(*)
-      FROM items
-      GROUP BY COALESCE(json_extract(data, '$.src'), '');
-      INSERT INTO fate_extra_text_occurrence (item_id, unit_id)
-      SELECT item.id, unit.unit_id
-      FROM items AS item
-      JOIN fate_extra_text_unit AS unit
-        ON unit.source = COALESCE(json_extract(item.data, '$.src'), '');
-      INSERT INTO fate_extra_file_summary (file_path, occurrence_count, first_item_id)
-      SELECT
-        COALESCE(json_extract(data, '$.file_path'), ''),
-        COUNT(*),
-        MIN(id)
-      FROM items
-      GROUP BY COALESCE(json_extract(data, '$.file_path'), '');
-      INSERT OR REPLACE INTO meta (key, value)
-      SELECT 'fate_extra.text-unit-index.adapter', value
-      FROM meta
-      WHERE key = 'fate_extra.adapter.v1';
-    `);
+    const item_ids =
+      requested_item_ids !== null
+        ? requested_item_ids
+        : unit_id === null
+          ? []
+          : db
+              .prepare(
+                `SELECT item_id
+                 FROM fate_extra_text_occurrence
+                 WHERE unit_id = ?
+                 ORDER BY item_id`,
+              )
+              .all(Math.trunc(unit_id))
+              .map((row) => row_number(row, "item_id"));
+    const refreshed = refresh_fate_extra_preview_search_documents(db, item_ids);
+    if (refreshed) {
+      const items_revision = this.get_meta_from_db(db, "project_runtime_revision.items", 0);
+      db.prepare(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('fate_extra.text-unit-index.items-revision', ?)",
+      ).run(JsonTool.stringifyStrict(items_revision));
+    }
+    return refreshed;
   }
 
   /**
@@ -1700,7 +1408,6 @@ export class ProjectDatabase {
       source_db.exec("DETACH DATABASE compact_target");
     }
 
-    this.rebuild_fate_extra_text_unit_index(target_path);
     this.open_project(target_path).exec("VACUUM");
     this.close_project(target_path);
     return {
@@ -2027,11 +1734,11 @@ export class ProjectDatabase {
 
   private get_fate_extra_compact_export_page(
     project_path: string,
-    offset: number,
+    after_original_item_id: number,
     limit: number,
   ): DatabaseJsonValue {
     const db = this.open_project(project_path);
-    const safe_offset = Math.max(0, Math.trunc(offset));
+    const safe_after_original_item_id = Math.max(0, Math.trunc(after_original_item_id));
     const safe_limit = Math.max(1, Math.min(10_000, Math.trunc(limit)));
     const rows = db
       .prepare(`
@@ -2051,6 +1758,7 @@ export class ProjectDatabase {
         occurrence.original_machine_translation,
         occurrence.original_proofread_translation,
         occurrence.original_status,
+        compact_source.source_hash,
         compact_source.source,
         compact_source.excluded_reason,
         compact_item.data AS compact_item_data,
@@ -2062,144 +1770,79 @@ export class ProjectDatabase {
         ON compact_item.id = compact_source.compact_item_id
       LEFT JOIN fate_extra_compact_override AS occurrence_override
         ON occurrence_override.original_item_id = occurrence.original_item_id
+      WHERE occurrence.original_item_id > ?
       ORDER BY occurrence.original_item_id
-      LIMIT ? OFFSET ?
+      LIMIT ?
     `)
-      .all(safe_limit, safe_offset);
+      .all(safe_after_original_item_id, safe_limit);
+    const serialized_rows = rows.map((row) => ({
+      original_item_id: row_number(row, "original_item_id"),
+      file_path: row_text(row, "file_path"),
+      row_number: row_number(row, "row_number"),
+      resource_path: row_text(row, "resource_path"),
+      char_offset: row_number(row, "char_offset"),
+      original_prefix: row_text(row, "original_prefix"),
+      source_line_numbers: json_parse(row["source_line_numbers"]),
+      pass_through: json_parse(row["pass_through"]),
+      display_mode: row_text(row, "display_mode"),
+      safety_category: row_text(row, "safety_category"),
+      slot_capacity: row_number(row, "slot_capacity"),
+      allow_overlength: row_number(row, "allow_overlength") === 1,
+      original_machine_translation: row_text(row, "original_machine_translation"),
+      original_proofread_translation: row_text(row, "original_proofread_translation"),
+      original_status: row_text(row, "original_status"),
+      source_hash: row_text(row, "source_hash"),
+      source: row_text(row, "source"),
+      excluded_reason: row_text(row, "excluded_reason"),
+      compact_item:
+        row["compact_item_data"] === null || row["compact_item_data"] === undefined
+          ? null
+          : (this.value_record(
+              json_parse(row["compact_item_data"]),
+            ) as unknown as DatabaseJsonValue),
+      override_translation: row_text(row, "override_translation"),
+    }));
     return {
-      offset: safe_offset,
+      after_original_item_id: safe_after_original_item_id,
+      next_original_item_id:
+        serialized_rows.length === 0
+          ? safe_after_original_item_id
+          : serialized_rows[serialized_rows.length - 1]!.original_item_id,
       limit: safe_limit,
-      rows: rows.map((row) => ({
-        original_item_id: row_number(row, "original_item_id"),
-        file_path: row_text(row, "file_path"),
-        row_number: row_number(row, "row_number"),
-        resource_path: row_text(row, "resource_path"),
-        char_offset: row_number(row, "char_offset"),
-        original_prefix: row_text(row, "original_prefix"),
-        source_line_numbers: json_parse(row["source_line_numbers"]),
-        pass_through: json_parse(row["pass_through"]),
-        display_mode: row_text(row, "display_mode"),
-        safety_category: row_text(row, "safety_category"),
-        slot_capacity: row_number(row, "slot_capacity"),
-        allow_overlength: row_number(row, "allow_overlength") === 1,
-        original_machine_translation: row_text(row, "original_machine_translation"),
-        original_proofread_translation: row_text(row, "original_proofread_translation"),
-        original_status: row_text(row, "original_status"),
-        source: row_text(row, "source"),
-        excluded_reason: row_text(row, "excluded_reason"),
-        compact_item:
-          row["compact_item_data"] === null || row["compact_item_data"] === undefined
-            ? null
-            : (this.value_record(
-                json_parse(row["compact_item_data"]),
-              ) as unknown as DatabaseJsonValue),
-        override_translation: row_text(row, "override_translation"),
-      })),
+      rows: serialized_rows,
     };
   }
 
-  private get_fate_extra_text_units_page(
-    db: DatabaseSync,
-    search: string,
-    file_path: string,
-    category: string,
-    offset: number,
+  private get_fate_extra_full_export_page(
+    project_path: string,
+    after_original_item_id: number,
     limit: number,
-    include_files: boolean,
-    include_total: boolean,
   ): DatabaseJsonValue {
-    const conditions: string[] = [];
-    const parameters: Array<string | number> = [];
-    if (file_path !== "") {
-      conditions.push(`EXISTS (
-        SELECT 1
-        FROM fate_extra_text_occurrence AS filtered_occurrence
-        JOIN items AS filtered_item ON filtered_item.id = filtered_occurrence.item_id
-        WHERE filtered_occurrence.unit_id = unit.unit_id
-          AND json_extract(filtered_item.data, '$.file_path') = ?
-      )`);
-      parameters.push(file_path);
-    }
-    if (category !== "") {
-      conditions.push(`EXISTS (
-        SELECT 1
-        FROM fate_extra_text_occurrence AS filtered_occurrence
-        JOIN items AS filtered_item ON filtered_item.id = filtered_occurrence.item_id
-        WHERE filtered_occurrence.unit_id = unit.unit_id
-          AND json_extract(
-            filtered_item.data,
-            '$.extra_field.__linguagacha_fe_v1.classification.category'
-          ) = ?
-      )`);
-      parameters.push(category);
-    }
-    if (search !== "") {
-      conditions.push(`EXISTS (
-        SELECT 1
-        FROM fate_extra_text_occurrence AS filtered_occurrence
-        JOIN items AS filtered_item ON filtered_item.id = filtered_occurrence.item_id
-        WHERE filtered_occurrence.unit_id = unit.unit_id
-          AND LOWER(
-            COALESCE(json_extract(filtered_item.data, '$.src'), '') || CHAR(10) ||
-            COALESCE(json_extract(filtered_item.data, '$.dst'), '') || CHAR(10) ||
-            COALESCE(json_extract(
-              filtered_item.data,
-              '$.extra_field.__linguagacha_fe_v1.proofread_translation'
-            ), '') || CHAR(10) ||
-            COALESCE(json_extract(filtered_item.data, '$.file_path'), '')
-          ) LIKE ?
-      )`);
-      parameters.push(`%${search.toLocaleLowerCase()}%`);
-    }
-    const where = conditions.length === 0 ? "" : ` WHERE ${conditions.join(" AND ")}`;
-    const total_row = include_total
-      ? db
-          .prepare(`SELECT COUNT(*) AS count FROM fate_extra_text_unit AS unit${where}`)
-          .get(...parameters)
-      : undefined;
-    const safe_offset = Math.max(0, Math.trunc(offset));
-    const safe_limit = Math.max(1, Math.min(2000, Math.trunc(limit)));
-    const page_rows = db
-      .prepare(`
-        SELECT
-          unit.unit_id,
-          unit.occurrence_count,
-          item.id,
-          item.data
-        FROM fate_extra_text_unit AS unit
-        JOIN items AS item ON item.id = unit.representative_item_id
-        ${where}
-        ORDER BY unit.representative_item_id
-        LIMIT ? OFFSET ?
-      `)
-      .all(...parameters, safe_limit, safe_offset)
+    const safe_after_original_item_id = Math.max(0, Math.trunc(after_original_item_id));
+    const safe_limit = Math.max(1, Math.min(10_000, Math.trunc(limit)));
+    const rows = this.open_project(project_path)
+      .prepare("SELECT id, data FROM items WHERE id > ? ORDER BY id LIMIT ?")
+      .all(safe_after_original_item_id, safe_limit)
       .map((row) => ({
-        ...this.value_record(json_parse(row["data"])),
-        id: row_number(row, "id"),
-        fe_text_unit_id: row_number(row, "unit_id"),
-        fe_occurrence_count: row_number(row, "occurrence_count"),
+        original_item_id: row_number(row, "id"),
+        item: {
+          ...this.value_record(json_parse(row["data"])),
+          id: row_number(row, "id"),
+        },
       }));
-    const file_rows = include_files
-      ? db
-          .prepare(
-            `SELECT file_path, occurrence_count AS count
-             FROM fate_extra_file_summary
-             ORDER BY first_item_id
-             LIMIT 200`,
-          )
-          .all()
-      : [];
     return {
-      total: total_row === undefined ? -1 : row_number(total_row, "count"),
-      items: page_rows as DatabaseJsonValue,
-      files: file_rows.map((row) => row_text(row, "file_path")),
-      file_counts: Object.fromEntries(
-        file_rows.map((row) => [row_text(row, "file_path"), row_number(row, "count")]),
-      ),
-      view_mode: "unique",
+      after_original_item_id: safe_after_original_item_id,
+      next_original_item_id:
+        rows.length === 0 ? safe_after_original_item_id : rows[rows.length - 1]!.original_item_id,
+      limit: safe_limit,
+      rows,
     };
   }
 
+  /**
+   * 成员断言与整组更新必须留在同一个 database operation 内，使 ProjectWriteStore
+   * 后续 revision 操作与本次写入共享事务并在错配时整体回滚。
+   */
   private patch_fate_extra_review_by_unit_id(
     project_path: string,
     unit_id: number,
@@ -2208,6 +1851,27 @@ export class ProjectDatabase {
     display_mode: string,
   ): number {
     const db = this.open_project(project_path);
+    const normalized_unit_id = Math.trunc(unit_id);
+    const normalized_item_id = Math.trunc(item_id);
+    const membership = db
+      .prepare(`
+        SELECT 1
+        FROM fate_extra_text_occurrence
+        WHERE unit_id = ? AND item_id = ?
+      `)
+      .get(normalized_unit_id, normalized_item_id);
+    if (membership === undefined) {
+      throw new AppErrors.RequestValidationError({
+        public_details: {
+          reason: "FE 校对条目与严格重复组不匹配，请刷新预览后重试。",
+        },
+        diagnostic_context: {
+          reason: "fate_extra_text_unit_item_mismatch",
+          unit_id: normalized_unit_id,
+          item_id: normalized_item_id,
+        },
+      });
+    }
     const result = db
       .prepare(`
         UPDATE items
@@ -2222,7 +1886,7 @@ export class ProjectDatabase {
           WHERE unit_id = ?
         )
       `)
-      .run(proofread_translation, Math.trunc(unit_id));
+      .run(proofread_translation, normalized_unit_id);
     db.prepare(`
       UPDATE items
       SET data = json_set(
@@ -2235,7 +1899,7 @@ export class ProjectDatabase {
           FROM fate_extra_text_occurrence
           WHERE unit_id = ?
         )
-    `).run(display_mode, Math.trunc(item_id), Math.trunc(unit_id));
+    `).run(display_mode, normalized_item_id, normalized_unit_id);
     return Number(result.changes ?? 0);
   }
 
@@ -2825,6 +2489,14 @@ export class ProjectDatabase {
    */
   private require_number_array(args: Record<string, DatabaseJsonValue>, key: string): number[] {
     return this.require_array(args, key).map((value) => Number(value));
+  }
+
+  private optional_number_array(
+    args: Record<string, DatabaseJsonValue>,
+    key: string,
+  ): number[] | null {
+    const value = this.optional_array(args, key);
+    return value === null ? null : value.map((entry) => Number(entry));
   }
 
   /**

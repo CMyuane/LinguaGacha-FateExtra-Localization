@@ -5,8 +5,14 @@ import type { Hono } from "hono";
 import { InvalidJsonError } from "../../shared/error";
 import { ok, type ApiJsonValue } from "./api-types";
 
+export type ApiJsonRequestContext = {
+  requestId: string;
+  signal: AbortSignal;
+};
+
 export type ApiJsonHandler = (
   body: Record<string, ApiJsonValue>,
+  request: ApiJsonRequestContext,
 ) => ApiJsonValue | Promise<ApiJsonValue>;
 
 export type ApiJsonErrorResponder = (
@@ -32,9 +38,16 @@ export function register_post_json_route(
       const body = (await context.req.json().catch((error: unknown) => {
         throw new InvalidJsonError(error);
       })) as Record<string, ApiJsonValue>;
-      const data = await handler(body);
+      const data = await handler(body, {
+        requestId: request_id,
+        signal: context.req.raw.signal,
+      });
       return context.json(ok(data));
     } catch (error) {
+      if (context.req.raw.signal.aborted) {
+        // 客户端取消是 latest-wins 的预期控制流，不进入服务端故障记录。
+        return new Response(null, { status: 499 });
+      }
       return await on_error(error, path_name, request_id);
     }
   });

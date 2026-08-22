@@ -73,6 +73,49 @@ describe("原生文件系统门面", () => {
     expect(fs.readFileSync(target_path, "utf-8")).toBe("第一行\n第二行\n");
   });
 
+  it("批量文本输出在多次写入间复用同一文件句柄", () => {
+    const native_fs = new NativeFs(new NativePathPolicy(process.platform));
+    const target_path = path.join(temp_dir, "export", "report.json");
+    const open_sync = vi.spyOn(fs, "openSync");
+    const close_sync = vi.spyOn(fs, "closeSync");
+    const append_sync = vi.spyOn(fs, "appendFileSync");
+
+    const writer = native_fs.open_text_writer(target_path, "[");
+    writer.write('{"id":1}');
+    writer.write(",");
+    writer.write('{"id":2}]');
+    writer.close();
+    writer.close();
+
+    expect(fs.readFileSync(target_path, "utf-8")).toBe('[{"id":1},{"id":2}]');
+    expect(open_sync).toHaveBeenCalledTimes(1);
+    expect(close_sync).toHaveBeenCalledTimes(1);
+    expect(append_sync).not.toHaveBeenCalled();
+    expect(() => writer.write("late")).toThrow("不能写入已经关闭的文本输出。");
+  });
+
+  it("逐行 UTF-8 读取跨 chunk 保留 BOM、CRLF 和尾换行语义", async () => {
+    const native_fs = new NativeFs(new NativePathPolicy(process.platform));
+    const target_path = path.join(temp_dir, "stream.txt");
+    fs.writeFileSync(target_path, Buffer.from("\uFEFF第一行\r\n第二行\r\n", "utf-8"));
+    const lines: Array<{ text: string; line: number }> = [];
+
+    const result = await native_fs.read_utf8_lines(target_path, (text, line) => {
+      lines.push({ text, line });
+    });
+
+    expect(lines).toEqual([
+      { text: "第一行", line: 1 },
+      { text: "第二行", line: 2 },
+    ]);
+    expect(result).toEqual({
+      has_bom: true,
+      eol: "\r\n",
+      trailing_eol: true,
+      physical_line_count: 2,
+    });
+  });
+
   it("可以写入和读取超过 Windows 传统长度限制的路径", async () => {
     const native_fs = new NativeFs(new NativePathPolicy(process.platform));
     const long_segments = Array.from(

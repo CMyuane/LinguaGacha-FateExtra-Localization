@@ -1,6 +1,11 @@
 import type { ApiJsonValue } from "../api/api-types";
 import { ProjectDatabase } from "../database/database-operations";
 import type { DatabaseJsonValue, DatabaseOperation } from "../database/database-types";
+import {
+  FATE_EXTRA_SCAN_APPLY_RECEIPT_META_KEY,
+  read_fate_extra_scan_apply_receipt,
+  type FateExtraScanApplyReceipt,
+} from "../database/fate-extra-scan-apply-receipt";
 import { Item, type ItemNameField, type ItemStatus } from "../../domain/item";
 import { is_task_progress_status, TASK_PROGRESS_STATUSES } from "../../domain/task";
 import { count_analysis_glossary_candidates } from "../../shared/analysis-candidate";
@@ -363,6 +368,10 @@ export class ProjectWriteStore {
         }
         operations.push(
           ...this.write_coordinator.build_section_revision_operations(revision_context),
+          this.op("refreshFateExtraPreviewSearchDocuments", {
+            projectPath: request.projectPath,
+            itemIds: changed_item_ids as unknown as DatabaseJsonValue,
+          }),
         );
         return operations;
       },
@@ -417,6 +426,10 @@ export class ProjectWriteStore {
         }
         operations.push(
           ...this.write_coordinator.build_section_revision_operations(revision_context),
+          this.op("refreshFateExtraPreviewSearchDocuments", {
+            projectPath: request.projectPath,
+            itemIds: patches.map((patch) => patch.item_id) as unknown as DatabaseJsonValue,
+          }),
         );
         return operations;
       },
@@ -495,6 +508,118 @@ export class ProjectWriteStore {
         return operations;
       },
     });
+  }
+
+  /**
+   * FE staging 的百万行物理提交由隔离 worker 执行；本入口仍统一 revision guard 与事件发布。
+   */
+  public async apply_fate_extra_scan_staging(request: {
+    projectPath: string;
+    scanId: string;
+    applyToken: string;
+    expectedSectionRevisions: ApiJsonValue | undefined;
+    commit: (
+      expectedSectionRevisions: Record<string, number>,
+    ) => Promise<Record<string, ApiJsonValue>>;
+  }): Promise<Record<string, ApiJsonValue>> {
+    const sections: ProjectDataSection[] = ["files", "items", "analysis", "proofreading"];
+    const revision_context = this.write_coordinator.assert_expected_section_revisions(
+      request.projectPath,
+      request.expectedSectionRevisions,
+      sections,
+    );
+    const expected_section_revisions = Object.fromEntries(
+      sections.map((section) => [section, get_section_revision(revision_context.meta, section)]),
+    );
+    let physical_result: Record<string, ApiJsonValue> | null = null;
+    let commit_rejected = false;
+    let commit_error: unknown;
+    try {
+      physical_result = await request.commit(expected_section_revisions);
+    } catch (error) {
+      commit_rejected = true;
+      commit_error = error;
+    }
+    const committed_receipt = this.read_committed_fate_extra_scan_apply_receipt({
+      projectPath: request.projectPath,
+      scanId: request.scanId,
+      applyToken: request.applyToken,
+      expectedSectionRevisions: expected_section_revisions,
+    });
+    if (committed_receipt === null) {
+      if (commit_rejected) throw commit_error;
+      throw new AppErrors.InternalInvariantError({
+        diagnostic_context: { reason: "fate_extra_apply_receipt_missing_after_worker_success" },
+      });
+    }
+    if (commit_rejected) {
+      physical_result = {
+        accepted: true,
+        backup_path: committed_receipt.backup_path,
+        migration_report_json: committed_receipt.migration_report_json,
+        migration_report_csv: committed_receipt.migration_report_csv,
+        migration_report_status: "failed",
+        migration_report_error:
+          "FE apply worker 未返回；项目提交已由持久 receipt 确认，迁移报告状态未确认。",
+        logical_text_count: committed_receipt.logical_text_count,
+        section_revisions: committed_receipt.section_revisions,
+        apply_receipt_recovered: true,
+      };
+    } else {
+      physical_result = {
+        ...physical_result,
+        accepted: true,
+        backup_path: committed_receipt.backup_path,
+        migration_report_json: committed_receipt.migration_report_json,
+        migration_report_csv: committed_receipt.migration_report_csv,
+        logical_text_count: committed_receipt.logical_text_count,
+        section_revisions: committed_receipt.section_revisions,
+      };
+    }
+    const change_request: ProjectWriteChangeRequest = {
+      projectPath: request.projectPath,
+      source: "fate_extra_adapter_apply",
+      updatedSections: sections,
+      items: { payloadMode: "section-invalidated" },
+      files: { payloadMode: "section-invalidated" },
+      sectionModes: {
+        analysis: "section-invalidated",
+        proofreading: "section-invalidated",
+      },
+    };
+    await this.write_coordinator.publish_app_events_for_committed_change(change_request);
+    const published = this.write_coordinator.publish_project_data_change(change_request);
+    return {
+      ...physical_result,
+      ...((await published) as unknown as Record<string, ApiJsonValue>),
+    };
+  }
+
+  private read_committed_fate_extra_scan_apply_receipt(args: {
+    projectPath: string;
+    scanId: string;
+    applyToken: string;
+    expectedSectionRevisions: Record<string, number>;
+  }): FateExtraScanApplyReceipt | null {
+    const meta = this.write_coordinator.read_project_meta(args.projectPath);
+    const receipt = read_fate_extra_scan_apply_receipt(
+      meta[FATE_EXTRA_SCAN_APPLY_RECEIPT_META_KEY],
+    );
+    if (
+      receipt === null ||
+      receipt.apply_token !== args.applyToken ||
+      receipt.scan_id !== args.scanId
+    ) {
+      return null;
+    }
+    const sections = ["files", "items", "analysis", "proofreading"] as const;
+    const revisions_match = sections.every(
+      (section) =>
+        receipt.section_revisions[section] ===
+          Number(args.expectedSectionRevisions[section] ?? Number.NaN) + 1 &&
+        get_section_revision(meta, section) === receipt.section_revisions[section],
+    );
+    return revisions_match ? receipt : null;
   }
 
   /**
@@ -580,6 +705,10 @@ export class ProjectWriteStore {
           } as unknown as DatabaseJsonValue,
         }),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
+        this.op("refreshFateExtraPreviewSearchDocuments", {
+          projectPath: request.projectPath,
+          itemIds: [request.itemId] as unknown as DatabaseJsonValue,
+        }),
       ],
     });
   }
@@ -612,6 +741,10 @@ export class ProjectWriteStore {
           displayMode: request.displayMode,
         }),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
+        this.op("refreshFateExtraPreviewSearchDocuments", {
+          projectPath: request.projectPath,
+          unitId: request.unitId,
+        }),
       ],
     });
   }
@@ -825,6 +958,10 @@ export class ProjectWriteStore {
           } as unknown as DatabaseJsonValue,
         }),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
+        this.op("refreshFateExtraPreviewSearchDocuments", {
+          projectPath: request.projectPath,
+          itemIds: changed_item_ids as unknown as DatabaseJsonValue,
+        }),
       ],
     });
     return {

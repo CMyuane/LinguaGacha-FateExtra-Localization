@@ -4,6 +4,7 @@ import { to_log_error } from "../../shared/error";
 import {
   run_worker_task,
   type BackendWorkerTask,
+  type BackendWorkerTaskProgress,
   type BackendWorkerTaskResultByType,
 } from "./worker-task";
 
@@ -23,11 +24,18 @@ export type BackendWorkerIncomingMessage = BackendWorkerRunMessage | BackendWork
 export type BackendWorkerOutgoingMessage =
   | {
       id: string;
+      type: "progress";
+      progress: BackendWorkerTaskProgress;
+    }
+  | {
+      id: string;
+      type?: "result";
       ok: true;
       data: BackendWorkerTaskResultByType[keyof BackendWorkerTaskResultByType];
     }
   | {
       id: string;
+      type?: "result";
       ok: false;
       error: ReturnType<typeof to_log_error>;
     };
@@ -45,7 +53,9 @@ function handle_message(message: BackendWorkerIncomingMessage): void {
 async function execute_message(message: BackendWorkerRunMessage): Promise<void> {
   try {
     assert_not_cancelled(message.id);
-    const data = await run_worker_task(message.task);
+    const data = await run_worker_task(message.task, (progress) => {
+      post_message({ id: message.id, type: "progress", progress });
+    });
     assert_not_cancelled(message.id);
     post_message({ id: message.id, ok: true, data });
   } catch (error) {

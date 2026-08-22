@@ -25,6 +25,191 @@ export type FateExtraIndexedParseResult = {
   physical_line_count: number;
 };
 
+export type FateExtraStreamingParser = {
+  push_line(text: string, line_number: number): void;
+  finish(): { issues: string[]; physical_line_count: number };
+};
+
+/**
+ * 完整主库的逐行解析状态机。调用方可以把每个逻辑条目立即写入 SQLite，
+ * 无需为了返回数组而长期持有整个主库。
+ */
+export function create_fate_extra_complete_source_parser(
+  on_entry: (entry: FateExtraParsedIndexedText) => void,
+  on_issue?: (issue: string) => void,
+): FateExtraStreamingParser {
+  const issues: string[] = [];
+  let seen_section = false;
+  let physical_line_count = 0;
+  let finished = false;
+  let current:
+    | {
+        path: string;
+        char_offset: number;
+        original_prefix: string;
+        source_lines: string[];
+        source_line_numbers: number[];
+      }
+    | undefined;
+  const finish_current = (drop_section_separator: boolean): void => {
+    if (current === undefined) return;
+    if (drop_section_separator && current.source_lines.at(-1) === "") {
+      current.source_lines.pop();
+      current.source_line_numbers.pop();
+    }
+    on_entry({
+      path: current.path,
+      char_offset: current.char_offset,
+      original_prefix: current.original_prefix,
+      source: current.source_lines.join("\n"),
+      source_line_numbers: current.source_line_numbers,
+      pass_through: [],
+      header_line_number: current.source_line_numbers[0] ?? 1,
+    });
+    current = undefined;
+  };
+  return {
+    push_line(text, line_number): void {
+      if (finished) throw new Error("FE 完整主库解析器已经结束。");
+      physical_line_count = line_number;
+      if (FATE_EXTRA_SECTION_HEADER_PATTERN.test(text)) {
+        finish_current(true);
+        seen_section = true;
+        return;
+      }
+      if (!seen_section) return;
+      const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(text);
+      if (header !== null) {
+        finish_current(false);
+        const indexed_path = header[1] ?? "";
+        const char_offset = Number(header[2] ?? Number.NaN);
+        current = {
+          path: indexed_path,
+          char_offset,
+          original_prefix: `${indexed_path} | char:${char_offset} | `,
+          source_lines: [header[3] ?? ""],
+          source_line_numbers: [line_number],
+        };
+        return;
+      }
+      if (current === undefined) {
+        if (text !== "") {
+          const issue = `第 ${line_number} 行不是合法索引头或文件块标题。`;
+          if (on_issue === undefined) issues.push(issue);
+          else on_issue(issue);
+        }
+        return;
+      }
+      current.source_lines.push(text);
+      current.source_line_numbers.push(line_number);
+    },
+    finish(): { issues: string[]; physical_line_count: number } {
+      if (!finished) {
+        finish_current(false);
+        finished = true;
+      }
+      return { issues, physical_line_count };
+    },
+  };
+}
+
+/**
+ * 路线文本的逐行解析状态机。expected 按索引惰性读取，避免构造百万级 Map。
+ */
+export function create_fate_extra_indexed_text_parser(args: {
+  resolve_expected: (path: string, char_offset: number) => FateExtraExpectedIndexedText | undefined;
+  on_entry: (entry: FateExtraParsedIndexedText) => void;
+  on_issue?: (issue: string) => void;
+}): FateExtraStreamingParser {
+  const issues: string[] = [];
+  let physical_line_count = 0;
+  let finished = false;
+  let current:
+    | {
+        path: string;
+        char_offset: number;
+        original_prefix: string;
+        header_line_number: number;
+        block_lines: string[];
+      }
+    | undefined;
+  const finish_current = (): void => {
+    if (current === undefined) return;
+    const expected = args.resolve_expected(current.path, current.char_offset);
+    if (expected === undefined) {
+      const issue = `第 ${current.header_line_number} 行索引 ${current.path} / char:${current.char_offset} 不在分类库中。`;
+      if (args.on_issue === undefined) issues.push(issue);
+      else args.on_issue(issue);
+      current = undefined;
+      return;
+    }
+    const classified_source_lines = expected.source.split(/\r\n|\n|\r/gu);
+    let classified_cursor = 0;
+    const source_line_numbers: number[] = [];
+    const pass_through: FateExtraPassThroughLine[] = [];
+    for (let block_cursor = 0; block_cursor < current.block_lines.length; block_cursor += 1) {
+      const block_line = current.block_lines[block_cursor] ?? "";
+      if (block_line === classified_source_lines[classified_cursor]) {
+        source_line_numbers.push(current.header_line_number + block_cursor);
+        classified_cursor += 1;
+      } else {
+        pass_through.push({ after_source_line: classified_cursor - 1, text: block_line });
+      }
+    }
+    if (classified_cursor !== classified_source_lines.length) {
+      const issue = `第 ${current.header_line_number} 行索引 ${current.path} / char:${current.char_offset} 无法按分类库 source 可靠还原。`;
+      if (args.on_issue === undefined) issues.push(issue);
+      else args.on_issue(issue);
+      current = undefined;
+      return;
+    }
+    args.on_entry({
+      path: current.path,
+      char_offset: current.char_offset,
+      original_prefix: current.original_prefix,
+      source: expected.source,
+      source_line_numbers,
+      pass_through,
+      header_line_number: current.header_line_number,
+    });
+    current = undefined;
+  };
+  return {
+    push_line(text, line_number): void {
+      if (finished) throw new Error("FE 路线文本解析器已经结束。");
+      physical_line_count = line_number;
+      const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(text);
+      if (header !== null) {
+        finish_current();
+        const indexed_path = header[1] ?? "";
+        const char_offset = Number(header[2] ?? Number.NaN);
+        current = {
+          path: indexed_path,
+          char_offset,
+          original_prefix: `${indexed_path} | char:${char_offset} | `,
+          header_line_number: line_number,
+          block_lines: [header[3] ?? ""],
+        };
+        return;
+      }
+      if (current === undefined) {
+        const issue = `第 ${line_number} 行不是合法索引头。`;
+        if (args.on_issue === undefined) issues.push(issue);
+        else args.on_issue(issue);
+        return;
+      }
+      current.block_lines.push(text);
+    },
+    finish(): { issues: string[]; physical_line_count: number } {
+      if (!finished) {
+        finish_current();
+        finished = true;
+      }
+      return { issues, physical_line_count };
+    },
+  };
+}
+
 /**
  * Parse the canonical full JP extraction directly.  Unlike the route parser,
  * this source is the authority for text, so it must not depend on the safety
@@ -32,78 +217,45 @@ export type FateExtraIndexedParseResult = {
  * structural and are not attached to the preceding game string.
  */
 export function parse_fate_extra_complete_source(text: string): FateExtraIndexedParseResult {
-  const lines = split_physical_lines(text);
   const entries: FateExtraParsedIndexedText[] = [];
-  const issues: string[] = [];
-  let cursor = 0;
-  let seen_section = false;
-
-  while (cursor < lines.length) {
-    const line = lines[cursor] ?? "";
-    if (FATE_EXTRA_SECTION_HEADER_PATTERN.test(line)) {
-      seen_section = true;
-      cursor += 1;
-      continue;
-    }
-    if (line === "" || !seen_section) {
-      cursor += 1;
-      continue;
-    }
-    const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(line);
-    if (header === null) {
-      issues.push(`第 ${cursor + 1} 行不是合法索引头或文件块标题。`);
-      cursor += 1;
-      continue;
-    }
-
-    const path = header[1] ?? "";
-    const char_offset = Number(header[2] ?? Number.NaN);
-    const original_prefix = `${path} | char:${char_offset} | `;
-    const source_lines = [header[3] ?? ""];
-    const source_line_numbers = [cursor + 1];
-    cursor += 1;
-    while (cursor < lines.length) {
-      const next = lines[cursor] ?? "";
-      if (
-        FATE_EXTRA_INDEX_LINE_PATTERN.test(next) ||
-        FATE_EXTRA_SECTION_HEADER_PATTERN.test(next)
-      ) {
-        break;
-      }
-      // The extraction uses a single empty separator before every section
-      // header.  Do not make that separator part of the game string.
-      if (next === "" && FATE_EXTRA_SECTION_HEADER_PATTERN.test(lines[cursor + 1] ?? "")) {
-        cursor += 1;
-        break;
-      }
-      source_lines.push(next);
-      source_line_numbers.push(cursor + 1);
-      cursor += 1;
-    }
-    entries.push({
-      path,
-      char_offset,
-      original_prefix,
-      source: source_lines.join("\n"),
-      source_line_numbers,
-      pass_through: [],
-      header_line_number: source_line_numbers[0] ?? 1,
-    });
+  const parser = create_fate_extra_complete_source_parser((entry) => entries.push(entry));
+  for (const physical_line of iterate_physical_lines(text)) {
+    parser.push_line(physical_line.text, physical_line.line_number);
   }
-
-  return { entries, issues, physical_line_count: lines.length };
+  return { entries, ...parser.finish() };
 }
 
-function split_physical_lines(text: string): string[] {
-  const lines = text.split(/\r\n|\n|\r/gu);
-  if (lines.length > 0 && lines.at(-1) === "") {
-    lines.pop();
+function* iterate_physical_lines(text: string): Generator<{ text: string; line_number: number }> {
+  let start = 0;
+  let line_number = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    const code = text.charCodeAt(index);
+    if (code !== 0x0a && code !== 0x0d) continue;
+    yield { text: text.slice(start, index), line_number };
+    if (code === 0x0d && text.charCodeAt(index + 1) === 0x0a) index += 1;
+    start = index + 1;
+    line_number += 1;
   }
-  return lines;
+  if (start < text.length) yield { text: text.slice(start), line_number };
 }
 
 function build_index_key(path: string, char_offset: number): string {
   return `${path}\u0000${char_offset}`;
+}
+
+export function read_fate_extra_index_headers(
+  text: string,
+): Array<{ path: string; char_offset: number }> {
+  const headers: Array<{ path: string; char_offset: number }> = [];
+  for (const line of iterate_physical_lines(text)) {
+    const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(line.text);
+    if (header === null) continue;
+    headers.push({
+      path: header[1] ?? "",
+      char_offset: Number(header[2] ?? Number.NaN),
+    });
+  }
+  return headers;
 }
 
 /**
@@ -115,77 +267,20 @@ export function parse_fate_extra_indexed_text(args: {
   text: string;
   expected: FateExtraExpectedIndexedText[];
 }): FateExtraIndexedParseResult {
-  const lines = split_physical_lines(args.text);
   const expected_by_key = new Map(
     args.expected.map((entry) => [build_index_key(entry.path, entry.char_offset), entry]),
   );
   const entries: FateExtraParsedIndexedText[] = [];
-  const issues: string[] = [];
+  const parser = create_fate_extra_indexed_text_parser({
+    resolve_expected: (indexed_path, char_offset) =>
+      expected_by_key.get(build_index_key(indexed_path, char_offset)),
+    on_entry: (entry) => entries.push(entry),
+  });
 
-  for (let cursor = 0; cursor < lines.length;) {
-    const header = FATE_EXTRA_INDEX_LINE_PATTERN.exec(lines[cursor] ?? "");
-    if (header === null) {
-      issues.push(`第 ${cursor + 1} 行不是合法索引头。`);
-      cursor += 1;
-      continue;
-    }
-
-    const path = header[1] ?? "";
-    const char_offset = Number(header[2] ?? Number.NaN);
-    const original_prefix = `${path} | char:${char_offset} | `;
-    let block_end = cursor + 1;
-    while (
-      block_end < lines.length &&
-      FATE_EXTRA_INDEX_LINE_PATTERN.exec(lines[block_end] ?? "") === null
-    ) {
-      block_end += 1;
-    }
-
-    const expected = expected_by_key.get(build_index_key(path, char_offset));
-    if (expected === undefined) {
-      issues.push(`第 ${cursor + 1} 行索引 ${path} / char:${char_offset} 不在分类库中。`);
-      cursor = block_end;
-      continue;
-    }
-
-    const block_lines = [header[3] ?? "", ...lines.slice(cursor + 1, block_end)];
-    const classified_source_lines = expected.source.split(/\r\n|\n|\r/gu);
-    let classified_cursor = 0;
-    const source_line_numbers: number[] = [];
-    const pass_through: FateExtraPassThroughLine[] = [];
-    for (let block_cursor = 0; block_cursor < block_lines.length; block_cursor += 1) {
-      const block_line = block_lines[block_cursor] ?? "";
-      if (block_line === classified_source_lines[classified_cursor]) {
-        source_line_numbers.push(cursor + block_cursor + 1);
-        classified_cursor += 1;
-      } else {
-        pass_through.push({ after_source_line: classified_cursor - 1, text: block_line });
-      }
-    }
-    if (classified_cursor !== classified_source_lines.length) {
-      issues.push(
-        `第 ${cursor + 1} 行索引 ${path} / char:${char_offset} 无法按分类库 source 可靠还原。`,
-      );
-      cursor = block_end;
-      continue;
-    }
-    entries.push({
-      path,
-      char_offset,
-      original_prefix,
-      source: expected.source,
-      source_line_numbers,
-      pass_through,
-      header_line_number: cursor + 1,
-    });
-    cursor = block_end;
+  for (const physical_line of iterate_physical_lines(args.text)) {
+    parser.push_line(physical_line.text, physical_line.line_number);
   }
-
-  return {
-    entries,
-    issues,
-    physical_line_count: lines.length,
-  };
+  return { entries, ...parser.finish() };
 }
 
 export function rebuild_fate_extra_indexed_block(args: {

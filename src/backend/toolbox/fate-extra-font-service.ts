@@ -30,12 +30,114 @@ export type FateExtraFontScanResult = {
   corpus_sha256: string;
 };
 
+export type FateExtraFontBuildInput = {
+  baseline_dir: string;
+  font_path: string;
+  helper_executable: string;
+  helper_source: string;
+  helper_working_directory: string;
+};
+
 const EXTENSION_CAPACITY = 1880;
 
 function read_record(value: unknown): Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+/**
+ * 已在数据库侧去重的有效文本可以逐条生成字库 corpus，避免构造百万 item payload。
+ */
+export function build_fate_extra_font_corpus_from_resolved_texts(
+  texts: Iterable<string>,
+): FateExtraFontCorpus {
+  const main = new Set<string>();
+  const ruby = new Set<string>();
+  for (const text of texts) {
+    for (let servant_index = 0; servant_index < 4; servant_index += 1) {
+      for (let gender_index = 0; gender_index < 2; gender_index += 1) {
+        const runs = resolve_fate_extra_preview_runs({
+          text,
+          state: { servant_index, gender_index },
+        });
+        for (const run of runs) {
+          for (const char of run.text) {
+            if (!/\s/u.test(char)) main.add(char);
+          }
+          for (const char of run.ruby) {
+            if (!/\s/u.test(char)) {
+              ruby.add(char);
+              main.add(char);
+            }
+          }
+        }
+      }
+    }
+  }
+  const main_characters = [...main].sort(
+    (left, right) => left.codePointAt(0)! - right.codePointAt(0)!,
+  );
+  const ruby_characters = [...ruby].sort(
+    (left, right) => left.codePointAt(0)! - right.codePointAt(0)!,
+  );
+  return {
+    main_characters,
+    ruby_characters,
+    corpus_sha256: createHash("sha256").update(main_characters.join(""), "utf-8").digest("hex"),
+  };
+}
+
+/**
+ * 字库构建器的纯边界，可由隔离 worker 调用；调用方负责提供资源路径与 staging 输出目录。
+ */
+export function sync_fate_extra_font_corpus(
+  corpus: FateExtraFontCorpus,
+  output_dir: string,
+  build_input: FateExtraFontBuildInput,
+  native_fs: NativeFs = default_native_fs,
+): JsonRecord {
+  native_fs.make_dir(output_dir);
+  const request_path = path.join(output_dir, `.font-job-${randomUUID()}.json`);
+  const request = {
+    baseline_dir: build_input.baseline_dir,
+    output_dir,
+    font_path: build_input.font_path,
+    main_characters: corpus.main_characters,
+    ruby_characters: corpus.ruby_characters,
+  };
+  native_fs.write_file_sync(request_path, `${JSON.stringify(request)}\n`);
+  try {
+    const executable_available = native_fs.exists(build_input.helper_executable);
+    const result = spawnSync(
+      executable_available ? build_input.helper_executable : "python",
+      executable_available ? [request_path] : [build_input.helper_source, request_path],
+      {
+        cwd: build_input.helper_working_directory,
+        encoding: "utf-8",
+        windowsHide: true,
+        maxBuffer: 16 * 1024 * 1024,
+      },
+    );
+    const output = String(result.stdout ?? "").trim();
+    if (result.status !== 0) {
+      let message = String(result.stderr ?? "").trim();
+      try {
+        const parsed = JSON.parse(output) as { error?: string };
+        message = parsed.error ?? message;
+      } catch {
+        // Preserve process diagnostics when the helper could not emit JSON.
+      }
+      throw new Error(message || "FE 字库生成失败。");
+    }
+    const parsed = JSON.parse(output) as { ok?: boolean; error?: string; result?: JsonRecord };
+    if (parsed.ok !== true || parsed.result === undefined) {
+      throw new Error(parsed.error ?? "FE 字库生成器返回了无效结果。");
+    }
+    return parsed.result;
+  } finally {
+    native_fs.remove(request_path, { force: true });
+  }
 }
 
 /**
@@ -53,8 +155,7 @@ export class FateExtraFontService {
 
   public scan(body: JsonRecord): JsonRecord {
     const project_path = this.require_loaded_project(body);
-    const items = this.read_items(project_path);
-    const corpus = this.build_corpus(items);
+    const corpus = this.read_project_corpus(project_path);
     const baseline_dir = this.paths.get_resource_path("fate-extra", "fontpack", "NPJH50247");
     const codec = this.read_json_file(path.join(baseline_dir, "chinese-glyph-codec.json"));
     const ruby_map = this.read_json_file(path.join(baseline_dir, "ruby-font-map.json"));
@@ -84,45 +185,46 @@ export class FateExtraFontService {
   public sync(body: JsonRecord): JsonRecord {
     const project_path = this.require_loaded_project(body);
     const output_dir = this.require_string(body, "output_directory");
-    const items = this.read_items(project_path);
-    return this.sync_items(items, output_dir) as unknown as JsonRecord;
+    return this.sync_corpus(
+      this.read_project_corpus(project_path),
+      output_dir,
+    ) as unknown as JsonRecord;
   }
 
   public sync_items(items: Record<string, unknown>[], output_dir: string): JsonRecord {
-    const corpus = this.build_corpus(items);
-    const baseline_dir = this.paths.get_resource_path("fate-extra", "fontpack", "NPJH50247");
-    const font_path = this.paths.get_resource_path(
-      "fate-extra",
-      "fonts",
-      "NotoSansCJKsc-Regular.otf",
-    );
-    // Keep build jobs next to the user-selected output.  This avoids silently
-    // consuming the system drive and makes failed jobs discoverable.
-    this.native_fs.make_dir(output_dir);
-    const request_path = path.join(output_dir, `.font-job-${randomUUID()}.json`);
-    const request = {
-      baseline_dir,
-      output_dir,
-      font_path,
-      main_characters: corpus.main_characters,
-      ruby_characters: corpus.ruby_characters,
+    return this.sync_corpus(this.build_corpus(items), output_dir);
+  }
+
+  public read_worker_build_input(): FateExtraFontBuildInput {
+    return {
+      baseline_dir: this.paths.get_resource_path("fate-extra", "fontpack", "NPJH50247"),
+      font_path: this.paths.get_resource_path("fate-extra", "fonts", "NotoSansCJKsc-Regular.otf"),
+      helper_executable: this.paths.get_resource_path(
+        "fate-extra",
+        "bin",
+        "fate-extra-font-builder.exe",
+      ),
+      helper_source: path.join(
+        this.paths.get_app_root(),
+        "buildtools",
+        "fate-extra-font",
+        "font_builder.py",
+      ),
+      helper_working_directory: this.paths.get_app_root(),
     };
-    this.native_fs.write_file_sync(request_path, `${JSON.stringify(request)}\n`);
-    try {
-      const result = this.run_helper(request_path);
-      const parsed = JSON.parse(result) as { ok?: boolean; error?: string; result?: JsonRecord };
-      if (parsed.ok !== true || parsed.result === undefined) {
-        throw new Error(parsed.error ?? "FE 字库生成器返回了无效结果。");
-      }
-      return parsed.result;
-    } finally {
-      this.native_fs.remove(request_path, { force: true });
-    }
+  }
+
+  private sync_corpus(corpus: FateExtraFontCorpus, output_dir: string): JsonRecord {
+    return sync_fate_extra_font_corpus(
+      corpus,
+      output_dir,
+      this.read_worker_build_input(),
+      this.native_fs,
+    );
   }
 
   public build_corpus(items: Record<string, unknown>[]): FateExtraFontCorpus {
-    const main = new Set<string>();
-    const ruby = new Set<string>();
+    const resolved_texts = new Set<string>();
     for (const item of items) {
       const dst = String(item["dst"] ?? "");
       const src = String(item["src"] ?? "");
@@ -132,37 +234,9 @@ export class FateExtraFontService {
       const translated =
         metadata === null ? dst : resolve_fate_extra_effective_translation(dst, metadata);
       const text = translated === "" ? src : translated;
-      for (let servant_index = 0; servant_index < 4; servant_index += 1) {
-        for (let gender_index = 0; gender_index < 2; gender_index += 1) {
-          const runs = resolve_fate_extra_preview_runs({
-            text,
-            state: { servant_index, gender_index },
-          });
-          for (const run of runs) {
-            for (const char of run.text) {
-              if (!/\s/u.test(char)) main.add(char);
-            }
-            for (const char of run.ruby) {
-              if (!/\s/u.test(char)) {
-                ruby.add(char);
-                main.add(char);
-              }
-            }
-          }
-        }
-      }
+      resolved_texts.add(text);
     }
-    const main_characters = [...main].sort(
-      (left, right) => left.codePointAt(0)! - right.codePointAt(0)!,
-    );
-    const ruby_characters = [...ruby].sort(
-      (left, right) => left.codePointAt(0)! - right.codePointAt(0)!,
-    );
-    return {
-      main_characters,
-      ruby_characters,
-      corpus_sha256: this.sha256_text(main_characters.join("")),
-    };
+    return build_fate_extra_font_corpus_from_resolved_texts(resolved_texts);
   }
 
   /** Measure the bytes that FE's custom Shift-JIS-compatible codec will emit. */
@@ -183,6 +257,11 @@ export class FateExtraFontService {
     return total;
   }
 
+  /** Structured-clone-safe codec snapshot for the isolated preview query worker. */
+  public read_encoded_width_snapshot(): Array<[string, number]> {
+    return [...this.read_encoded_widths().entries()];
+  }
+
   private read_encoded_widths(): Map<string, number> {
     if (this.encoded_widths !== null) return this.encoded_widths;
     const baseline_dir = this.paths.get_resource_path("fate-extra", "fontpack", "NPJH50247");
@@ -193,54 +272,20 @@ export class FateExtraFontService {
         const record = read_record(raw);
         const char = String(record["char"] ?? "");
         const encoded = String(record["encoded_hex"] ?? "");
-        return char === "" || encoded.length % 2 !== 0
-          ? []
-          : [[char, encoded.length / 2] as const];
+        return char === "" || encoded.length % 2 !== 0 ? [] : [[char, encoded.length / 2] as const];
       }),
     );
     return this.encoded_widths;
   }
 
-  private run_helper(request_path: string): string {
-    const executable = this.paths.get_resource_path(
-      "fate-extra",
-      "bin",
-      "fate-extra-font-builder.exe",
-    );
-    const source = path.join(
-      this.paths.get_app_root(),
-      "buildtools",
-      "fate-extra-font",
-      "font_builder.py",
-    );
-    const command = this.native_fs.exists(executable) ? executable : "python";
-    const args = this.native_fs.exists(executable) ? [request_path] : [source, request_path];
-    const result = spawnSync(command, args, {
-      cwd: this.paths.get_app_root(),
-      encoding: "utf-8",
-      windowsHide: true,
-      maxBuffer: 16 * 1024 * 1024,
-    });
-    const output = String(result.stdout ?? "").trim();
-    if (result.status !== 0) {
-      let message = String(result.stderr ?? "").trim();
-      try {
-        const parsed = JSON.parse(output) as { error?: string };
-        message = parsed.error ?? message;
-      } catch {
-        // Preserve process diagnostics when the helper could not emit JSON.
-      }
-      throw new Error(message || "FE 字库生成失败。");
-    }
-    return output;
-  }
-
-  private read_items(project_path: string): Record<string, unknown>[] {
+  private read_project_corpus(project_path: string): FateExtraFontCorpus {
     const value = this.database.execute({
-      name: "getAllItems",
+      name: "getFateExtraFontCorpusTexts",
       args: { projectPath: project_path },
     });
-    return Array.isArray(value) ? value.map(read_record) : [];
+    return build_fate_extra_font_corpus_from_resolved_texts(
+      Array.isArray(value) ? value.map((text) => String(text ?? "")) : [],
+    );
   }
 
   private require_loaded_project(body: JsonRecord): string {
@@ -270,11 +315,5 @@ export class FateExtraFontService {
       throw new Error(`FE 字库资源不存在：${file_path}`);
     }
     return read_record(JSON.parse(this.native_fs.read_text_file(file_path)));
-  }
-
-  private sha256_text(text: string): string {
-    // The corpus is already deterministically sorted. A compact synchronous hash
-    // is sufficient and avoids passing mutable helper state across processes.
-    return createHash("sha256").update(text, "utf-8").digest("hex");
   }
 }

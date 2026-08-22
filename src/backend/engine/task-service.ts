@@ -112,10 +112,23 @@ export class TaskService {
   /**
    * 当前 loaded 工程是带 item scope 命令的唯一 revision 校验目标
    */
-  private require_loaded_project_path(): string {
+  private require_loaded_project_path(request?: JsonRecord): string {
     const state = this.session_state.snapshot();
     if (!state.loaded || state.projectPath === "") {
       throw new AppErrors.ProjectNotLoadedError();
+    }
+    if (
+      request !== undefined &&
+      Object.prototype.hasOwnProperty.call(request, "project_path") &&
+      request["project_path"] !== state.projectPath
+    ) {
+      throw new AppErrors.RequestValidationError({
+        diagnostic_context: {
+          reason: "project_identity_changed",
+          requested_project_path: request["project_path"] ?? null,
+          loaded_project_path: state.projectPath,
+        },
+      });
     }
     return state.projectPath;
   }
@@ -244,7 +257,7 @@ export class TaskService {
     };
     const definition = this.task_definition_registry.get(command);
     if (scope.kind === "items") {
-      this.require_loaded_project_path();
+      this.require_loaded_project_path(request);
     }
     this.assert_expected_section_revisions(
       expected_section_revisions,
