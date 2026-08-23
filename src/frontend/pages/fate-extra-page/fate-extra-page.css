@@ -48,11 +48,21 @@
 
 .fate-extra-page__error,
 .fate-extra-page__feedback,
-.fate-extra-page__workflow-hint {
+.fate-extra-page__workflow-hint,
+.fate-extra-page__job {
   margin: 0;
   border-radius: var(--ui-radius-card);
   padding: 9px 12px;
   font-size: 12px;
+}
+
+.fate-extra-page__job {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: color-mix(in srgb, var(--primary) 8%, transparent);
+  color: var(--foreground);
 }
 
 .fate-extra-page__workflow-hint {

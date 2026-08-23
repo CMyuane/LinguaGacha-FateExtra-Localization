@@ -361,6 +361,80 @@ describe("ProjectTaskStore", () => {
     });
   });
 
+  it("精简工程任务输入以缓存状态纠正过期翻译行数并保留 token 进度", async () => {
+    const { cache_manager, database, project_path, store } = create_store();
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          {
+            id: 1,
+            src: "原文",
+            dst: "译文",
+            name_src: null,
+            name_dst: null,
+            extra_field: {},
+            tag: "",
+            row: 1,
+            file_type: "TXT",
+            file_path: "demo.txt",
+            text_type: "TXT",
+            status: "PROCESSED",
+            retry_count: 0,
+            skip_internal_filter: false,
+          },
+          {
+            id: 2,
+            src: "待翻",
+            dst: "待翻",
+            name_src: null,
+            name_dst: null,
+            extra_field: {},
+            tag: "",
+            row: 2,
+            file_type: "TXT",
+            file_path: "demo.txt",
+            text_type: "TXT",
+            status: "NONE",
+            retry_count: 0,
+            skip_internal_filter: false,
+          },
+        ],
+      },
+    });
+    database.execute({
+      name: "upsertMetaEntries",
+      args: {
+        projectPath: project_path,
+        meta: {
+          "fate_extra.adapter.v1": { enabled: true, logical_text_count: 2 },
+          "fate_extra.compact.v1": { enabled: true, compact_item_count: 2 },
+          translation_extras: {
+            total_line: 28_433,
+            processed_line: 6_288,
+            error_line: 0,
+            total_tokens: 42,
+          },
+        },
+      },
+    });
+    await cache_manager.warmProject(project_path);
+
+    const result = store.get_translation_items({ mode: "NEW" });
+
+    expect(result["items"]).toHaveLength(2);
+    expect(result["meta"]).toMatchObject({
+      translation_extras: {
+        total_line: 2,
+        processed_line: 1,
+        error_line: 0,
+        line: 1,
+        total_tokens: 42,
+      },
+    });
+  });
+
   it("任务提交等待内部事件完成后再发布公开项目变更", async () => {
     const calls: string[] = [];
     const { database, project_path, project_event_bus, store } = create_store({
@@ -430,12 +504,17 @@ describe("ProjectTaskStore", () => {
     session_state.mark_loaded(project_path);
     cleanup_callbacks.push(() => fs.rmSync(directory, { recursive: true, force: true }));
     cleanup_callbacks.push(() => database.close());
-    const write_store = new ProjectWriteStore(database, project_event_bus, {
-      publish_project_change: (payload: MutableJsonRecord) => {
-        options.on_publish_project_change?.();
-        published_changes.push(payload);
-      },
-    } as unknown as ProjectChangePublisher);
+    const write_store = new ProjectWriteStore(
+      database,
+      project_event_bus,
+      {
+        publish_project_change: (payload: MutableJsonRecord) => {
+          options.on_publish_project_change?.();
+          published_changes.push(payload);
+        },
+      } as unknown as ProjectChangePublisher,
+      cache_manager,
+    );
     return {
       database,
       project_path,

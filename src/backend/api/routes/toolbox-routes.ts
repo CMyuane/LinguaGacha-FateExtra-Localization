@@ -25,11 +25,17 @@ export function register_toolbox_routes(context: ApiRouteContext): void {
   context.postJson("/api/toolbox/fate-extra/export", (body) =>
     context.services.toolbox.fateExtra.export_project(body),
   );
-  context.postJson("/api/toolbox/fate-extra/items", (body) =>
-    context.services.toolbox.fateExtra.list_items(body),
+  context.postJson("/api/toolbox/fate-extra/items", (body, request) =>
+    context.services.toolbox.fateExtra.list_items(body, request.signal),
   );
   context.postJson("/api/toolbox/fate-extra/index/rebuild", (body) =>
     context.services.toolbox.fateExtra.rebuild_duplicate_index(body),
+  );
+  context.postJson("/api/toolbox/fate-extra/jobs/status", (body) =>
+    context.services.toolbox.fateExtra.jobs_status(body),
+  );
+  context.postJson("/api/toolbox/fate-extra/jobs/cancel", (body) =>
+    context.services.toolbox.fateExtra.jobs_cancel(body),
   );
   context.postJson("/api/toolbox/fate-extra/preview", (body) =>
     context.services.toolbox.fateExtra.preview(body),

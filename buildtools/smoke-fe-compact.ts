@@ -99,7 +99,7 @@ const source_count = database.execute({ name: "getItemCount", args: { projectPat
 const compact_count = database.execute({ name: "getItemCount", args: { projectPath: target } });
 const page = database.execute({
   name: "getFateExtraCompactExportPage",
-  args: { projectPath: target, offset: 0, limit: 100 },
+  args: { projectPath: target, afterOriginalItemId: 0, limit: 100 },
 }) as { rows: unknown[] };
 const compact_items = database.execute({
   name: "getAllItems",

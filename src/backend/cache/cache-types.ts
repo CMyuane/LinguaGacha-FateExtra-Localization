@@ -6,6 +6,21 @@ import type { ProjectDataSectionRevisions } from "../../shared/project-event";
  */
 export type CacheFreshness = "empty" | "fresh" | "recoverable_error";
 
+export type ItemCacheMode = "standard" | "fate-extra-compact" | "fate-extra-unmaterialized";
+
+export type CacheItemSummaryFileEntry = {
+  rel_path: string;
+  file_type: string;
+  item_count: number;
+};
+
+export type CacheItemSummary = {
+  totalCount: number;
+  statusCounts: Readonly<Record<string, number>>;
+  nonemptySourceStatusCounts: Readonly<Record<string, number>>;
+  fileEntries: ReadonlyArray<CacheItemSummaryFileEntry>;
+};
+
 /**
  * CacheSnapshot 是跨缓存模块共享的最小项目身份与 revision 快照。
  */
@@ -15,6 +30,7 @@ export type CacheSnapshot = {
   freshness: CacheFreshness;
   sectionRevisions: ProjectDataSectionRevisions;
   itemCount: number;
+  itemMode: ItemCacheMode;
 };
 
 /**
@@ -38,6 +54,7 @@ export interface CacheReadPort {
   readonly items: {
     readItems(query?: { filePath?: string }): CacheItem[];
     readItem(itemId: number): CacheItem | null;
+    readSummary(): CacheItemSummary;
   };
   readonly files: {
     readFileEntries(): CacheFileEntry[];

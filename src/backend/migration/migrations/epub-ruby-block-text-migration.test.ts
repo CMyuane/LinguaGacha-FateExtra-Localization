@@ -121,6 +121,9 @@ function create_migration(options: {
 }): EpubRubyBlockTextMigration {
   const database = {
     execute: vi.fn((operation: DatabaseOperation) => {
+      if (operation.name === "getAllAssetRecords") {
+        return Object.keys(options.asset_content_by_path ?? {}).map((path) => ({ path }));
+      }
       if (operation.name === "getAllItems") {
         return options.items ?? [];
       }

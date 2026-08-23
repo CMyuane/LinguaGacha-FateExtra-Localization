@@ -7,6 +7,10 @@
   "type": "module",
   "main": "build/dist-electron/index.js",
   "scripts": {
+    "benchmark:fe:compact": "node ./buildtools/benchmark-fe-compact-export.mjs",
+    "benchmark:fe:preview": "node ./buildtools/benchmark-fe-preview.mjs",
+    "benchmark:fe:proofreading": "node --expose-gc ./buildtools/benchmark-fe-proofreading.mjs",
+    "benchmark:fe:scan": "node ./buildtools/benchmark-fe-scan.mjs",
     "build": "tsc -b --noEmit && electron-vite build --config buildtools/vite/electron.vite.config.ts && electron-builder --config buildtools/builder/electron-builder.json5",
     "check": "node ./buildtools/check/index.mjs",
     "dev": "electron-vite dev --config buildtools/vite/electron.vite.config.ts",

@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ApiJsonValue } from "../api/api-types";
 import { ProjectDatabase } from "../database/database-operations";
+import { FATE_EXTRA_SCAN_APPLY_RECEIPT_META_KEY } from "../database/fate-extra-scan-apply-receipt";
+import { run_fate_extra_index_maintenance } from "../database/fate-extra-preview-search-index";
+import { run_fate_extra_preview_search_worker_task } from "../worker/tasks/fate-extra-preview-worker-task";
 import type { ProjectChangePublisher } from "./project-changes";
 import { get_section_revision } from "./project-data";
 import { ProjectEventBus } from "./project-events";
@@ -87,6 +90,57 @@ describe("ProjectWriteStore", () => {
     ).rejects.toThrow("runtime.internal_invariant");
   });
 
+  it("翻译 artifact 提交会在同一事务增量刷新 FE 搜索 generation", async () => {
+    const { database, project_path, store } = create_store("translation-fe-index");
+    seed_items(database, project_path);
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1 },
+      },
+    });
+    const build = run_fate_extra_index_maintenance(project_path, 0);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: project_path,
+        generation: build.generation,
+        expectedItemsRevision: build.items_revision,
+        expectedAdapterValue: build.adapter_value,
+      },
+    });
+
+    await store.apply_translation_item_patches({
+      projectPath: project_path,
+      items: [{ item_id: 1, dst: "星光译文", status: "PROCESSED" }],
+      translationExtras: { processed_line: 1 },
+    });
+
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: project_path },
+      }),
+    ).toMatchObject({ search_ready: true, search_generation: 1, search_items_revision: 1 });
+    expect(
+      run_fate_extra_preview_search_worker_task({
+        projectPath: project_path,
+        search: "星光译文",
+        filePath: "",
+        category: "",
+        offset: 0,
+        limit: 20,
+        includeFiles: false,
+        includeTotal: true,
+        viewMode: "occurrence",
+        expectedGeneration: 1,
+        expectedItemsRevision: 1,
+      }),
+    ).toMatchObject({ total: 1 });
+  });
+
   it("校对字段 patch 会推进 proofreading revision 并更新翻译统计", async () => {
     const { database, project_path, store, published_changes } = create_store("proofreading");
     seed_items(database, project_path);
@@ -94,7 +148,15 @@ describe("ProjectWriteStore", () => {
       name: "upsertMetaEntries",
       args: {
         projectPath: project_path,
-        meta: { translation_extras: { total_line: 1, processed_line: 0, error_line: 0, line: 0 } },
+        meta: {
+          translation_extras: {
+            total_line: 28_433,
+            processed_line: 6_288,
+            error_line: 0,
+            line: 6_288,
+            total_tokens: 42,
+          },
+        },
       },
     });
 
@@ -126,6 +188,7 @@ describe("ProjectWriteStore", () => {
         processed_line: 1,
         error_line: 0,
         line: 1,
+        total_tokens: 42,
       }),
     });
     expect(published_changes.at(-1)).toMatchObject({
@@ -137,6 +200,95 @@ describe("ProjectWriteStore", () => {
         fieldPatch: { dst: "校对译文", status: "PROCESSED" },
       },
     });
+  });
+
+  it("FE unit 校对拒绝伪造或旧 generation 的 item/unit 组合并回滚 revision", async () => {
+    const { database, project_path, store, published_changes } = create_store(
+      "fe-unit-membership-guard",
+    );
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 3 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          { id: 1, src: "重复原文", file_path: "route-a.txt" },
+          { id: 2, src: "重复原文", file_path: "route-b.txt" },
+          { id: 3, src: "其他原文", file_path: "route-c.txt" },
+        ].map((item) => ({
+          ...item,
+          dst: "初翻",
+          status: "NONE",
+          extra_field: {
+            __linguagacha_fe_v1: {
+              proofread_translation: "",
+              display_mode: "auto",
+            },
+          },
+        })),
+      },
+    });
+    const build = run_fate_extra_index_maintenance(project_path, 0);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: project_path,
+        generation: build.generation,
+        expectedItemsRevision: build.items_revision,
+        expectedAdapterValue: build.adapter_value,
+      },
+    });
+    const preview = run_fate_extra_preview_search_worker_task({
+      projectPath: project_path,
+      search: "",
+      filePath: "",
+      category: "",
+      offset: 0,
+      limit: 20,
+      includeFiles: false,
+      includeTotal: true,
+      viewMode: "occurrence",
+      expectedGeneration: build.generation,
+      expectedItemsRevision: 0,
+    });
+    const preview_items = (preview as unknown as Record<string, unknown>)["items"] as Array<
+      Record<string, unknown>
+    >;
+    const duplicate = preview_items.find((item) => item["id"] === 1);
+    expect(duplicate).toBeDefined();
+    const mismatched_unit_id = Number(duplicate?.["fe_text_unit_id"] ?? 0);
+    const before_items = read_items(database, project_path);
+
+    await expect(
+      store.apply_fate_extra_text_unit_review({
+        projectPath: project_path,
+        expectedSectionRevisions: { items: 0, proofreading: 0 },
+        unitId: mismatched_unit_id,
+        itemId: 3,
+        proofreadTranslation: "不得写入",
+        displayMode: "dialogue",
+      }),
+    ).rejects.toMatchObject({
+      code: "request.validation_failed",
+      diagnostic_context: {
+        reason: "fate_extra_text_unit_item_mismatch",
+        unit_id: mismatched_unit_id,
+        item_id: 3,
+      },
+    });
+
+    expect(read_items(database, project_path)).toEqual(before_items);
+    const meta = read_meta(database, project_path);
+    expect(get_section_revision(meta, "items")).toBe(0);
+    expect(get_section_revision(meta, "proofreading")).toBe(0);
+    expect(published_changes).toEqual([]);
   });
 
   it("提交工作台结构写入时替换事实并发布轻量失效信号", async () => {
@@ -193,6 +345,178 @@ describe("ProjectWriteStore", () => {
         analysis: { payloadMode: "canonical-delta" },
       },
     });
+  });
+
+  it("FE staging 已提交且报告失败时仍发布四个 section 的失效事件", async () => {
+    const { database, project_path, store, published_changes } = create_store("fe-staging");
+
+    const result = await store.apply_fate_extra_scan_staging({
+      projectPath: project_path,
+      scanId: "scan-report-failure",
+      applyToken: "apply-report-failure",
+      expectedSectionRevisions: {
+        files: 0,
+        items: 0,
+        analysis: 0,
+        proofreading: 0,
+      },
+      commit: async (expected) => {
+        expect(expected).toEqual({ files: 0, items: 0, analysis: 0, proofreading: 0 });
+        database.execute({
+          name: "upsertMetaEntries",
+          args: {
+            projectPath: project_path,
+            meta: {
+              "project_runtime_revision.files": 1,
+              "project_runtime_revision.items": 1,
+              "project_runtime_revision.analysis": 1,
+              "proofreading_revision.proofreading": 1,
+              [FATE_EXTRA_SCAN_APPLY_RECEIPT_META_KEY]: {
+                schema_version: 1,
+                apply_token: "apply-report-failure",
+                scan_id: "scan-report-failure",
+                committed_at: "2026-08-22T00:00:00.000Z",
+                backup_path: `${project_path}.backup`,
+                migration_report_json: `${project_path}.report.json`,
+                migration_report_csv: `${project_path}.report.csv`,
+                logical_text_count: 1,
+                section_revisions: {
+                  files: 1,
+                  items: 1,
+                  analysis: 1,
+                  proofreading: 1,
+                },
+              },
+            },
+          },
+        });
+        return {
+          accepted: true,
+          migration_report_status: "failed",
+          migration_report_error: "injected report write failure",
+          section_revisions: { files: 1, items: 1, analysis: 1, proofreading: 1 },
+        };
+      },
+    });
+
+    expect(result).toMatchObject({
+      accepted: true,
+      migration_report_status: "failed",
+      migration_report_error: "injected report write failure",
+      section_revisions: { files: 1, items: 1, analysis: 1, proofreading: 1 },
+    });
+    expect(published_changes.at(-1)).toMatchObject({
+      source: "fate_extra_adapter_apply",
+      updatedSections: ["files", "items", "analysis", "proofreading"],
+      items: { payloadMode: "section-invalidated" },
+      files: { payloadMode: "section-invalidated" },
+      sections: {
+        analysis: { payloadMode: "section-invalidated" },
+        proofreading: { payloadMode: "section-invalidated" },
+      },
+    });
+  });
+
+  it("FE staging worker 在 COMMIT 后失联时从 receipt 恢复并发布一次失效事件", async () => {
+    const { database, project_path, store, published_changes } = create_store("fe-staging-receipt");
+    const revisions = { files: 1, items: 1, analysis: 1, proofreading: 1 };
+
+    const result = await store.apply_fate_extra_scan_staging({
+      projectPath: project_path,
+      scanId: "scan-committed",
+      applyToken: "apply-committed",
+      expectedSectionRevisions: {
+        files: 0,
+        items: 0,
+        analysis: 0,
+        proofreading: 0,
+      },
+      commit: async () => {
+        database.execute_transaction([
+          {
+            name: "upsertMetaEntries",
+            args: {
+              projectPath: project_path,
+              meta: {
+                "project_runtime_revision.files": 1,
+                "project_runtime_revision.items": 1,
+                "project_runtime_revision.analysis": 1,
+                "proofreading_revision.proofreading": 1,
+                [FATE_EXTRA_SCAN_APPLY_RECEIPT_META_KEY]: {
+                  schema_version: 1,
+                  apply_token: "apply-committed",
+                  scan_id: "scan-committed",
+                  committed_at: "2026-08-22T00:00:00.000Z",
+                  backup_path: `${project_path}.backup`,
+                  migration_report_json: `${project_path}.report.json`,
+                  migration_report_csv: `${project_path}.report.csv`,
+                  logical_text_count: 941_489,
+                  section_revisions: revisions,
+                },
+              },
+            },
+          },
+        ]);
+        throw new Error("injected worker exit after commit");
+      },
+    });
+
+    expect(result).toMatchObject({
+      accepted: true,
+      apply_receipt_recovered: true,
+      migration_report_status: "failed",
+      logical_text_count: 941_489,
+      section_revisions: revisions,
+    });
+    expect(published_changes).toHaveLength(1);
+    expect(published_changes[0]).toMatchObject({
+      source: "fate_extra_adapter_apply",
+      updatedSections: ["files", "items", "analysis", "proofreading"],
+    });
+  });
+
+  it("FE staging worker 在 COMMIT 前失败且无 receipt 时保留原错误并且不发事件", async () => {
+    const { project_path, store, published_changes } = create_store("fe-staging-no-receipt");
+
+    await expect(
+      store.apply_fate_extra_scan_staging({
+        projectPath: project_path,
+        scanId: "scan-not-committed",
+        applyToken: "apply-not-committed",
+        expectedSectionRevisions: {
+          files: 0,
+          items: 0,
+          analysis: 0,
+          proofreading: 0,
+        },
+        commit: async () => {
+          throw new Error("injected worker exit before commit");
+        },
+      }),
+    ).rejects.toThrow("injected worker exit before commit");
+    expect(published_changes).toEqual([]);
+  });
+
+  it("FE staging worker 返回成功但缺少 durable receipt 时拒绝发布事件", async () => {
+    const { project_path, store, published_changes } = create_store(
+      "fe-staging-success-no-receipt",
+    );
+
+    await expect(
+      store.apply_fate_extra_scan_staging({
+        projectPath: project_path,
+        scanId: "scan-success-no-receipt",
+        applyToken: "apply-success-no-receipt",
+        expectedSectionRevisions: {
+          files: 0,
+          items: 0,
+          analysis: 0,
+          proofreading: 0,
+        },
+        commit: async () => ({ accepted: true }),
+      }),
+    ).rejects.toThrow("runtime.internal_invariant");
+    expect(published_changes).toEqual([]);
   });
 
   it("文件排序只发布 files 失效信号", async () => {

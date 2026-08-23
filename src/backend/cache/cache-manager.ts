@@ -6,10 +6,13 @@ import type { ProjectEvent, ProjectEventBus, ProjectEventType } from "../project
 import type { BackendWorkerClient } from "../worker/worker-client";
 import { createProofreadingListReader } from "../../shared/proofreading/proofreading-list-reader";
 import type { ProjectDataSectionRevisions } from "../../shared/project-event";
-import { FATE_EXTRA_ADAPTER_META_KEY } from "../../shared/fate-extra/fate-extra-types";
+import {
+  FATE_EXTRA_ADAPTER_META_KEY,
+  FATE_EXTRA_COMPACT_META_KEY,
+} from "../../shared/fate-extra/fate-extra-types";
 import { AnalysisCache } from "./analysis/analysis-cache";
 import { create_cache_change, type CacheChange } from "./cache-change";
-import type { CacheFreshness, CacheReadPort, CacheSnapshot } from "./cache-types";
+import type { CacheFreshness, CacheReadPort, CacheSnapshot, ItemCacheMode } from "./cache-types";
 import { FileCache } from "./file/file-cache";
 import { ItemCache } from "./item/item-cache";
 import { PromptCache } from "./prompt/prompt-cache";
@@ -39,7 +42,7 @@ export class CacheManager implements CacheReadPort {
   private freshness: CacheFreshness = "empty"; // 读取前用 freshness 判断是否需要恢复。
   private section_revisions: ProjectDataSectionRevisions = {}; // 对外暴露的 section revision 快照。
   private recoverable_error: unknown = null; // 保留最近一次可恢复错误，方便未来诊断扩展。
-  private lightweight_items = false;
+  private item_mode: ItemCacheMode = "standard";
   private logical_item_count = 0;
   public readonly items = new ItemCache(() => this.recover_if_needed());
   public readonly files = new FileCache(() => this.recover_if_needed());
@@ -65,6 +68,7 @@ export class CacheManager implements CacheReadPort {
       appSettingService: options.appSettingService,
       workerClient: options.workerClient,
       service: createProofreadingListReader(),
+      database: options.database,
     });
     this.qualityStatistics = new QualityStatisticsCache({
       cache: this,
@@ -104,7 +108,7 @@ export class CacheManager implements CacheReadPort {
     this.project_path = "";
     this.epoch += 1;
     this.freshness = "empty";
-    this.lightweight_items = false;
+    this.item_mode = "standard";
     this.logical_item_count = 0;
     this.items.clear();
     this.files.clear();
@@ -173,7 +177,11 @@ export class CacheManager implements CacheReadPort {
       epoch: this.epoch,
       freshness: this.freshness,
       sectionRevisions: { ...this.section_revisions },
-      itemCount: this.lightweight_items ? this.logical_item_count : this.items.size(),
+      itemCount:
+        this.item_mode === "fate-extra-unmaterialized"
+          ? this.logical_item_count
+          : this.items.size(),
+      itemMode: this.item_mode,
     };
   }
 
@@ -183,14 +191,28 @@ export class CacheManager implements CacheReadPort {
   private rebuild_full_project_cache(project_path: string): void {
     const meta = this.data_reader.get_all_meta(project_path);
     const adapter = meta[FATE_EXTRA_ADAPTER_META_KEY];
-    const use_lightweight_items =
+    const compact = meta[FATE_EXTRA_COMPACT_META_KEY];
+    const is_fate_extra_adapter =
       typeof adapter === "object" &&
       adapter !== null &&
       !Array.isArray(adapter) &&
       adapter["enabled"] === true;
-    const items_snapshot = use_lightweight_items
-      ? this.data_reader.empty_items_snapshot()
-      : this.data_reader.build_runtime_items_snapshot(project_path);
+    const is_fate_extra_compact =
+      is_fate_extra_adapter &&
+      typeof compact === "object" &&
+      compact !== null &&
+      !Array.isArray(compact) &&
+      compact["enabled"] === true;
+    const adapter_record = is_fate_extra_adapter ? adapter : {};
+    const item_mode: ItemCacheMode = !is_fate_extra_adapter
+      ? "standard"
+      : is_fate_extra_compact
+        ? "fate-extra-compact"
+        : "fate-extra-unmaterialized";
+    const items_snapshot =
+      item_mode === "fate-extra-unmaterialized"
+        ? this.data_reader.empty_items_snapshot()
+        : this.data_reader.build_runtime_items_snapshot(project_path);
     const files_block = this.data_reader.build_files_record_block(project_path, items_snapshot);
     const quality_block = this.data_reader.build_quality_block(project_path, meta);
     const prompts_block = this.data_reader.build_prompts_block(project_path, meta);
@@ -198,10 +220,11 @@ export class CacheManager implements CacheReadPort {
     const section_revisions = this.data_reader.build_section_revisions(meta);
     this.project_path = project_path;
     this.epoch += 1;
-    this.lightweight_items = use_lightweight_items;
-    this.logical_item_count = use_lightweight_items
-      ? Math.max(0, Number(adapter["logical_text_count"] ?? 0))
-      : items_snapshot.item_records.length;
+    this.item_mode = item_mode;
+    this.logical_item_count =
+      item_mode === "fate-extra-unmaterialized"
+        ? Math.max(0, Number(adapter_record["logical_text_count"] ?? 0))
+        : items_snapshot.item_records.length;
     this.items.replace(items_snapshot.item_records);
     this.files.replace(files_block);
     this.quality.replace(quality_block);
@@ -245,7 +268,7 @@ export class CacheManager implements CacheReadPort {
    */
   private apply_base_change(change: CacheChange): void {
     const meta_reader = this.create_meta_reader(change.projectPath);
-    if (!this.lightweight_items && change.items.mode === "delta") {
+    if (this.item_mode !== "fate-extra-unmaterialized" && change.items.mode === "delta") {
       this.items.applyChange(change.items, this.read_item_delta_records(change));
     }
     if (change.quality.mode === "full") {

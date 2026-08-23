@@ -9,6 +9,7 @@ import { GlossaryPage } from "@frontend/pages/glossary-page/page";
 import { LaboratoryPage } from "@frontend/pages/laboratory-page/page";
 import { ModelPage } from "@frontend/pages/model-page/page";
 import { ProjectPage } from "@frontend/pages/project-page/page";
+import { ProofreadingPage } from "@frontend/pages/proofreading-page/page";
 import { TextPreservePage } from "@frontend/pages/text-preserve-page/page";
 import { ToolboxPage } from "@frontend/pages/toolbox-page/page";
 import { TextReplacementPage } from "@frontend/pages/text-replacement-page/page";
@@ -53,6 +54,10 @@ export const SCREEN_REGISTRY: ScreenRegistry = {
   workbench: {
     component: WorkbenchPage,
     title_key: "workbench_page.title",
+  },
+  proofreading: {
+    component: ProofreadingPage,
+    title_key: "proofreading_page.title",
   },
   "basic-settings": {
     component: BasicSettingsPage,

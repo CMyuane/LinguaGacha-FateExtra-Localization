@@ -114,7 +114,7 @@ describe("SCREEN_REGISTRY", () => {
   it("为核心页面提供稳定标题 key", () => {
     expect(SCREEN_REGISTRY["project-home"]?.title_key).toBe("project_page.title");
     expect(SCREEN_REGISTRY.workbench?.title_key).toBe("workbench_page.title");
-    expect(SCREEN_REGISTRY.proofreading).toBeUndefined();
+    expect(SCREEN_REGISTRY.proofreading?.title_key).toBe("proofreading_page.title");
     expect(SCREEN_REGISTRY.glossary?.title_key).toBe("glossary_page.title");
   });
 

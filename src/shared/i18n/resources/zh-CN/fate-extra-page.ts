@@ -5,7 +5,7 @@ export const zh_cn_fate_extra_page = {
   complete_jp_source_file: "完整日文主库（Fate_Extra_JP_完整文本汇总.txt）",
   classification_database: "FE 文本安全分类数据库",
   migration_project: "旧译文项目（可选）",
-  migration_text_directory: "六份无索引译文目录（可选）",
+  migration_text_directory: "六份初翻目录（支持带索引／无索引，可选）",
   output_directory: "导出目录",
   scan: "生成扫描报告",
   apply: "应用 FE 适配",
@@ -26,4 +26,8 @@ export const zh_cn_fate_extra_page = {
   compact_create: "生成精简工程",
   compact_done: "精简工程已生成：",
   compact_already: "当前已经是精简工程，无需再次精简。",
+  job_progress: "后台任务",
+  job_cancel: "取消任务",
+  job_cancelled: "后台任务已取消，临时数据已清理。",
+  job_failed: "FE 后台任务失败，请检查原因后重试。",
 } as const;

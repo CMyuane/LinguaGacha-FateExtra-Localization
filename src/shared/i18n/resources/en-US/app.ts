@@ -88,7 +88,7 @@ export const en_us_app = {
     logs: "Logs",
   },
   profile: {
-    status: "Ciallo～(∠・ω< )⌒✮",
+    status: "——我在炽天之座等着你",
     status_tooltip: "Open the GitHub repository",
     update_available: "Download new version …!",
     update_available_tooltip: "Open the update confirmation dialog",

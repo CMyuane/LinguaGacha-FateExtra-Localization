@@ -31,4 +31,8 @@ export const en_us_fate_extra_page = {
   compact_create: "Create compact project",
   compact_done: "Compact project created:",
   compact_already: "The current project is already compact.",
+  job_progress: "Background job",
+  job_cancel: "Cancel job",
+  job_cancelled: "The background job was cancelled and temporary data was cleaned up.",
+  job_failed: "The FE background job failed. Review the reason and retry.",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_page>;

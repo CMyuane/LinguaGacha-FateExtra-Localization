@@ -11,12 +11,26 @@ import type { BackendWorkerExecution } from "./worker-execution";
 import {
   run_worker_task,
   type BackendWorkerTask,
+  type BackendWorkerTaskProgressReporter,
   type BackendWorkerTaskResult,
 } from "./worker-task";
 import type { BackendWorkerIncomingMessage, BackendWorkerOutgoingMessage } from "./worker-entry";
 
 type BackendWorkerClientOptions = {
   execution: BackendWorkerExecution;
+  terminateOnAbort?: boolean;
+  latestWins?: boolean;
+  createWorker?: (entry_url: URL) => BackendWorkerHandle;
+};
+
+type BackendWorkerHandle = {
+  postMessage: (message: BackendWorkerIncomingMessage) => void;
+  terminate: () => Promise<number>;
+  on: {
+    (event: "message", listener: (message: BackendWorkerOutgoingMessage) => void): unknown;
+    (event: "error", listener: (error: Error) => void): unknown;
+    (event: "exit", listener: (code: number) => void): unknown;
+  };
 };
 
 type PendingTask = {
@@ -25,18 +39,26 @@ type PendingTask = {
   signal: AbortSignal;
   resolve: (value: unknown) => void;
   reject: (error: unknown) => void;
+  report_progress: BackendWorkerTaskProgressReporter;
   abort_listener: () => void;
 };
 
 export class BackendWorkerClient {
   private readonly execution: BackendWorkerExecution;
+  private readonly terminate_on_abort: boolean;
+  private readonly latest_wins: boolean;
+  private readonly worker_factory: (entry_url: URL) => BackendWorkerHandle;
   private readonly queue: PendingTask[] = [];
-  private worker: Worker | null = null;
+  private worker: BackendWorkerHandle | null = null;
+  private terminating_worker: Promise<void> | null = null;
   private active_task: PendingTask | null = null;
   private disposed = false;
 
   public constructor(options: BackendWorkerClientOptions) {
     this.execution = options.execution;
+    this.terminate_on_abort = options.terminateOnAbort === true;
+    this.latest_wins = options.latestWins === true;
+    this.worker_factory = options.createWorker ?? ((entry_url) => new Worker(entry_url));
     if (this.execution.kind === "worker_threads") {
       this.worker = this.create_worker();
     }
@@ -45,6 +67,7 @@ export class BackendWorkerClient {
   public run<TTask extends BackendWorkerTask>(
     task: TTask,
     signal: AbortSignal,
+    report_progress: BackendWorkerTaskProgressReporter = () => undefined,
   ): Promise<BackendWorkerTaskResult<TTask>> {
     if (this.disposed) {
       return Promise.reject(this.create_disposed_error());
@@ -59,9 +82,15 @@ export class BackendWorkerClient {
         signal,
         resolve: (value) => resolve(value as BackendWorkerTaskResult<TTask>),
         reject,
+        report_progress,
         abort_listener: () => this.cancel_task(pending),
       };
       signal.addEventListener("abort", pending.abort_listener, { once: true });
+      if (this.latest_wins) {
+        for (const queued of this.queue.splice(0, this.queue.length)) {
+          this.reject_task(queued, this.create_cancelled_error());
+        }
+      }
       this.queue.push(pending);
       this.drain_queue();
     });
@@ -76,12 +105,16 @@ export class BackendWorkerClient {
       this.reject_task(this.active_task, this.create_disposed_error());
       this.active_task = null;
     }
-    await this.worker?.terminate();
+    const worker = this.worker;
     this.worker = null;
+    await Promise.all([worker?.terminate(), this.terminating_worker]);
   }
 
   private drain_queue(): void {
-    if (this.active_task !== null) {
+    if (
+      this.active_task !== null ||
+      (this.execution.kind === "worker_threads" && this.worker === null)
+    ) {
       return;
     }
     const task = this.queue.shift();
@@ -105,7 +138,7 @@ export class BackendWorkerClient {
       if (task.signal.aborted) {
         throw this.create_cancelled_error();
       }
-      const data = await run_worker_task(task.task);
+      const data = await run_worker_task(task.task, task.report_progress);
       this.finish_task(task.id, data, null);
     } catch (error) {
       this.finish_task(task.id, null, error);
@@ -123,6 +156,21 @@ export class BackendWorkerClient {
       return;
     }
     if (this.execution.kind === "worker_threads") {
+      if (this.terminate_on_abort) {
+        const worker = this.worker;
+        this.worker = null;
+        this.active_task = null;
+        // Windows 上 SQLite worker 退出前文件句柄仍可能占用 staging；只有 terminate
+        // 真正完成后才拒绝 run()，调用方 finally 此时才可可靠删除 staging。
+        const termination = this.finish_terminated_cancellation(worker, task);
+        this.terminating_worker = termination;
+        void termination.then(() => {
+          if (this.terminating_worker === termination) {
+            this.terminating_worker = null;
+          }
+        });
+        return;
+      }
       this.worker?.postMessage({
         id: task.id,
         type: "cancel",
@@ -133,11 +181,33 @@ export class BackendWorkerClient {
     this.drain_queue();
   }
 
-  private create_worker(): Worker {
+  private async finish_terminated_cancellation(
+    worker: BackendWorkerHandle | null,
+    task: PendingTask,
+  ): Promise<void> {
+    let result_error: unknown = this.create_cancelled_error();
+    try {
+      await worker?.terminate();
+    } catch (error) {
+      result_error = new WorkerExecutionFailedError({
+        diagnostic_context: {
+          failure: normalize_log_error(error, "Backend worker 终止失败。"),
+        },
+      });
+    }
+    this.reject_task(task, result_error);
+    if (this.disposed || this.execution.kind !== "worker_threads") {
+      return;
+    }
+    this.worker = this.create_worker();
+    this.drain_queue();
+  }
+
+  private create_worker(): BackendWorkerHandle {
     if (this.execution.kind !== "worker_threads") {
       throw new Error("BackendWorkerClient 创建 worker 时必须使用 worker_threads。");
     }
-    const worker = new Worker(this.execution.backendWorkerEntryUrl);
+    const worker = this.worker_factory(this.execution.backendWorkerEntryUrl);
     worker.on("message", (message: BackendWorkerOutgoingMessage) => {
       this.finish_worker_message(message);
     });
@@ -153,6 +223,10 @@ export class BackendWorkerClient {
   private finish_worker_message(message: BackendWorkerOutgoingMessage): void {
     const task = this.active_task;
     if (task === null || task.id !== message.id) {
+      return;
+    }
+    if (message.type === "progress") {
+      task.report_progress(message.progress);
       return;
     }
     if (message.ok) {
@@ -185,7 +259,7 @@ export class BackendWorkerClient {
     this.drain_queue();
   }
 
-  private fail_worker(worker: Worker, error: unknown): void {
+  private fail_worker(worker: BackendWorkerHandle, error: unknown): void {
     if (this.worker !== worker) {
       return;
     }

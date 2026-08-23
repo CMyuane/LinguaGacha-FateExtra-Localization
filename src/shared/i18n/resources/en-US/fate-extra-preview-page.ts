@@ -69,6 +69,8 @@ export const en_us_fate_extra_preview_page = {
     "Building the strict deduplication index in the background. The page remains responsive and will switch to unique-text view automatically.",
   index_fallback:
     "The strict deduplication index is not ready yet. Physical-occurrence paging is shown temporarily.",
+  index_cancel: "Cancel indexing",
+  index_retry: "Retry indexing",
   view_context: "View context (2 before / 2 after)",
   context_title: "Context in the same DAT",
   context_description:

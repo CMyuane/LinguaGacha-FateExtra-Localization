@@ -57,6 +57,25 @@ type ApplyPayload = {
   migration_report_json?: string;
 };
 
+type FateExtraJobSnapshot = {
+  job_id: string;
+  kind: "scan" | "scan-apply" | "preview-index";
+  status: "queued" | "running" | "cancelling" | "succeeded" | "cancelled" | "failed";
+  phase: string;
+  completed: number;
+  total: number | null;
+  project_epoch: number;
+  source_revision: number;
+  cancellable: boolean;
+  result?: ScanReport | ApplyPayload;
+  error?: {
+    message?: string;
+    details?: { scan_draft_retryable?: boolean };
+  };
+};
+
+const FE_JOB_POLL_INTERVAL_MS = 500;
+
 type CompactPayload = {
   target_project_path?: string;
   physical_item_count?: number;
@@ -86,7 +105,7 @@ function error_message(error: unknown): string {
 
 export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
   const { t } = useI18n();
-  const { project_snapshot, commit_project_write } = useDesktopState();
+  const { project_snapshot } = useDesktopState();
   const [source_directory, set_source_directory] = useState(DEFAULT_SOURCE);
   const [complete_jp_source_file, set_complete_jp_source_file] = useState("");
   const [classification_database, set_classification_database] = useState(DEFAULT_DATABASE);
@@ -98,6 +117,8 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
   const [adapter_enabled, set_adapter_enabled] = useState(false);
   const [compact_enabled, set_compact_enabled] = useState(false);
   const [busy, set_busy] = useState("");
+  const [active_job, set_active_job] = useState<FateExtraJobSnapshot | null>(null);
+  const [scan_requested_for_apply, set_scan_requested_for_apply] = useState(false);
   const [feedback, set_feedback] = useState("");
   const [error, set_error] = useState("");
 
@@ -106,12 +127,17 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
   useEffect(() => {
     let active = true;
     set_scan_report(null);
+    set_active_job(null);
+    set_busy("");
     set_adapter_enabled(false);
     set_compact_enabled(false);
     if (project_path === "") return;
-    void api_fetch<{ enabled?: boolean; compact_enabled?: boolean }>("/api/toolbox/fate-extra/status", {
-      project_path,
-    })
+    void api_fetch<{ enabled?: boolean; compact_enabled?: boolean }>(
+      "/api/toolbox/fate-extra/status",
+      {
+        project_path,
+      },
+    )
       .then((status) => {
         if (active) {
           set_adapter_enabled(status.enabled === true);
@@ -125,6 +151,82 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
       active = false;
     };
   }, [project_path]);
+
+  useEffect(() => {
+    const initial_job = active_job;
+    if (initial_job === null || !["queued", "running", "cancelling"].includes(initial_job.status)) {
+      return;
+    }
+    let disposed = false;
+    let timeout = 0;
+    const abort_controller = new AbortController();
+
+    const finish_job = (snapshot: FateExtraJobSnapshot): void => {
+      if (snapshot.status === "succeeded") {
+        if (snapshot.kind === "scan") {
+          const report = (snapshot.result ?? {}) as ScanReport;
+          set_scan_report(report);
+          set_feedback(
+            report.applicable
+              ? scan_requested_for_apply
+                ? t("fate_extra_page.scan_ready_apply_again")
+                : t("fate_extra_page.scan_ready")
+              : "",
+          );
+          set_scan_requested_for_apply(false);
+        } else if (snapshot.kind === "scan-apply") {
+          const result = (snapshot.result ?? {}) as ApplyPayload;
+          set_feedback(`${t("fate_extra_page.apply_done")} ${String(result.backup_path ?? "")}`);
+          set_adapter_enabled(true);
+          set_scan_report(null);
+        }
+      } else if (snapshot.status === "failed") {
+        if (
+          snapshot.kind === "scan" ||
+          (snapshot.kind === "scan-apply" && snapshot.error?.details?.scan_draft_retryable !== true)
+        ) {
+          set_scan_report(null);
+        }
+        set_error(snapshot.error?.message ?? t("fate_extra_page.job_failed"));
+      } else if (snapshot.status === "cancelled") {
+        if (snapshot.kind === "scan" || snapshot.kind === "scan-apply") {
+          set_scan_report(null);
+        }
+        set_feedback(t("fate_extra_page.job_cancelled"));
+      }
+      if (snapshot.kind === "scan") set_scan_requested_for_apply(false);
+      set_busy("");
+      set_active_job(null);
+    };
+
+    const poll = async (): Promise<void> => {
+      try {
+        const snapshot = await api_fetch<FateExtraJobSnapshot>(
+          "/api/toolbox/fate-extra/jobs/status",
+          { job_id: initial_job.job_id },
+          { signal: abort_controller.signal },
+        );
+        if (disposed) return;
+        set_active_job(snapshot);
+        if (["queued", "running", "cancelling"].includes(snapshot.status)) {
+          timeout = window.setTimeout(() => void poll(), FE_JOB_POLL_INTERVAL_MS);
+          return;
+        }
+        finish_job(snapshot);
+      } catch (reason) {
+        if (disposed || abort_controller.signal.aborted) return;
+        set_error(error_message(reason));
+        set_busy("");
+        set_active_job(null);
+      }
+    };
+    timeout = window.setTimeout(() => void poll(), FE_JOB_POLL_INTERVAL_MS);
+    return () => {
+      disposed = true;
+      abort_controller.abort();
+      window.clearTimeout(timeout);
+    };
+  }, [active_job?.job_id, scan_requested_for_apply, t]);
 
   async function choose_directory(
     current: string,
@@ -149,16 +251,18 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     return null;
   }
 
-  async function request_scan(busy_state: "scan" | "apply"): Promise<ScanReport | null> {
+  async function request_scan(for_apply: boolean): Promise<void> {
     if (project_path === "") {
       set_error(t("fate_extra_page.no_project"));
-      return null;
+      return;
     }
-    set_busy(busy_state);
+    set_busy("scan");
+    set_scan_report(null);
+    set_scan_requested_for_apply(for_apply);
     set_error("");
     set_feedback("");
     try {
-      const report = await api_fetch<ScanReport>("/api/toolbox/fate-extra/scan", {
+      const job = await api_fetch<FateExtraJobSnapshot>("/api/toolbox/fate-extra/scan", {
         project_path,
         source_directory,
         complete_jp_source_file,
@@ -166,27 +270,20 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
         migration_project,
         migration_text_directory,
       });
-      set_scan_report(report);
-      set_feedback(report.applicable ? t("fate_extra_page.scan_ready") : "");
-      return report;
+      set_active_job(job);
     } catch (reason) {
       set_error(error_message(reason));
-      return null;
-    } finally {
       set_busy("");
     }
   }
 
   async function run_scan(): Promise<void> {
-    await request_scan("scan");
+    await request_scan(false);
   }
 
   async function apply_adapter(): Promise<void> {
     if (scan_report?.applicable !== true || scan_report.scan_id === undefined) {
-      const report = await request_scan("apply");
-      if (report?.applicable === true) {
-        set_feedback(t("fate_extra_page.scan_ready_apply_again"));
-      }
+      await request_scan(true);
       return;
     }
     set_busy("apply");
@@ -194,29 +291,33 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
     try {
       const manifest = await api_fetch<Manifest>("/api/session/project/manifest", {});
       const revisions = manifest.sectionRevisions ?? {};
-      const result = await commit_project_write<ApplyPayload>({
-        operation: "fate-extra.apply",
-        run: async () =>
-          await api_fetch<ApplyPayload>("/api/toolbox/fate-extra/apply", {
-            project_path,
-            scan_id: scan_report.scan_id,
-            expected_section_revisions: {
-              files: revisions.files ?? 0,
-              items: revisions.items ?? 0,
-              analysis: revisions.analysis ?? 0,
-              proofreading: revisions.proofreading ?? 0,
-            },
-          }),
+      const job = await api_fetch<FateExtraJobSnapshot>("/api/toolbox/fate-extra/apply", {
+        project_path,
+        scan_id: scan_report.scan_id,
+        expected_section_revisions: {
+          files: revisions.files ?? 0,
+          items: revisions.items ?? 0,
+          analysis: revisions.analysis ?? 0,
+          proofreading: revisions.proofreading ?? 0,
+        },
       });
-      set_feedback(
-        `${t("fate_extra_page.apply_done")} ${String(result.payload.backup_path ?? "")}`,
-      );
-      set_adapter_enabled(true);
-      set_scan_report(null);
+      set_active_job(job);
     } catch (reason) {
       set_error(error_message(reason));
-    } finally {
       set_busy("");
+    }
+  }
+
+  async function cancel_active_job(): Promise<void> {
+    if (active_job === null) return;
+    try {
+      const snapshot = await api_fetch<FateExtraJobSnapshot>(
+        "/api/toolbox/fate-extra/jobs/cancel",
+        { job_id: active_job.job_id },
+      );
+      set_active_job(snapshot);
+    } catch (reason) {
+      set_error(error_message(reason));
     }
   }
 
@@ -442,6 +543,27 @@ export function FateExtraPage(_props: ScreenComponentProps): JSX.Element {
       </div>
 
       <p className="fate-extra-page__workflow-hint">{t("fate_extra_page.workflow_hint")}</p>
+      {active_job !== null ? (
+        <div className="fate-extra-page__job" role="status">
+          <span>
+            {t("fate_extra_page.job_progress")}：{active_job.phase}
+            {active_job.total === null
+              ? ""
+              : ` ${active_job.completed.toLocaleString()}/${active_job.total.toLocaleString()}`}
+          </span>
+          {active_job.cancellable &&
+          ["queued", "running", "cancelling"].includes(active_job.status) ? (
+            <AppButton
+              size="sm"
+              variant="outline"
+              disabled={active_job.status === "cancelling"}
+              onClick={() => void cancel_active_job()}
+            >
+              {t("fate_extra_page.job_cancel")}
+            </AppButton>
+          ) : null}
+        </div>
+      ) : null}
       {error !== "" ? <p className="fate-extra-page__error">{error}</p> : null}
       {feedback !== "" ? <p className="fate-extra-page__feedback">{feedback}</p> : null}
 

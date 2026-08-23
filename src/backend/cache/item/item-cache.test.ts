@@ -67,6 +67,15 @@ describe("ItemCache", () => {
     expect(cache.readItems({ filePath: "a.txt" }).map((item) => item["item_id"])).toEqual([1]);
     expect(cache.readItems({ filePath: "b.txt" })).toEqual([]);
     expect(cache.readItems({ filePath: "c.txt" }).map((item) => item["item_id"])).toEqual([3, 4]);
+    expect(cache.readSummary()).toEqual({
+      totalCount: 3,
+      statusCounts: { NONE: 2, PROCESSED: 1 },
+      nonemptySourceStatusCounts: { NONE: 2, PROCESSED: 1 },
+      fileEntries: [
+        { rel_path: "a.txt", file_type: "NONE", item_count: 1 },
+        { rel_path: "c.txt", file_type: "NONE", item_count: 2 },
+      ],
+    });
   });
 
   it("更新同文件已有 item 时保持文件内读取顺序", () => {
@@ -101,5 +110,28 @@ describe("ItemCache", () => {
     expect(cache.readItems({ filePath: "a.txt" }).map((item) => item["item_id"])).toEqual([
       1, 2, 3,
     ]);
+    expect(cache.readSummary().fileEntries).toEqual([
+      { rel_path: "a.txt", file_type: "NONE", item_count: 3 },
+    ]);
+  });
+
+  it("摘要按原始状态、非空原文和文件首见顺序聚合", () => {
+    const cache = new ItemCache();
+    cache.replace([
+      { item_id: 1, file_path: "a.txt", file_type: "TXT", src: "原文", status: "PROCESSED" },
+      { item_id: 2, file_path: "a.txt", file_type: "TXT", src: "  ", status: "ERROR" },
+      { item_id: 3, file_path: "b.txt", file_type: "TXT", src: "待译", status: "NONE" },
+      { item_id: 4, file_path: "b.txt", file_type: "TXT", src: "跳过", status: "EXCLUDED" },
+    ]);
+
+    expect(cache.readSummary()).toEqual({
+      totalCount: 4,
+      statusCounts: { PROCESSED: 1, ERROR: 1, NONE: 1, EXCLUDED: 1 },
+      nonemptySourceStatusCounts: { PROCESSED: 1, NONE: 1, EXCLUDED: 1 },
+      fileEntries: [
+        { rel_path: "a.txt", file_type: "TXT", item_count: 2 },
+        { rel_path: "b.txt", file_type: "TXT", item_count: 2 },
+      ],
+    });
   });
 });

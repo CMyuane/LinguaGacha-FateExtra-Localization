@@ -113,15 +113,27 @@ describe("Fate/Extra compact project", () => {
     });
     const page = database.execute({
       name: "getFateExtraCompactExportPage",
-      args: { projectPath: target_path, offset: 0, limit: 100 },
-    }) as { rows: unknown[] };
-    expect(page.rows).toHaveLength(3);
-    expect(page.rows).toEqual(
+      args: { projectPath: target_path, afterOriginalItemId: 0, limit: 2 },
+    }) as { next_original_item_id: number; rows: unknown[] };
+    expect(page.next_original_item_id).toBe(2);
+    expect(page.rows).toHaveLength(2);
+    const last_page = database.execute({
+      name: "getFateExtraCompactExportPage",
+      args: {
+        projectPath: target_path,
+        afterOriginalItemId: page.next_original_item_id,
+        limit: 2,
+      },
+    }) as { next_original_item_id: number; rows: unknown[] };
+    expect(last_page.next_original_item_id).toBe(3);
+    expect(last_page.rows).toHaveLength(1);
+    expect([...page.rows, ...last_page.rows]).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           original_item_id: 1,
           original_machine_translation: "",
           original_status: "NONE",
+          source_hash: expect.stringMatching(/^[a-f0-9]{64}$/u),
         }),
         expect.objectContaining({
           original_item_id: 2,

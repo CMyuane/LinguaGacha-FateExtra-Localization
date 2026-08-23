@@ -84,7 +84,7 @@ export const zh_cn_app = {
     logs: "日志",
   },
   profile: {
-    status: "Ciallo～(∠・ω< )⌒✮",
+    status: "——我在炽天之座等着你",
     status_tooltip: "打开 GitHub 项目主页",
     update_available: "点击下载新版本 …!",
     update_available_tooltip: "打开更新确认框",

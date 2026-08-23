@@ -24,6 +24,7 @@ function create_cache_read_port(options: {
       freshness: "fresh",
       sectionRevisions: options.revisions ?? { files: 1, items: 1, quality: 1, proofreading: 0 },
       itemCount: options.items?.length ?? 1,
+      itemMode: "standard",
     }),
     readSectionRevisions: () =>
       options.revisions ?? { files: 1, items: 1, quality: 1, proofreading: 0 },
@@ -57,6 +58,12 @@ function create_cache_read_port(options: {
         const item = items.find((entry) => Number(entry["item_id"] ?? entry["id"] ?? 0) === itemId);
         return item === undefined ? null : { ...item };
       },
+      readSummary: () => ({
+        totalCount: options.items?.length ?? 1,
+        statusCounts: {},
+        nonemptySourceStatusCounts: {},
+        fileEntries: [],
+      }),
     },
     files: {
       readFileEntries: () => [{ rel_path: "script.txt", file_type: "TXT", sort_index: 0 }],
@@ -107,6 +114,34 @@ function create_worker(): BackendWorkerClient & {
   };
 }
 
+type DeferredSyncJob = {
+  input: ProofreadingSyncInput;
+  signal: AbortSignal;
+  resolve: () => void;
+};
+
+// 模拟不响应 AbortSignal 的旧 worker，以验证 generation 会拒绝迟到结果。
+function create_deferred_worker(): BackendWorkerClient & { jobs: DeferredSyncJob[] } {
+  const jobs: DeferredSyncJob[] = [];
+  return {
+    jobs,
+    run: vi.fn(
+      (task: { type: string; input: ProofreadingSyncInput }, signal: AbortSignal) =>
+        new Promise((resolve) => {
+          if (task.type !== "proofreading_sync") {
+            throw new Error(`测试未实现 task：${task.type}`);
+          }
+          jobs.push({
+            input: task.input,
+            signal,
+            resolve: () => resolve(evaluateProofreadingSlice(task.input)),
+          });
+        }),
+    ),
+    dispose: vi.fn(async () => undefined),
+  } as unknown as BackendWorkerClient & { jobs: DeferredSyncJob[] };
+}
+
 // 生成 items delta 事件，用例只覆盖需要验证的字段。
 function create_delta_change(overrides: Partial<CacheChange> = {}): CacheChange {
   return {
@@ -133,6 +168,70 @@ function create_delta_change(overrides: Partial<CacheChange> = {}): CacheChange 
 }
 
 describe("ProofreadingCache", () => {
+  it("FE 精简工程从基础缓存读取去重 item，不再重复查询数据库", async () => {
+    const worker = create_worker();
+    const cache_port = create_cache_read_port({
+      items: [
+        { id: 11, file_path: "route.txt", row: 1, src: "原文一", dst: "初翻一" },
+        { id: 12, file_path: "route.txt", row: 2, src: "原文二", dst: "初翻二" },
+      ],
+    });
+    const read_items = vi.spyOn(cache_port.items, "readItems");
+    cache_port.snapshot = () => ({
+      projectPath: "E:/Project/compact-fe.lg",
+      epoch: 1,
+      freshness: "fresh",
+      sectionRevisions: { files: 1, items: 1, quality: 1, proofreading: 0 },
+      itemCount: 2,
+      itemMode: "fate-extra-compact",
+    });
+    const execute = vi.fn();
+    const cache = new ProofreadingCache({
+      cache: cache_port,
+      appSettingService: create_settings(),
+      workerClient: worker,
+      service: createProofreadingListReader(),
+      database: { execute } as never,
+    });
+
+    const sync = await cache.sync({});
+    const view = await cache.list({
+      filters: sync.data.defaultFilters,
+      keyword: "",
+      scope: "all",
+      is_regex: false,
+      sort_state: null,
+    });
+
+    expect(view.data.row_count).toBe(2);
+    expect(worker.sync_inputs[0]?.upsertItems.map((item) => item.src)).toEqual([
+      "原文一",
+      "原文二",
+    ]);
+    expect(execute).not.toHaveBeenCalled();
+    expect(read_items).toHaveBeenCalledTimes(1);
+
+    execute.mockClear();
+    read_items.mockClear();
+    vi.mocked(worker.run).mockClear();
+    for (let index = 0; index < 100; index += 1) {
+      const hot_sync = await cache.sync({});
+      const hot_view = await cache.list({
+        filters: hot_sync.data.defaultFilters,
+        keyword: "",
+        scope: "all",
+        is_regex: false,
+        sort_state: null,
+      });
+      await cache.window({ view_id: hot_view.data.view_id, start: 0, count: 160 });
+      await cache.filterPanel({ filters: hot_sync.data.defaultFilters });
+    }
+
+    expect(execute).not.toHaveBeenCalled();
+    expect(read_items).not.toHaveBeenCalled();
+    expect(worker.run).not.toHaveBeenCalled();
+  });
+
   it("同一工程身份下只执行一次 sync task 并用本地列表 service 查询", async () => {
     const worker = create_worker();
     const cache = new ProofreadingCache({
@@ -163,6 +262,123 @@ describe("ProofreadingCache", () => {
       sectionRevisions: { files: 1, items: 1, quality: 1, proofreading: 0 },
       data: { row_count: 1 },
     });
+  });
+
+  it("缓存命中只读取轻量身份，不重复构造完整同步载荷", async () => {
+    const worker = create_worker();
+    const cache_port = create_cache_read_port({});
+    const read_items = vi.spyOn(cache_port.items, "readItems");
+    const read_files = vi.spyOn(cache_port.files, "readFileEntries");
+    const read_quality = vi.spyOn(cache_port.quality, "readBlock");
+    const cache = new ProofreadingCache({
+      cache: cache_port,
+      appSettingService: create_settings(),
+      workerClient: worker,
+      service: createProofreadingListReader(),
+    });
+
+    const sync = await cache.sync({});
+    await cache.list({
+      filters: sync.data.defaultFilters,
+      keyword: "",
+      scope: "all",
+      is_regex: false,
+      sort_state: null,
+    });
+    await cache.filterPanel({
+      filters: sync.data.defaultFilters,
+    });
+
+    expect(worker.run).toHaveBeenCalledTimes(1);
+    expect(read_items).toHaveBeenCalledTimes(1);
+    expect(read_files).toHaveBeenCalledTimes(1);
+    expect(read_quality).toHaveBeenCalledTimes(1);
+  });
+
+  it("相同未完成身份复用同步任务且只构造一次载荷", async () => {
+    const worker = create_deferred_worker();
+    const cache_port = create_cache_read_port({});
+    const read_items = vi.spyOn(cache_port.items, "readItems");
+    const cache = new ProofreadingCache({
+      cache: cache_port,
+      appSettingService: create_settings(),
+      workerClient: worker,
+      service: createProofreadingListReader(),
+    });
+
+    const first = cache.sync({});
+    const second = cache.sync({});
+
+    expect(worker.jobs).toHaveLength(1);
+    expect(read_items).toHaveBeenCalledTimes(1);
+    worker.jobs[0]?.resolve();
+    const [first_result, second_result] = await Promise.all([first, second]);
+
+    expect(first_result.data.revisions).toEqual(second_result.data.revisions);
+    expect(worker.run).toHaveBeenCalledTimes(1);
+  });
+
+  it("身份变化会取消旧同步并拒绝迟到结果覆盖新 generation", async () => {
+    const revisions = { files: 1, items: 1, quality: 1, proofreading: 0 };
+    const items = [
+      {
+        item_id: 1,
+        file_path: "script.txt",
+        row_number: 1,
+        src: "原文",
+        dst: "旧译文",
+        status: "NONE",
+        text_type: "NONE",
+        retry_count: 0,
+      },
+    ];
+    const worker = create_deferred_worker();
+    const cache = new ProofreadingCache({
+      cache: create_cache_read_port({ revisions, items }),
+      appSettingService: create_settings(),
+      workerClient: worker,
+      service: createProofreadingListReader(),
+    });
+
+    const first = cache.sync({});
+    const first_rejection = expect(first).rejects.toMatchObject({ code: "runtime.cancelled" });
+    revisions.items = 2;
+    items[0] = { ...items[0], dst: "新译文" };
+    const second = cache.sync({});
+
+    expect(worker.jobs).toHaveLength(2);
+    expect(worker.jobs[0]?.signal.aborted).toBe(true);
+    worker.jobs[1]?.resolve();
+    await expect(second).resolves.toMatchObject({ data: { revisions: { items: 2 } } });
+    worker.jobs[0]?.resolve();
+    await first_rejection;
+
+    const current = await cache.sync({});
+    expect(current.data.revisions.items).toBe(2);
+    expect(worker.run).toHaveBeenCalledTimes(2);
+  });
+
+  it("项目清理会取消未完成同步且迟到任务不能恢复已清理状态", async () => {
+    const worker = create_deferred_worker();
+    const cache = new ProofreadingCache({
+      cache: create_cache_read_port({}),
+      appSettingService: create_settings(),
+      workerClient: worker,
+      service: createProofreadingListReader(),
+    });
+
+    const pending = cache.sync({});
+    const pending_rejection = expect(pending).rejects.toMatchObject({ code: "runtime.cancelled" });
+    await cache.clearProject("E:/Project/demo.lg");
+
+    expect(worker.jobs[0]?.signal.aborted).toBe(true);
+    worker.jobs[0]?.resolve();
+    await pending_rejection;
+
+    const next = cache.sync({});
+    worker.jobs[1]?.resolve();
+    await expect(next).resolves.toMatchObject({ projectPath: "E:/Project/demo.lg" });
+    expect(worker.run).toHaveBeenCalledTimes(2);
   });
 
   it("revision 或语言变化会生成新的缓存身份并重新执行 sync task", async () => {

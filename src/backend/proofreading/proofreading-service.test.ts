@@ -828,4 +828,29 @@ describe("ProofreadingService", () => {
       }),
     ).rejects.toThrow("project.not_loaded");
   });
+
+  it("请求工程身份与当前工程不一致时拒绝写入", async () => {
+    const { database, service, lg_path, publisher } = create_service();
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [create_project_item({ dst: "旧译文", status: "PROCESSED" })],
+      },
+    });
+
+    await expect(
+      service.set_translation_status({
+        project_path: project_path("another.lg"),
+        item_ids: [1],
+        status: "NONE",
+        expected_section_revisions: { items: 0, proofreading: 0 },
+      }),
+    ).rejects.toThrow("request.validation_failed");
+
+    expect(database.execute({ name: "getAllItems", args: { projectPath: lg_path } })).toEqual([
+      create_project_item({ dst: "旧译文", status: "PROCESSED" }),
+    ]);
+    expect(publisher.publish_project_change).not.toHaveBeenCalled();
+  });
 });

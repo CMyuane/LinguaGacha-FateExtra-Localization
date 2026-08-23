@@ -1,5 +1,10 @@
 import type { ApiJsonValue } from "../api/api-types";
-import type { CacheFileEntry, CacheItem, CacheReadPort } from "../cache/cache-types";
+import type {
+  CacheFileEntry,
+  CacheItemSummary,
+  CacheItemSummaryFileEntry,
+  CacheReadPort,
+} from "../cache/cache-types";
 import type { ProjectSessionState } from "../project/project-session";
 import {
   prepare_analysis_glossary_import_from_cache,
@@ -33,16 +38,19 @@ export class WorkbenchQueryService {
    */
   public read_workbench_snapshot(): MutableJsonRecord {
     const project_path = this.require_loaded_project_path();
-    const items = this.cache.items.readItems();
-    const file_entries = this.build_file_entries(items, this.cache.files.readFileEntries());
-    const stats = this.build_item_stats(items);
-    const analysis_stats = this.build_analysis_stats(items, this.cache.analysis.readBlock());
+    const item_summary = this.cache.items.readSummary();
+    const file_entries = this.build_file_entries(
+      item_summary.fileEntries,
+      this.cache.files.readFileEntries(),
+    );
+    const stats = this.build_item_stats(item_summary);
+    const analysis_stats = this.build_analysis_stats(item_summary, this.cache.analysis.readBlock());
     return {
       projectPath: project_path,
       sectionRevisions: this.cache.readSectionRevisions() as unknown as ApiJsonValue,
       snapshot: {
         file_count: file_entries.length,
-        total_items: items.length,
+        total_items: item_summary.totalCount,
         translation_stats: stats,
         analysis_stats,
         entries: file_entries as unknown as ApiJsonValue,
@@ -105,19 +113,12 @@ export class WorkbenchQueryService {
    * 按文件路径聚合工作台列表，统计结果和文件条目使用同一批 item。
    */
   private build_file_entries(
-    items: CacheItem[],
+    item_file_entries: ReadonlyArray<CacheItemSummaryFileEntry>,
     cached_file_entries: CacheFileEntry[],
   ): MutableJsonRecord[] {
-    const entries_by_path = new Map<string, CacheItem[]>();
-    for (const item of items) {
-      const file_path = String(item["file_path"] ?? "");
-      if (file_path === "") {
-        continue;
-      }
-      const bucket = entries_by_path.get(file_path) ?? [];
-      bucket.push(item);
-      entries_by_path.set(file_path, bucket);
-    }
+    const entries_by_path = new Map(
+      item_file_entries.map((entry) => [entry.rel_path, entry] as const),
+    );
     const emitted_paths = new Set<string>();
     const result: MutableJsonRecord[] = [];
     for (const file_entry of cached_file_entries) {
@@ -125,11 +126,13 @@ export class WorkbenchQueryService {
       if (rel_path === "") {
         continue;
       }
-      const file_items = entries_by_path.get(rel_path) ?? [];
+      const item_entry = entries_by_path.get(rel_path);
       emitted_paths.add(rel_path);
-      result.push(this.build_workbench_file_entry(file_entry, file_items, result.length));
+      result.push(
+        this.build_workbench_file_entry(file_entry, item_entry?.item_count ?? 0, result.length),
+      );
     }
-    for (const [rel_path, file_items] of entries_by_path.entries()) {
+    for (const [rel_path, item_entry] of entries_by_path.entries()) {
       if (emitted_paths.has(rel_path)) {
         continue;
       }
@@ -137,10 +140,10 @@ export class WorkbenchQueryService {
         this.build_workbench_file_entry(
           {
             rel_path,
-            file_type: String(file_items[0]?.["file_type"] ?? "NONE"),
+            file_type: item_entry.file_type,
             sort_index: result.length,
           },
-          file_items,
+          item_entry.item_count,
           result.length,
         ),
       );
@@ -153,35 +156,25 @@ export class WorkbenchQueryService {
    */
   private build_workbench_file_entry(
     file_entry: CacheFileEntry,
-    file_items: CacheItem[],
+    item_count: number,
     fallback_sort_index: number,
   ): MutableJsonRecord {
     return {
       rel_path: file_entry.rel_path,
       file_type: file_entry.file_type,
       sort_index: this.read_number(file_entry.sort_index, fallback_sort_index),
-      item_count: file_items.length,
+      item_count,
     };
   }
 
   /**
    * 工作台进度统计只基于 item status，任务运行态进度由 TaskSnapshot 单独提供。
    */
-  private build_item_stats(items: CacheItem[]): MutableJsonRecord {
-    let completed_count = 0;
-    let failed_count = 0;
-    let skipped_count = 0;
-    for (const item of items) {
-      const status = String(item["status"] ?? "NONE");
-      if (COMPLETED_STATUSES.has(status)) {
-        completed_count += 1;
-      } else if (FAILED_STATUSES.has(status)) {
-        failed_count += 1;
-      } else if (SKIPPED_STATUSES.has(status)) {
-        skipped_count += 1;
-      }
-    }
-    const total_items = items.length;
+  private build_item_stats(summary: CacheItemSummary): MutableJsonRecord {
+    const completed_count = this.sum_status_counts(summary.statusCounts, COMPLETED_STATUSES);
+    const failed_count = this.sum_status_counts(summary.statusCounts, FAILED_STATUSES);
+    const skipped_count = this.sum_status_counts(summary.statusCounts, SKIPPED_STATUSES);
+    const total_items = summary.totalCount;
     const pending_count = Math.max(0, total_items - completed_count - failed_count - skipped_count);
     return this.build_stats_result({
       total_items,
@@ -196,12 +189,12 @@ export class WorkbenchQueryService {
    * 分析统计优先消费任务写入的 status_summary，缺失时按可分析 item 数生成待处理态。
    */
   private build_analysis_stats(
-    items: CacheItem[],
+    summary: CacheItemSummary,
     analysis_block: MutableJsonRecord,
   ): MutableJsonRecord {
     const status_summary = analysis_block["status_summary"];
     if (this.has_explicit_analysis_summary(analysis_block) && this.is_record(status_summary)) {
-      const total_line = this.clamp_count(status_summary["total_line"], 0, items.length);
+      const total_line = this.clamp_count(status_summary["total_line"], 0, summary.totalCount);
       const completed_count = this.clamp_count(status_summary["processed_line"], 0, total_line);
       const failed_count = this.clamp_count(
         status_summary["error_line"],
@@ -210,30 +203,38 @@ export class WorkbenchQueryService {
       );
       const pending_count = Math.max(0, total_line - completed_count - failed_count);
       return this.build_stats_result({
-        total_items: items.length,
+        total_items: summary.totalCount,
         completed_count,
         failed_count,
         pending_count,
-        skipped_count: Math.max(0, items.length - total_line),
+        skipped_count: Math.max(0, summary.totalCount - total_line),
       });
     }
 
     let total_line = 0;
-    for (const item of items) {
-      const src = String(item["src"] ?? "").trim();
-      const status = String(item["status"] ?? "NONE");
-      if (src === "" || SKIPPED_STATUSES.has(status)) {
-        continue;
+    for (const [status, count] of Object.entries(summary.nonemptySourceStatusCounts)) {
+      if (!SKIPPED_STATUSES.has(status)) {
+        total_line += count;
       }
-      total_line += 1;
     }
     return this.build_stats_result({
-      total_items: items.length,
+      total_items: summary.totalCount,
       completed_count: 0,
       failed_count: 0,
       pending_count: total_line,
-      skipped_count: Math.max(0, items.length - total_line),
+      skipped_count: Math.max(0, summary.totalCount - total_line),
     });
+  }
+
+  private sum_status_counts(
+    counts: Readonly<Record<string, number>>,
+    statuses: ReadonlySet<string>,
+  ): number {
+    let total = 0;
+    for (const status of statuses) {
+      total += Math.max(0, Math.trunc(counts[status] ?? 0));
+    }
+    return total;
   }
 
   /**

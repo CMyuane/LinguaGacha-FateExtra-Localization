@@ -4,7 +4,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AppLanguage } from "@domain/app-language";
 import { LocaleProvider } from "@frontend/app/locale/locale-provider";
-import { BOTTOM_ACTIONS } from "@frontend/app/navigation/schema";
+import { BOTTOM_ACTIONS, NAVIGATION_GROUPS } from "@frontend/app/navigation/schema";
+import type { NavigationGroup, RouteId } from "@frontend/app/navigation/types";
 import { SidebarProvider } from "@frontend/shadcn/sidebar";
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
 import { AppSidebar } from "./app-sidebar";
@@ -13,6 +14,10 @@ type RenderSidebarOptions = {
   app_language?: AppLanguage;
   is_language_updating?: boolean;
   on_select_app_language?: (language: AppLanguage) => void;
+  groups?: NavigationGroup[];
+  expanded_items?: ReadonlySet<RouteId>;
+  on_select_route?: (route_id: RouteId) => void;
+  on_toggle_group?: (route_id: RouteId) => void;
 };
 
 describe("AppSidebar", () => {
@@ -42,10 +47,10 @@ describe("AppSidebar", () => {
           <TooltipProvider>
             <SidebarProvider open>
               <AppSidebar
-                groups={[]}
+                groups={options.groups ?? []}
                 bottom_actions={BOTTOM_ACTIONS}
                 selected_route="project-home"
-                expanded_items={new Set()}
+                expanded_items={options.expanded_items ?? new Set()}
                 disabled_route_ids={new Set()}
                 disabled_bottom_action_ids={
                   options.is_language_updating ? new Set(["language"]) : new Set()
@@ -55,8 +60,8 @@ describe("AppSidebar", () => {
                 profile_label_key="app.profile.status"
                 profile_tooltip_key="app.profile.status_tooltip"
                 is_profile_update_available={false}
-                on_select_route={vi.fn()}
-                on_toggle_group={vi.fn()}
+                on_select_route={options.on_select_route ?? vi.fn()}
+                on_toggle_group={options.on_toggle_group ?? vi.fn()}
                 on_bottom_action={vi.fn()}
                 on_appearance_menu_action={vi.fn()}
                 on_select_app_language={options.on_select_app_language ?? vi.fn()}
@@ -126,5 +131,44 @@ describe("AppSidebar", () => {
 
     const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="字字珠玑"]');
     expect(trigger?.disabled).toBe(true);
+  });
+
+  it("五个导航区域只渲染四条分隔线", async () => {
+    await render_sidebar({ groups: NAVIGATION_GROUPS });
+
+    expect(document.querySelectorAll(".sidebar-group-wrapper")).toHaveLength(5);
+    expect(document.querySelectorAll(".sidebar-group-separator")).toHaveLength(4);
+  });
+
+  it("二级入口按 expanded_items 展开并把父项点击回流给导航状态", async () => {
+    const selected: RouteId[] = [];
+    const toggled: RouteId[] = [];
+    await render_sidebar({
+      groups: NAVIGATION_GROUPS,
+      expanded_items: new Set<RouteId>(["text-replacement"]),
+      on_select_route: (route_id) => selected.push(route_id),
+      on_toggle_group: (route_id) => toggled.push(route_id),
+    });
+
+    const parent = document.querySelector<HTMLButtonElement>('button[aria-label="文本替换"]');
+    if (parent === null) throw new Error("缺少文本替换父菜单。");
+    const shell = parent.closest(".sidebar-entry")?.querySelector(".sidebar-subitems-shell");
+    const child = document.querySelector<HTMLButtonElement>('button[aria-label="译前替换"]');
+    expect(shell?.getAttribute("aria-hidden")).toBe("false");
+    expect(child?.tabIndex).toBe(0);
+
+    await act(async () => parent.click());
+    expect(toggled).toEqual(["text-replacement"]);
+    expect(selected).toEqual(["text-replacement"]);
+  });
+
+  it("未展开的二级入口不可进入键盘焦点", async () => {
+    await render_sidebar({ groups: NAVIGATION_GROUPS });
+
+    const parent = document.querySelector<HTMLButtonElement>('button[aria-label="文本替换"]');
+    const shell = parent?.closest(".sidebar-entry")?.querySelector(".sidebar-subitems-shell");
+    const child = document.querySelector<HTMLButtonElement>('button[aria-label="译前替换"]');
+    expect(shell?.getAttribute("aria-hidden")).toBe("true");
+    expect(child?.tabIndex).toBe(-1);
   });
 });

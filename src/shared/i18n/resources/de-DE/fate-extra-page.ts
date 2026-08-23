@@ -31,4 +31,9 @@ export const de_de_fate_extra_page = {
   compact_create: "Kompaktes Projekt erstellen",
   compact_done: "Kompaktes Projekt erstellt:",
   compact_already: "Das aktuelle Projekt ist bereits kompakt.",
+  job_progress: "Hintergrundaufgabe",
+  job_cancel: "Aufgabe abbrechen",
+  job_cancelled: "Die Hintergrundaufgabe wurde abgebrochen und temporäre Daten wurden bereinigt.",
+  job_failed:
+    "Die FE-Hintergrundaufgabe ist fehlgeschlagen. Prüfen Sie den Grund und versuchen Sie es erneut.",
 } satisfies LocaleMessageSchema<typeof zh_cn_fate_extra_page>;

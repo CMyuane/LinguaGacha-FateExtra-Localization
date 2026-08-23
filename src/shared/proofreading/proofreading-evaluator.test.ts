@@ -64,13 +64,13 @@ describe("proofreading-evaluator", () => {
     expect(
       evaluate({
         src: "原文",
-        dst: "全".repeat(19),
+        dst: "全".repeat(21),
         sourceLanguage: "JA",
         extra_field,
       })?.warnings,
     ).toContain("FE_PSP_OVERFLOW");
     expect(
-      evaluate({ src: "原文", dst: "全".repeat(19), sourceLanguage: "JA" })?.warnings,
+      evaluate({ src: "原文", dst: "全".repeat(21), sourceLanguage: "JA" })?.warnings,
     ).not.toContain("FE_PSP_OVERFLOW");
   });
 

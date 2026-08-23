@@ -62,6 +62,8 @@ export const zh_cn_fate_extra_preview_page = {
   retranslate_started: "已开始重新翻译当前条目",
   index_building: "正在后台建立严格去重索引。当前页面保持响应，完成后会自动切换到唯一文本视图。",
   index_fallback: "严格去重索引尚未就绪，暂时使用物理位置分页浏览。",
+  index_cancel: "取消索引任务",
+  index_retry: "重试索引任务",
   view_context: "查看上下文（前后各 2 条）",
   context_title: "同一 DAT 上下文",
   context_description: "按完整日文主库中的 char 顺序显示前两条、当前条与后两条。",

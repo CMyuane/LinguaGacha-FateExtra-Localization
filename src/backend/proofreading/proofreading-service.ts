@@ -90,7 +90,7 @@ export class ProofreadingService {
    * 单条保存统一处理正文译文和当前姓名译文，最终事实仍由后端写入口计算。
    */
   private async persist_save_item(request: JsonRecord): Promise<ProjectWriteResult> {
-    const project_path = await this.require_loaded_project_path();
+    const project_path = await this.require_loaded_project_path(request);
     const expected_section_revisions = this.prepare_write_context(request);
     const item_id = this.parse_integer_or_throw(request["item_id"]);
     const item = this.get_item_write_facts_by_ids(project_path, [item_id]).get(item_id);
@@ -124,7 +124,7 @@ export class ProofreadingService {
    * 批量替换在后端编译文本模式，避免渲染进程提交替换后的最终事实
    */
   private async persist_replace_all(request: JsonRecord): Promise<ProjectWriteResult> {
-    const project_path = await this.require_loaded_project_path();
+    const project_path = await this.require_loaded_project_path(request);
     const expected_section_revisions = this.prepare_write_context(request);
     const item_ids = this.normalize_item_ids(request["item_ids"]);
     const pattern = compile_text_pattern({
@@ -185,7 +185,7 @@ export class ProofreadingService {
    * 批量清空译文同时清空正文和姓名译文，保留 status 和 retry_count 供用户手动判定
    */
   private async persist_clear_translations(request: JsonRecord): Promise<ProjectWriteResult> {
-    const project_path = await this.require_loaded_project_path();
+    const project_path = await this.require_loaded_project_path(request);
     const expected_section_revisions = this.prepare_write_context(request);
     const item_ids = this.normalize_item_ids(request["item_ids"]);
     const current_by_id = this.get_item_write_facts_by_ids(project_path, item_ids);
@@ -212,7 +212,7 @@ export class ProofreadingService {
    * 批量设置状态只接受人工可写状态集合，并把旧重试计数从新状态事实中清掉
    */
   private async persist_set_translation_status(request: JsonRecord): Promise<ProjectWriteResult> {
-    const project_path = await this.require_loaded_project_path();
+    const project_path = await this.require_loaded_project_path(request);
     const expected_section_revisions = this.prepare_write_context(request);
     const next_status = this.parse_manual_status_or_throw(request["status"]);
     const item_ids = this.normalize_item_ids(request["item_ids"]);
@@ -387,10 +387,23 @@ export class ProofreadingService {
   /**
    * 当前 loaded 工程是校对保存的唯一目标
    */
-  private async require_loaded_project_path(): Promise<string> {
+  private async require_loaded_project_path(request?: JsonRecord): Promise<string> {
     const state = this.session_state.snapshot();
     if (!state.loaded || state.projectPath === "") {
       throw new AppErrors.ProjectNotLoadedError();
+    }
+    if (
+      request !== undefined &&
+      Object.prototype.hasOwnProperty.call(request, "project_path") &&
+      request["project_path"] !== state.projectPath
+    ) {
+      throw new AppErrors.RequestValidationError({
+        diagnostic_context: {
+          reason: "project_identity_changed",
+          requested_project_path: request["project_path"] ?? null,
+          loaded_project_path: state.projectPath,
+        },
+      });
     }
     return state.projectPath;
   }

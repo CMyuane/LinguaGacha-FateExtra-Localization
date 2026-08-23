@@ -44,9 +44,11 @@ import {
 import "@frontend/pages/fate-extra-preview-page/fate-extra-preview-page.css";
 
 const PREVIEW_PAGE_SIZE = 120;
+const PREVIEW_INDEX_POLL_INTERVAL_MS = 500;
 
 type PreviewItem = {
   item_id: number;
+  occurrence_id: number;
   text_unit_id: number;
   occurrence_count: number;
   file_path: string;
@@ -86,14 +88,52 @@ type PreviewItem = {
 };
 
 type PreviewList = {
+  query_id?: number;
   total?: number;
   items?: PreviewItem[];
   files?: string[];
   file_counts?: Record<string, number>;
   view_mode?: "unique" | "occurrence";
   requested_view_mode?: "unique" | "occurrence";
+  review_scope?: "unit" | "occurrence";
   index_ready?: boolean;
+  index_generation?: number;
+  applied_items_revision?: number;
+  search_state?: "ready" | "updating";
 };
+
+type PreviewIndexJobSnapshot = {
+  job_id?: string;
+  status?: "queued" | "running" | "cancelling" | "succeeded" | "cancelled" | "failed";
+  phase?: string;
+  completed?: number;
+  total?: number | null;
+  cancellable?: boolean;
+  result?: {
+    ready?: boolean;
+    search_ready?: boolean;
+    search_generation?: number;
+  };
+  error?: { message?: string };
+};
+
+function wait_for_preview_index_poll(signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      signal.removeEventListener("abort", on_abort);
+      resolve();
+    }, PREVIEW_INDEX_POLL_INTERVAL_MS);
+    function on_abort(): void {
+      window.clearTimeout(timeout);
+      reject(signal.reason);
+    }
+    signal.addEventListener("abort", on_abort, { once: true });
+  });
+}
 
 type ContextItem = {
   item_id: number;
@@ -146,9 +186,7 @@ export function calculate_preview_line_baselines(args: {
     const ruby_safe_baseline =
       previous_baseline + 4 + 3 + args.ruby_font_size + ruby_baseline_offset;
     baselines.push(
-      args.line_has_ruby[index]
-        ? Math.max(normal_baseline, ruby_safe_baseline)
-        : normal_baseline,
+      args.line_has_ruby[index] ? Math.max(normal_baseline, ruby_safe_baseline) : normal_baseline,
     );
   }
   return baselines;
@@ -167,7 +205,7 @@ function draw_preview(canvas: HTMLCanvasElement, layout: FateExtraPreviewLayout)
 
   const frame =
     layout.display_mode === "fullscreen"
-      ? { x: 8, y: 12, width: 464, height: 248, text_x: 18, first_y: 39, line_gap: 28, font: 17 }
+      ? { x: 8, y: 12, width: 464, height: 248, text_x: 18, first_y: 39, line_gap: 28, font: 16 }
       : layout.display_mode === "poem"
         ? { x: 42, y: 28, width: 396, height: 216, text_x: 60, first_y: 65, line_gap: 29, font: 18 }
         : {
@@ -259,16 +297,23 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [files, set_files] = useState<string[]>([]);
   const [file_counts, set_file_counts] = useState<Record<string, number>>({});
   const [total, set_total] = useState(0);
+  const [settled_query_identity, set_settled_query_identity] = useState("");
+  const [file_summary_project_path, set_file_summary_project_path] = useState("");
   const [offset, set_offset] = useState(0);
   const [selected, set_selected] = useState(0);
   const [jump_value, set_jump_value] = useState("0");
   const [search, set_search] = useState("");
   const [view_mode, set_view_mode] = useState<"unique" | "occurrence">("unique");
-  const [actual_view_mode, set_actual_view_mode] = useState<"unique" | "occurrence">("unique");
   const [index_ready, set_index_ready] = useState<boolean | null>(null);
+  const [search_state, set_search_state] = useState<"ready" | "updating">("ready");
   const [index_building, set_index_building] = useState(false);
+  const [index_job, set_index_job] = useState<PreviewIndexJobSnapshot | null>(null);
+  const [index_retry_available, set_index_retry_available] = useState(false);
+  const [index_retry_seq, set_index_retry_seq] = useState(0);
   const [reload_seq, set_reload_seq] = useState(0);
   const index_rebuild_project_ref = useRef("");
+  const index_job_id_ref = useRef("");
+  const preview_query_sequence_ref = useRef(0);
   const [review_scope, set_review_scope] = useState<"unit" | "occurrence">("unit");
   const [file_path, set_file_path] = useState("");
   const [warning, set_warning] = useState("");
@@ -296,32 +341,116 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [context_payload, set_context_payload] = useState<ContextPayload | null>(null);
   const project_path = project_snapshot.loaded ? project_snapshot.path : "";
   const readonly = is_project_write_locked(task_snapshot);
-
-  useEffect(() => {
-    let alive = true;
-    if (project_path === "") {
-      set_items([]);
-      return;
-    }
-    const timeout = window.setTimeout(() => {
-      void api_fetch<PreviewList>("/api/toolbox/fate-extra/items", {
+  const preview_query_identity = useMemo(
+    () =>
+      JSON.stringify([
         project_path,
+        project_change_signal.seq,
+        reload_seq,
         search,
         view_mode,
         file_path,
         warning,
         category,
         offset,
-        limit: PREVIEW_PAGE_SIZE,
-      })
+      ]),
+    [
+      category,
+      file_path,
+      offset,
+      project_change_signal.seq,
+      project_path,
+      reload_seq,
+      search,
+      view_mode,
+      warning,
+    ],
+  );
+  const results_are_current =
+    project_path !== "" && settled_query_identity === preview_query_identity;
+  const visible_items = results_are_current ? items : [];
+  const visible_total = results_are_current ? total : 0;
+  const file_summary_is_current = project_path !== "" && file_summary_project_path === project_path;
+  const visible_files = file_summary_is_current ? files : [];
+  const visible_file_counts: Record<string, number> = file_summary_is_current ? file_counts : {};
+
+  useEffect(() => {
+    set_settled_query_identity("");
+    set_file_summary_project_path("");
+    set_items([]);
+    set_files([]);
+    set_file_counts({});
+    set_total(0);
+    set_offset(0);
+    set_selected(0);
+    set_file_path("");
+    set_index_ready(null);
+    set_search_state("ready");
+    set_index_building(false);
+    set_index_job(null);
+    set_index_retry_available(false);
+    index_job_id_ref.current = "";
+    set_pending_confirmation(null);
+    set_context_open(false);
+    set_context_loading(false);
+    set_context_error("");
+    set_context_payload(null);
+    set_feedback("");
+    set_error("");
+  }, [project_path]);
+
+  useEffect(() => {
+    let alive = true;
+    const abort_controller = new AbortController();
+    if (project_path === "") {
+      set_items([]);
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      const query_id = ++preview_query_sequence_ref.current;
+      void api_fetch<PreviewList>(
+        "/api/toolbox/fate-extra/items",
+        {
+          project_path,
+          search,
+          view_mode,
+          file_path,
+          warning,
+          category,
+          offset,
+          limit: PREVIEW_PAGE_SIZE,
+          query_id,
+        },
+        { signal: abort_controller.signal },
+      )
         .then((payload) => {
-          if (!alive) return;
+          if (!alive || payload.query_id !== query_id) return;
+          if (payload.search_state === "updating") {
+            set_settled_query_identity(preview_query_identity);
+            set_items([]);
+            set_total(0);
+            set_selected(0);
+            set_context_open(false);
+            set_context_loading(false);
+            set_context_error("");
+            set_context_payload(null);
+            set_search_state("updating");
+            set_index_ready(false);
+            set_error("");
+            return;
+          }
+          set_search_state("ready");
           const next_items = payload.items ?? [];
+          set_settled_query_identity(preview_query_identity);
           set_items(next_items);
           set_total(Number(payload.total ?? 0));
-          set_actual_view_mode(payload.view_mode ?? view_mode);
+          set_review_scope(
+            payload.review_scope ??
+              ((payload.view_mode ?? view_mode) === "unique" ? "unit" : "occurrence"),
+          );
           set_index_ready(payload.index_ready ?? true);
           if (file_path === "") {
+            set_file_summary_project_path(project_path);
             set_files(payload.files ?? []);
             set_file_counts(payload.file_counts ?? {});
           }
@@ -329,6 +458,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           set_error("");
         })
         .catch((reason: unknown) => {
+          if (abort_controller.signal.aborted) return;
           if (alive) {
             set_error(error_message(reason, t("fate_extra_preview_page.load_failed")));
           }
@@ -336,6 +466,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     }, 120);
     return () => {
       alive = false;
+      abort_controller.abort();
       window.clearTimeout(timeout);
     };
   }, [
@@ -344,6 +475,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     offset,
     project_change_signal.seq,
     project_path,
+    preview_query_identity,
     reload_seq,
     search,
     t,
@@ -354,34 +486,74 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   useEffect(() => {
     if (
       project_path === "" ||
-      view_mode !== "unique" ||
+      (view_mode !== "unique" && search_state !== "updating") ||
       index_ready !== false ||
       index_rebuild_project_ref.current === project_path
     ) {
       return;
     }
     let alive = true;
+    let terminal = false;
+    let started_job_id = "";
+    const abort_controller = new AbortController();
     index_rebuild_project_ref.current = project_path;
     set_index_building(true);
-    void api_fetch<{ ready?: boolean }>("/api/toolbox/fate-extra/index/rebuild", {
-      project_path,
-    })
-      .then((result) => {
-        if (!alive) return;
-        const ready = result.ready === true;
-        set_index_ready(ready);
-        if (ready) {
-          set_offset(0);
-          set_selected(0);
-          set_reload_seq((value) => value + 1);
-        } else {
-          index_rebuild_project_ref.current = "";
-          set_error("FE 严格去重索引未能完整建立，可继续使用物理位置视图。");
-        }
-      })
+    set_index_retry_available(false);
+    void (async () => {
+      let snapshot = await api_fetch<PreviewIndexJobSnapshot>(
+        "/api/toolbox/fate-extra/index/rebuild",
+        { project_path },
+        { signal: abort_controller.signal },
+      );
+      started_job_id = snapshot.job_id ?? "";
+      index_job_id_ref.current = started_job_id;
+      if (alive) set_index_job(snapshot);
+      while (
+        snapshot.status === "queued" ||
+        snapshot.status === "running" ||
+        snapshot.status === "cancelling"
+      ) {
+        const job_id = snapshot.job_id ?? "";
+        if (job_id === "") throw new Error("FE 索引任务没有返回 job_id。");
+        await wait_for_preview_index_poll(abort_controller.signal);
+        snapshot = await api_fetch<PreviewIndexJobSnapshot>(
+          "/api/toolbox/fate-extra/jobs/status",
+          { job_id },
+          { signal: abort_controller.signal },
+        );
+        if (alive) set_index_job(snapshot);
+      }
+      terminal = true;
+      index_job_id_ref.current = "";
+      if (!alive) return;
+      if (snapshot.status === "cancelled") {
+        index_rebuild_project_ref.current = "";
+        set_index_ready(false);
+        set_index_retry_available(true);
+        return;
+      }
+      if (snapshot.status !== "succeeded") {
+        throw new Error(snapshot.error?.message ?? "FE 严格去重索引建立失败。");
+      }
+      const ready = snapshot.result?.ready === true && snapshot.result.search_ready !== false;
+      set_index_ready(ready);
+      if (ready) {
+        set_index_retry_available(false);
+        set_search_state("ready");
+        set_offset(0);
+        set_selected(0);
+        set_reload_seq((value) => value + 1);
+      } else {
+        index_rebuild_project_ref.current = "";
+        set_index_retry_available(true);
+        set_error("FE 严格去重索引未能完整建立，可继续使用物理位置视图。");
+      }
+    })()
       .catch((reason: unknown) => {
+        if (abort_controller.signal.aborted) return;
         if (!alive) return;
         index_rebuild_project_ref.current = "";
+        set_index_retry_available(true);
         set_error(error_message(reason, "FE 严格去重索引建立失败。"));
       })
       .finally(() => {
@@ -389,10 +561,42 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       });
     return () => {
       alive = false;
+      if (!terminal && started_job_id !== "") {
+        void api_fetch<PreviewIndexJobSnapshot>("/api/toolbox/fate-extra/jobs/cancel", {
+          job_id: started_job_id,
+        }).catch(() => undefined);
+      }
+      index_job_id_ref.current = "";
+      abort_controller.abort();
+      if (index_rebuild_project_ref.current === project_path) {
+        index_rebuild_project_ref.current = "";
+      }
     };
-  }, [index_ready, project_path, view_mode]);
+  }, [index_ready, index_retry_seq, project_path, search_state, view_mode]);
 
-  const current = items[selected] ?? null;
+  async function cancel_preview_index_job(): Promise<void> {
+    const job_id = index_job_id_ref.current;
+    if (job_id === "") return;
+    try {
+      const snapshot = await api_fetch<PreviewIndexJobSnapshot>(
+        "/api/toolbox/fate-extra/jobs/cancel",
+        { job_id },
+      );
+      set_index_job(snapshot);
+    } catch (reason) {
+      set_error(error_message(reason, "FE 索引任务取消失败。"));
+    }
+  }
+
+  function retry_preview_index_job(): void {
+    index_rebuild_project_ref.current = "";
+    set_index_job(null);
+    set_index_retry_available(false);
+    set_error("");
+    set_index_retry_seq((value) => value + 1);
+  }
+
+  const current = visible_items[selected] ?? null;
   const current_position = current === null ? 0 : offset + selected + 1;
   useEffect(() => {
     set_draft_proofread(current?.proofread_translation ?? "");
@@ -400,7 +604,12 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     set_feedback("");
     set_error("");
     set_draft_encoded_bytes(current?.proofread_encoded_bytes ?? 0);
-  }, [current?.display_mode, current?.item_id, current?.proofread_translation]);
+  }, [
+    current?.display_mode,
+    current?.item_id,
+    current?.occurrence_id,
+    current?.proofread_translation,
+  ]);
 
   useEffect(() => {
     if (!context_open || current === null || project_path === "") return;
@@ -434,10 +643,6 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       alive = false;
     };
   }, [context_open, current?.index.char_offset, current?.index.path, project_path]);
-
-  useEffect(() => {
-    set_review_scope(actual_view_mode === "unique" ? "unit" : "occurrence");
-  }, [actual_view_mode]);
 
   useEffect(() => {
     set_jump_value(String(current_position));
@@ -596,6 +801,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       run: async () =>
         await api_fetch<ProjectWritePayload>(path, {
           ...body,
+          project_path,
           expected_section_revisions: {
             items: revisions["items"] ?? 0,
             proofreading: revisions["proofreading"] ?? 0,
@@ -781,6 +987,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   }
 
   function show_previous(): void {
+    if (visible_total <= 0) return;
     if (selected > 0) {
       set_selected((value) => value - 1);
       return;
@@ -792,24 +999,24 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   }
 
   function show_next(): void {
-    if (selected < items.length - 1) {
+    if (selected < visible_items.length - 1) {
       set_selected((value) => value + 1);
       return;
     }
-    if (offset + items.length < total) {
+    if (offset + visible_items.length < visible_total) {
       set_offset(offset + PREVIEW_PAGE_SIZE);
       set_selected(0);
     }
   }
 
   function jump_to_entry(): void {
-    if (navigation_blocked || total <= 0) return;
+    if (navigation_blocked || visible_total <= 0) return;
     const requested_position = Number(jump_value);
     if (!Number.isFinite(requested_position)) {
       set_jump_value(String(current_position));
       return;
     }
-    const target_position = Math.min(total, Math.max(1, Math.trunc(requested_position)));
+    const target_position = Math.min(visible_total, Math.max(1, Math.trunc(requested_position)));
     const target_index = target_position - 1;
     set_offset(Math.floor(target_index / PREVIEW_PAGE_SIZE) * PREVIEW_PAGE_SIZE);
     set_selected(target_index % PREVIEW_PAGE_SIZE);
@@ -892,11 +1099,11 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           }}
         >
           <option value="">{t("fate_extra_preview_page.all_files")}</option>
-          {files.map((file) => (
+          {visible_files.map((file) => (
             <option key={file} value={file}>
               {file === "FE_补漏.txt"
                 ? t("fate_extra_preview_page.supplement_option", {
-                    count: String(file_counts[file] ?? 0),
+                    count: String(visible_file_counts[file] ?? 0),
                   })
                 : file}
             </option>
@@ -947,13 +1154,33 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       </div>
 
       {index_building ? (
-        <p className="fate-extra-preview__index-status">
-          {t("fate_extra_preview_page.index_building")}
-        </p>
+        <div className="fate-extra-preview__index-status" role="status">
+          <span>
+            {t("fate_extra_preview_page.index_building")}
+            {index_job?.phase === undefined || index_job.phase === "" ? "" : ` ${index_job.phase}`}
+            {index_job?.total === null || index_job?.total === undefined
+              ? ""
+              : ` ${Number(index_job.completed ?? 0).toLocaleString()}/${Number(index_job.total).toLocaleString()}`}
+          </span>
+          {index_job?.cancellable === true &&
+          index_job.status !== "cancelling" &&
+          index_job.status !== "cancelled" ? (
+            <AppButton size="sm" variant="outline" onClick={() => void cancel_preview_index_job()}>
+              {t("fate_extra_preview_page.index_cancel")}
+            </AppButton>
+          ) : null}
+        </div>
       ) : view_mode === "unique" && index_ready === false ? (
-        <p className="fate-extra-preview__index-status">
-          {t("fate_extra_preview_page.index_fallback")}
-        </p>
+        <div className="fate-extra-preview__index-status" role="status">
+          <span>{t("fate_extra_preview_page.index_fallback")}</span>
+          {index_retry_available ||
+          index_job?.status === "failed" ||
+          index_job?.status === "cancelled" ? (
+            <AppButton size="sm" variant="outline" onClick={retry_preview_index_job}>
+              {t("fate_extra_preview_page.index_retry")}
+            </AppButton>
+          ) : null}
+        </div>
       ) : null}
 
       <main className="fate-extra-preview__main">
@@ -1314,7 +1541,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       <footer className="fate-extra-preview__footer">
         <AppButton
           variant="outline"
-          disabled={navigation_blocked || (offset === 0 && selected <= 0)}
+          disabled={navigation_blocked || visible_total <= 0 || (offset === 0 && selected <= 0)}
           onClick={show_previous}
         >
           <ChevronLeft data-icon="inline-start" />
@@ -1324,11 +1551,11 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           <Input
             type="number"
             inputMode="numeric"
-            min={total > 0 ? 1 : 0}
-            max={total}
+            min={visible_total > 0 ? 1 : 0}
+            max={visible_total}
             step={1}
             value={jump_value}
-            disabled={navigation_blocked || total <= 0}
+            disabled={navigation_blocked || visible_total <= 0}
             aria-label={t("fate_extra_preview_page.jump_to")}
             onChange={(event) => set_jump_value(event.target.value)}
             onKeyDown={(event) => {
@@ -1338,11 +1565,11 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
               }
             }}
           />
-          <span>/ {total}</span>
+          <span>/ {visible_total}</span>
           <AppButton
             variant="outline"
             size="sm"
-            disabled={navigation_blocked || total <= 0 || jump_value.trim() === ""}
+            disabled={navigation_blocked || visible_total <= 0 || jump_value.trim() === ""}
             onClick={jump_to_entry}
           >
             {t("fate_extra_preview_page.jump")}
@@ -1350,7 +1577,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         </div>
         <AppButton
           variant="outline"
-          disabled={navigation_blocked || offset + selected + 1 >= total}
+          disabled={navigation_blocked || offset + selected + 1 >= visible_total}
           onClick={show_next}
         >
           {t("fate_extra_preview_page.next")}
@@ -1395,33 +1622,49 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           <p className="fate-extra-preview__error">{context_error}</p>
         ) : (
           <div className="fate-extra-preview__context-grid">
-            <div className="fate-extra-preview__context-head">
-              <span />
-              <strong>{t("fate_extra_preview_page.source_japanese")}</strong>
-              <strong>{t("fate_extra_preview_page.machine_translation")}</strong>
-              <strong>{t("fate_extra_preview_page.proofread_translation")}</strong>
-            </div>
             {(context_payload?.items ?? []).map((item) => (
-              <div
+              <article
                 className={`fate-extra-preview__context-row${item.is_current ? " fate-extra-preview__context-row--current" : ""}`}
                 key={`${item.char_offset}-${item.item_id}`}
               >
-                <div className="fate-extra-preview__context-position">
-                  <Badge variant={item.is_current ? "default" : "outline"}>
-                    {item.is_current
-                      ? t("fate_extra_preview_page.context_current")
-                      : item.block_ordinal < (context_payload?.target_ordinal ?? 0)
-                        ? t("fate_extra_preview_page.context_previous")
-                        : t("fate_extra_preview_page.context_next")}
-                  </Badge>
+                <header className="fate-extra-preview__context-position">
+                  <div className="fate-extra-preview__context-position-main">
+                    <Badge variant={item.is_current ? "default" : "outline"}>
+                      {item.is_current
+                        ? t("fate_extra_preview_page.context_current")
+                        : item.block_ordinal < (context_payload?.target_ordinal ?? 0)
+                          ? t("fate_extra_preview_page.context_previous")
+                          : t("fate_extra_preview_page.context_next")}
+                    </Badge>
+                    <strong>{item.block_ordinal + 1}</strong>
+                  </div>
                   <code>char:{item.char_offset}</code>
+                </header>
+
+                <section className="fate-extra-preview__context-text fate-extra-preview__context-text--source">
+                  <strong>{t("fate_extra_preview_page.source_japanese")}</strong>
+                  <pre>{item.source}</pre>
+                </section>
+                <div className="fate-extra-preview__context-translations">
+                  <section className="fate-extra-preview__context-text">
+                    <strong>{t("fate_extra_preview_page.machine_translation")}</strong>
+                    <pre>{item.machine_translation}</pre>
+                  </section>
+                  <section className="fate-extra-preview__context-text">
+                    <strong>{t("fate_extra_preview_page.proofread_translation")}</strong>
+                    <pre
+                      className={
+                        item.proofread_translation === ""
+                          ? "fate-extra-preview__context-empty"
+                          : undefined
+                      }
+                    >
+                      {item.proofread_translation ||
+                        t("fate_extra_preview_page.context_empty_proofread")}
+                    </pre>
+                  </section>
                 </div>
-                <pre>{item.source}</pre>
-                <pre>{item.machine_translation}</pre>
-                <pre>
-                  {item.proofread_translation || t("fate_extra_preview_page.context_empty_proofread")}
-                </pre>
-              </div>
+              </article>
             ))}
           </div>
         )}

@@ -89,7 +89,7 @@ export const de_de_app = {
     logs: "Protokolle",
   },
   profile: {
-    status: "Ciallo～(∠・ω< )⌒✮",
+    status: "——我在炽天之座等着你",
     status_tooltip: "GitHub-Repository öffnen",
     update_available: "Neue Version herunterladen …!",
     update_available_tooltip: "Update-Bestätigungsdialog öffnen",

@@ -26,6 +26,7 @@ import type { ProofreadingListWindow } from "../../../shared/proofreading/proofr
 import type { QualitySlice, QualitySnapshot } from "../../../shared/quality/snapshot";
 import type { ProjectDataSectionRevisions } from "../../../shared/project-event";
 import type { CacheChange } from "../cache-change";
+import type { ProjectDatabase } from "../../database/database-operations";
 
 const PROOFREADING_CACHE_VERSION = 2;
 
@@ -49,25 +50,42 @@ export type ProofreadingCacheResult<TData> = {
   data: TData;
 };
 
+type ProofreadingCacheIdentity = {
+  key: ProofreadingCacheKey;
+  keyString: string;
+  sectionRevisions: ProjectDataSectionRevisions;
+};
+
+type PendingProofreadingSync = {
+  identity: ProofreadingCacheIdentity;
+  generation: number;
+  controller: AbortController;
+  promise: Promise<ProofreadingSyncState>;
+};
+
 export class ProofreadingCache {
   private readonly cache: CacheReadPort;
   private readonly app_setting_service: AppSettingService;
   private readonly worker_client: BackendWorkerClient;
   private readonly service: ReturnType<typeof createProofreadingListReader>;
+  private readonly database: Pick<ProjectDatabase, "execute"> | null;
   private synced_key: string | null = null;
   private synced_state: ProofreadingSyncState | null = null;
-  private sync_promises = new Map<string, Promise<ProofreadingSyncState>>();
+  private pending_sync: PendingProofreadingSync | null = null;
+  private sync_generation = 0;
 
   public constructor(options: {
     cache: CacheReadPort;
     appSettingService: AppSettingService;
     workerClient: BackendWorkerClient;
     service: ReturnType<typeof createProofreadingListReader>;
+    database?: Pick<ProjectDatabase, "execute">;
   }) {
     this.cache = options.cache;
     this.app_setting_service = options.appSettingService;
     this.worker_client = options.workerClient;
     this.service = options.service;
+    this.database = options.database ?? null;
   }
 
   public async sync(input: {
@@ -120,19 +138,26 @@ export class ProofreadingCache {
    */
   public async clearProject(projectPath?: string): Promise<void> {
     const current_key = this.synced_key;
-    if (current_key === null) {
-      this.sync_promises.clear();
+    const parsed_key = current_key === null ? null : this.parse_key(current_key);
+    const should_clear_synced =
+      current_key !== null &&
+      (projectPath === undefined || parsed_key?.projectPath === projectPath);
+    const should_cancel_pending =
+      this.pending_sync !== null &&
+      (projectPath === undefined || this.pending_sync.identity.key.projectPath === projectPath);
+    if (!should_clear_synced && !should_cancel_pending) {
       return;
     }
-    const parsed_key = this.parse_key(current_key);
-    if (projectPath !== undefined && parsed_key?.projectPath !== projectPath) {
-      return;
+
+    if (should_cancel_pending) {
+      this.cancel_pending_sync();
     }
-    this.synced_key = null;
-    this.synced_state = null;
-    this.sync_promises.clear();
-    if (parsed_key !== null) {
-      this.service.dispose_project(parsed_key.projectPath);
+    if (should_clear_synced) {
+      this.synced_key = null;
+      this.synced_state = null;
+      if (parsed_key !== null) {
+        this.service.dispose_project(parsed_key.projectPath);
+      }
     }
   }
 
@@ -150,10 +175,10 @@ export class ProofreadingCache {
       return;
     }
 
+    this.cancel_pending_sync(change.projectPath);
     const item_change = change.items;
     const current_key = this.synced_key;
     if (current_key === null || this.synced_state === null) {
-      this.sync_promises.clear();
       return;
     }
     const parsed_key = this.parse_key(current_key);
@@ -254,51 +279,64 @@ export class ProofreadingCache {
     return this.with_identity(identity, this.service.build_filter_panel(input.query));
   }
 
-  private async ensure_synced(identity: {
-    keyString: string;
-    input: ProofreadingSyncInput;
-  }): Promise<ProofreadingSyncState> {
+  private async ensure_synced(identity: ProofreadingCacheIdentity): Promise<ProofreadingSyncState> {
     if (this.synced_key === identity.keyString) {
       if (this.synced_state !== null) {
         return this.synced_state;
       }
     }
-    const pending = this.sync_promises.get(identity.keyString);
-    if (pending !== undefined) {
-      return pending;
+    if (this.pending_sync?.identity.keyString === identity.keyString) {
+      return this.pending_sync.promise;
     }
-    const promise = this.worker_client
-      .run(
-        {
-          type: "proofreading_sync",
-          input: identity.input,
-        },
-        new AbortController().signal,
-      )
-      .then((result) => {
-        const sync_state = this.service.sync_evaluated_full({
-          ...result,
-          quality: identity.input.quality,
-        });
-        this.synced_key = identity.keyString;
-        this.synced_state = sync_state;
-        return sync_state;
-      });
-    this.sync_promises.set(identity.keyString, promise);
+
+    this.cancel_pending_sync();
+    const sync_input = this.build_sync_input(identity);
+    const controller = new AbortController();
+    const generation = ++this.sync_generation;
+    const promise = this.run_sync(identity, sync_input, generation, controller);
+    this.pending_sync = { identity, generation, controller, promise };
     try {
       return await promise;
     } finally {
-      this.sync_promises.delete(identity.keyString);
+      if (this.pending_sync?.generation === generation) {
+        this.pending_sync = null;
+      }
     }
   }
 
-  private build_identity(input: { sourceLanguage?: ApiJsonValue; targetLanguage?: ApiJsonValue }): {
-    key: ProofreadingCacheKey;
-    keyString: string;
-    sectionRevisions: ProjectDataSectionRevisions;
-    input: ProofreadingSyncInput;
-  } {
-    const sectionRevisions = this.cache.readSectionRevisions();
+  private async run_sync(
+    identity: ProofreadingCacheIdentity,
+    input: ProofreadingSyncInput,
+    generation: number,
+    controller: AbortController,
+  ): Promise<ProofreadingSyncState> {
+    const result = await this.worker_client.run(
+      {
+        type: "proofreading_sync",
+        input,
+      },
+      controller.signal,
+    );
+    if (!this.is_current_sync(identity, generation, controller.signal)) {
+      throw new AppErrors.RuntimeCancelledError({
+        public_details: { resource: "proofreading_cache" },
+      });
+    }
+
+    const sync_state = this.service.sync_evaluated_full({
+      ...result,
+      quality: input.quality,
+    });
+    this.synced_key = identity.keyString;
+    this.synced_state = sync_state;
+    return sync_state;
+  }
+
+  private build_identity(input: {
+    sourceLanguage?: ApiJsonValue;
+    targetLanguage?: ApiJsonValue;
+  }): ProofreadingCacheIdentity {
+    const sectionRevisions = { ...this.cache.readSectionRevisions() };
     const snapshot = this.cache.snapshot();
     if (snapshot.projectPath === "") {
       throw new AppErrors.ProjectNotLoadedError();
@@ -320,21 +358,67 @@ export class ProofreadingCache {
       targetLanguage,
       cacheVersion: PROOFREADING_CACHE_VERSION,
     };
-    const items = this.build_items();
     return {
       key,
       keyString: JSON.stringify(key),
       sectionRevisions,
-      input: {
-        projectId: snapshot.projectPath,
-        revisions,
-        total_item_count: items.length,
-        upsertItems: items,
-        quality: this.normalize_quality_state(this.cache.quality.readBlock()),
-        sourceLanguage,
-        targetLanguage,
-      },
     };
+  }
+
+  /**
+   * 只有缓存未命中时才读取完整条目与质量规则，命中查询保持常量级身份检查。
+   */
+  private build_sync_input(identity: ProofreadingCacheIdentity): ProofreadingSyncInput {
+    const items = this.build_items();
+    return {
+      projectId: identity.key.projectPath,
+      revisions: identity.key.revisions,
+      total_item_count: items.length,
+      upsertItems: items,
+      quality: this.normalize_quality_state(this.cache.quality.readBlock()),
+      sourceLanguage: identity.key.sourceLanguage,
+      targetLanguage: identity.key.targetLanguage,
+    };
+  }
+
+  /**
+   * 新身份和项目事件会中止旧同步；generation 同时阻止不响应 signal 的迟到任务写回。
+   */
+  private cancel_pending_sync(projectPath?: string): void {
+    const pending = this.pending_sync;
+    if (
+      pending === null ||
+      (projectPath !== undefined && pending.identity.key.projectPath !== projectPath)
+    ) {
+      return;
+    }
+    this.pending_sync = null;
+    this.sync_generation += 1;
+    pending.controller.abort();
+  }
+
+  private is_current_sync(
+    identity: ProofreadingCacheIdentity,
+    generation: number,
+    signal: AbortSignal,
+  ): boolean {
+    if (
+      signal.aborted ||
+      generation !== this.sync_generation ||
+      this.pending_sync?.generation !== generation
+    ) {
+      return false;
+    }
+    const snapshot = this.cache.snapshot();
+    const revisions = this.cache.readSectionRevisions();
+    return (
+      snapshot.projectPath === identity.key.projectPath &&
+      snapshot.epoch === identity.key.sessionEpoch &&
+      this.read_number(revisions.files, 0) === identity.key.revisions.files &&
+      this.read_number(revisions.items, 0) === identity.key.revisions.items &&
+      this.read_number(revisions.quality, 0) === identity.key.revisions.quality &&
+      this.read_number(revisions.proofreading, 0) === identity.key.revisions.proofreading
+    );
   }
 
   private with_identity<TData>(
@@ -366,10 +450,23 @@ export class ProofreadingCache {
    */
   private build_delta_items(item_ids: number[]): ProofreadingItemRecord[] {
     const file_order_by_path = this.build_file_order_by_path(this.cache.files.readFileEntries());
-    return item_ids.flatMap((item_id) => {
+    const cached_items = item_ids.flatMap((item_id) => {
       const item = this.cache.items.readItem(item_id);
       return item === null ? [] : [this.to_runtime_item(item, file_order_by_path)];
     });
+    if (cached_items.length > 0 || item_ids.length === 0 || this.database === null) {
+      return cached_items;
+    }
+    const project_path = this.cache.snapshot().projectPath;
+    const items = this.database.execute({
+      name: "getItemsByIds",
+      args: { projectPath: project_path, itemIds: item_ids },
+    });
+    return Array.isArray(items)
+      ? items.flatMap((item) =>
+          this.is_record(item) ? [this.to_runtime_item(item as CacheItem, file_order_by_path)] : [],
+        )
+      : [];
   }
 
   /**
@@ -402,6 +499,10 @@ export class ProofreadingCache {
       retry_count: this.read_number(item["retry_count"], 0),
       extra_field: (item["extra_field"] ?? "") as ApiJsonValue,
     };
+  }
+
+  private is_record(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
 
   private normalize_quality_state(block: Record<string, unknown>): QualitySnapshot {

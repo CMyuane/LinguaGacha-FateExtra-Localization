@@ -53,7 +53,7 @@ export type FateExtraPreviewLayout = {
 
 const FATE_EXTRA_GLYPH_ADVANCE_BY_MODE: Record<FateExtraResolvedDisplayMode, number> = {
   dialogue: FATE_EXTRA_GLYPH_ADVANCE,
-  fullscreen: 14,
+  fullscreen: 15,
   poem: 18,
   unknown: FATE_EXTRA_GLYPH_ADVANCE,
 };

@@ -564,4 +564,38 @@ describe("desktop-api", () => {
     });
     await expect(promise).rejects.toBeInstanceOf(DesktopApiError);
   });
+
+  it("api_fetch 把调用方 AbortSignal 原样传到 fetch", async () => {
+    const controller = new AbortController();
+    const fetch_mock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/api/health")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({
+            ok: true,
+            data: {
+              status: "ok",
+              service: "linguagacha-backend",
+              version: "9.9.9",
+            },
+          }),
+        } as Response;
+      }
+      expect(init?.signal).toBe(controller.signal);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, data: { accepted: true } }),
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetch_mock);
+    install_desktop_api_host("http://127.0.0.1:38191/");
+
+    const { api_fetch } = await import("./desktop-api");
+
+    await expect(
+      api_fetch("/api/toolbox/fate-extra/items", {}, { signal: controller.signal }),
+    ).resolves.toEqual({ accepted: true });
+  });
 });

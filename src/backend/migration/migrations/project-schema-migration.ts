@@ -5,7 +5,7 @@ import type { MigrationDescriptor, ProjectDatabaseMigrationContext } from "../mi
 
 type SchemaRow = Record<string, unknown>;
 
-export const PROJECT_DATABASE_SCHEMA_VERSION = 6; // 只表达当前表结构能力，不承载业务写回完成状态
+export const PROJECT_DATABASE_SCHEMA_VERSION = 7; // 只表达当前表结构能力，不承载业务写回完成状态
 
 /**
  * 迁移背景：
@@ -38,6 +38,7 @@ export class ProjectSchemaMigration {
    */
   public static run(db: DatabaseSync): void {
     this.ensure_current_schema(db);
+    this.ensure_preview_search_schema(db);
     this.ensure_asset_sort_order_column(db);
     this.ensure_compact_occurrence_translation_columns(db);
     this.ensure_compact_machine_drafts(db);
@@ -100,6 +101,56 @@ export class ProjectSchemaMigration {
         occurrence_count INTEGER NOT NULL,
         first_item_id INTEGER NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_generation (
+        generation INTEGER PRIMARY KEY,
+        adapter_value TEXT NOT NULL,
+        items_revision INTEGER NOT NULL,
+        item_count INTEGER NOT NULL,
+        document_count INTEGER NOT NULL,
+        short_gram_count INTEGER NOT NULL,
+        complete INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_document (
+        document_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        generation INTEGER NOT NULL,
+        field TEXT NOT NULL,
+        search_text TEXT NOT NULL,
+        UNIQUE (generation, field, search_text)
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_item (
+        generation INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        unit_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        PRIMARY KEY (generation, item_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_mapping (
+        generation INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        occurrence_id INTEGER NOT NULL,
+        field TEXT NOT NULL,
+        document_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, occurrence_id, field, document_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_file_summary (
+        generation INTEGER NOT NULL,
+        document_id INTEGER NOT NULL,
+        occurrence_count INTEGER NOT NULL,
+        first_item_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, document_id)
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_short_gram (
+        generation INTEGER NOT NULL,
+        gram TEXT NOT NULL,
+        document_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, gram, document_id)
+      ) WITHOUT ROWID;
+      CREATE VIRTUAL TABLE IF NOT EXISTS fate_extra_preview_search_fts USING fts5(
+        search_text,
+        content='fate_extra_preview_search_document',
+        content_rowid='document_id',
+        tokenize='trigram'
+      );
       CREATE TABLE IF NOT EXISTS fate_extra_compact_source (
         source_hash TEXT PRIMARY KEY,
         source TEXT NOT NULL UNIQUE,
@@ -141,10 +192,117 @@ export class ProjectSchemaMigration {
         ON fate_extra_text_occurrence(unit_id);
       CREATE INDEX IF NOT EXISTS idx_fate_extra_file_summary_first_item_id
         ON fate_extra_file_summary(first_item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_item_document
+        ON fate_extra_preview_search_mapping(generation, document_id, item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_mapping_item
+        ON fate_extra_preview_search_mapping(generation, item_id, document_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_item_unit
+        ON fate_extra_preview_search_item(generation, unit_id, item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_item_file
+        ON fate_extra_preview_search_mapping(generation, field, document_id, item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_item_category
+        ON fate_extra_preview_search_item(generation, category, item_id);
       CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_occurrence_source_hash
         ON fate_extra_compact_occurrence(source_hash);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_source_item
+        ON fate_extra_compact_source(compact_item_id);
       CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_occurrence_file_row
         ON fate_extra_compact_occurrence(file_path, row_number, original_item_id);
+    `);
+  }
+
+  /**
+   * schema 7 开发快照曾使用无 generation 的拼接文档；派生数据可以安全丢弃并按当前结构重建。
+   */
+  private static ensure_preview_search_schema(db: DatabaseSync): void {
+    const document_columns = new Set(
+      db
+        .prepare("PRAGMA table_info(fate_extra_preview_search_document)")
+        .all()
+        .map((row) => row_text(row, "name")),
+    );
+    const mapping_columns = new Set(
+      db
+        .prepare("PRAGMA table_info(fate_extra_preview_search_mapping)")
+        .all()
+        .map((row) => row_text(row, "name")),
+    );
+    if (
+      document_columns.has("generation") &&
+      document_columns.has("field") &&
+      mapping_columns.has("occurrence_id")
+    ) {
+      return;
+    }
+    db.exec(`
+      DROP TABLE IF EXISTS fate_extra_preview_search_fts;
+      DROP TABLE IF EXISTS fate_extra_preview_search_short_gram;
+      DROP TABLE IF EXISTS fate_extra_preview_search_file_summary;
+      DROP TABLE IF EXISTS fate_extra_preview_search_mapping;
+      DROP TABLE IF EXISTS fate_extra_preview_search_item;
+      DROP TABLE IF EXISTS fate_extra_preview_search_document;
+      DROP TABLE IF EXISTS fate_extra_preview_search_generation;
+
+      CREATE TABLE fate_extra_preview_search_generation (
+        generation INTEGER PRIMARY KEY,
+        adapter_value TEXT NOT NULL,
+        items_revision INTEGER NOT NULL,
+        item_count INTEGER NOT NULL,
+        document_count INTEGER NOT NULL,
+        short_gram_count INTEGER NOT NULL,
+        complete INTEGER NOT NULL
+      );
+      CREATE TABLE fate_extra_preview_search_document (
+        document_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        generation INTEGER NOT NULL,
+        field TEXT NOT NULL,
+        search_text TEXT NOT NULL,
+        UNIQUE (generation, field, search_text)
+      );
+      CREATE TABLE fate_extra_preview_search_item (
+        generation INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        unit_id INTEGER NOT NULL,
+        category TEXT NOT NULL,
+        PRIMARY KEY (generation, item_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE fate_extra_preview_search_mapping (
+        generation INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        occurrence_id INTEGER NOT NULL,
+        field TEXT NOT NULL,
+        document_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, occurrence_id, field, document_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE fate_extra_preview_search_file_summary (
+        generation INTEGER NOT NULL,
+        document_id INTEGER NOT NULL,
+        occurrence_count INTEGER NOT NULL,
+        first_item_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, document_id)
+      );
+      CREATE TABLE fate_extra_preview_search_short_gram (
+        generation INTEGER NOT NULL,
+        gram TEXT NOT NULL,
+        document_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, gram, document_id)
+      ) WITHOUT ROWID;
+      CREATE VIRTUAL TABLE fate_extra_preview_search_fts USING fts5(
+        search_text,
+        content='fate_extra_preview_search_document',
+        content_rowid='document_id',
+        tokenize='trigram'
+      );
+      CREATE INDEX idx_fate_extra_preview_search_item_document
+        ON fate_extra_preview_search_mapping(generation, document_id, item_id);
+      CREATE INDEX idx_fate_extra_preview_search_mapping_item
+        ON fate_extra_preview_search_mapping(generation, item_id, document_id);
+      CREATE INDEX idx_fate_extra_preview_search_item_unit
+        ON fate_extra_preview_search_item(generation, unit_id, item_id);
+      CREATE INDEX idx_fate_extra_preview_search_item_file
+        ON fate_extra_preview_search_mapping(generation, field, document_id, item_id);
+      CREATE INDEX idx_fate_extra_preview_search_item_category
+        ON fate_extra_preview_search_item(generation, category, item_id);
     `);
   }
 

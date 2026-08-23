@@ -23,6 +23,7 @@ function create_cache_read_port(): CacheReadPort & {
         freshness: "fresh",
         sectionRevisions: this.revisions,
         itemCount: this.items_value.length,
+        itemMode: "standard" as const,
       };
     },
     readSectionRevisions() {
@@ -31,6 +32,12 @@ function create_cache_read_port(): CacheReadPort & {
     items: {
       readItems: () => port.items_value.map((item) => ({ ...item })),
       readItem: () => null,
+      readSummary: () => ({
+        totalCount: port.items_value.length,
+        statusCounts: {},
+        nonemptySourceStatusCounts: {},
+        fileEntries: [],
+      }),
     },
     files: {
       readFileEntries: () => [],

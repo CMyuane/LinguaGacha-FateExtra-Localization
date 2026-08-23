@@ -3,8 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { api_fetch_mock, desktop_state_fixture } = vi.hoisted(() => ({
+const { api_fetch_mock, desktop_state_fixture, translate } = vi.hoisted(() => ({
   api_fetch_mock: vi.fn(),
+  translate: (key: string) => key,
   desktop_state_fixture: {
     current: {
       project_snapshot: { loaded: true, path: "D:\\project.lg" },
@@ -21,7 +22,7 @@ vi.mock("@frontend/app/desktop/desktop-api", () => ({
 }));
 
 vi.mock("@frontend/app/locale/locale-provider", () => ({
-  useI18n: () => ({ t: (key: string) => key }),
+  useI18n: () => ({ t: translate }),
 }));
 
 vi.mock("@frontend/app/state/use-desktop-state", () => ({
@@ -135,6 +136,10 @@ describe("FateExtraPreviewPage", () => {
 
   beforeEach(() => {
     vi.useFakeTimers();
+    desktop_state_fixture.current.project_snapshot = {
+      loaded: true,
+      path: "D:\\project.lg",
+    };
     desktop_state_fixture.current.project_change_signal = { seq: 0 };
     container = document.createElement("div");
     document.body.append(container);
@@ -148,9 +153,14 @@ describe("FateExtraPreviewPage", () => {
         return { payload, write_result: { accepted: true, changes: [] } };
       },
     );
-    api_fetch_mock.mockImplementation((path: string) => {
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
       if (path === "/api/toolbox/fate-extra/items") {
-        return Promise.resolve({ total: 501, items: [ITEM], files: ["route.txt"] });
+        return Promise.resolve({
+          query_id: body?.["query_id"],
+          total: 501,
+          items: [ITEM],
+          files: ["route.txt"],
+        });
       }
       if (path === "/api/session/project/manifest") {
         return Promise.resolve({
@@ -241,6 +251,7 @@ describe("FateExtraPreviewPage", () => {
       review_scope: "unit",
       proofread_translation: "新译文\n第二行",
       display_mode: "auto",
+      project_path: "D:\\project.lg",
       expected_section_revisions: { items: 4, proofreading: 5 },
     });
   });
@@ -270,6 +281,7 @@ describe("FateExtraPreviewPage", () => {
       review_scope: "unit",
       proofread_translation: "",
       display_mode: "auto",
+      project_path: "D:\\project.lg",
       expected_section_revisions: { items: 4, proofreading: 5 },
     });
 
@@ -284,6 +296,7 @@ describe("FateExtraPreviewPage", () => {
     expect(api_fetch_mock).toHaveBeenCalledWith("/api/proofreading/items/set-status", {
       item_ids: [7],
       status: "PROCESSED",
+      project_path: "D:\\project.lg",
       expected_section_revisions: { items: 4, proofreading: 5 },
     });
 
@@ -328,16 +341,436 @@ describe("FateExtraPreviewPage", () => {
       await Promise.resolve();
     });
 
-    expect(api_fetch_mock).toHaveBeenLastCalledWith("/api/toolbox/fate-extra/items", {
-      project_path: "D:\\project.lg",
-      search: "",
-      file_path: "",
-      warning: "",
-      category: "",
-      view_mode: "unique",
-      offset: 120,
-      limit: 120,
+    expect(api_fetch_mock).toHaveBeenLastCalledWith(
+      "/api/toolbox/fate-extra/items",
+      {
+        project_path: "D:\\project.lg",
+        search: "",
+        file_path: "",
+        warning: "",
+        category: "",
+        view_mode: "unique",
+        offset: 120,
+        limit: 120,
+        query_id: expect.any(Number),
+      },
+      { signal: expect.anything() },
+    );
+  });
+
+  it("搜索条件变化时取消已发出的预览请求并只保留最新请求", async () => {
+    await render_page();
+    const first_options = api_fetch_mock.mock.calls
+      .filter(([path]) => path === "/api/toolbox/fate-extra/items")
+      .at(-1)?.[2] as { signal?: AbortSignal } | undefined;
+    const search_input = container.querySelector<HTMLInputElement>(
+      'input[placeholder="fate_extra_preview_page.search"]',
+    );
+
+    await act(async () => {
+      if (search_input !== null) {
+        const value_setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        value_setter?.call(search_input, "新搜索");
+        search_input.dispatchEvent(new Event("input", { bubbles: true }));
+        search_input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await Promise.resolve();
     });
+
+    expect(first_options?.signal?.aborted).toBe(true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const latest_call = api_fetch_mock.mock.calls
+      .filter(([path]) => path === "/api/toolbox/fate-extra/items")
+      .at(-1);
+    expect(latest_call?.[1]).toMatchObject({ search: "新搜索" });
+    const latest_signal = (latest_call?.[2] as { signal?: AbortSignal } | undefined)?.signal;
+    expect(latest_signal).not.toBe(first_options?.signal);
+    expect(latest_signal?.aborted).toBe(false);
+  });
+
+  it("工程切换后立即隐藏旧条目且快捷保存不能写入新工程", async () => {
+    await render_page();
+    const translation = container.querySelector<HTMLTextAreaElement>(
+      'textarea[aria-label="fate_extra_preview_page.proofread_translation"]',
+    );
+    await act(async () => {
+      if (translation !== null) {
+        const value_setter = Object.getOwnPropertyDescriptor(
+          HTMLTextAreaElement.prototype,
+          "value",
+        )?.set;
+        value_setter?.call(translation, "旧工程未保存译文");
+        translation.dispatchEvent(new Event("input", { bubbles: true }));
+        translation.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+    });
+    expect(
+      [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("proofreading_page.action.save"),
+      )?.disabled,
+    ).toBe(false);
+
+    api_fetch_mock.mockClear();
+    api_fetch_mock.mockImplementation((path: string) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return new Promise(() => undefined);
+      }
+      return Promise.resolve({ accepted: true });
+    });
+    desktop_state_fixture.current.project_snapshot = {
+      loaded: true,
+      path: "D:\\next-project.lg",
+    };
+
+    await act(async () => {
+      root.render(<FateExtraPreviewPage is_sidebar_collapsed={false} />);
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('textarea[aria-label="fate_extra_preview_page.source"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector(
+        'textarea[aria-label="fate_extra_preview_page.proofread_translation"]',
+      ),
+    ).toBeNull();
+    expect(
+      [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("proofreading_page.action.save"),
+      ),
+    ).toBeUndefined();
+
+    await act(async () => {
+      window.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "s",
+          ctrlKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+    });
+
+    expect(
+      api_fetch_mock.mock.calls.some(([path]) => path === "/api/toolbox/fate-extra/review/save"),
+    ).toBe(false);
+    expect(api_fetch_mock).toHaveBeenCalledWith(
+      "/api/toolbox/fate-extra/items",
+      expect.objectContaining({ project_path: "D:\\next-project.lg" }),
+      { signal: expect.anything() },
+    );
+  });
+
+  it("当前查询进入 updating 时清空上一查询的条目与总数", async () => {
+    await render_page();
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve({
+          query_id: body?.["query_id"],
+          search_state: "updating",
+          index_ready: false,
+          total: 0,
+          items: [],
+        });
+      }
+      if (path === "/api/toolbox/fate-extra/index/rebuild") {
+        return Promise.resolve({
+          job_id: "failed-index-job",
+          status: "failed",
+          error: { message: "index unavailable" },
+        });
+      }
+      return Promise.resolve({ accepted: true });
+    });
+    const search_input = container.querySelector<HTMLInputElement>(
+      'input[placeholder="fate_extra_preview_page.search"]',
+    );
+
+    await act(async () => {
+      if (search_input !== null) {
+        const value_setter = Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )?.set;
+        value_setter?.call(search_input, "等待索引");
+        search_input.dispatchEvent(new Event("input", { bubbles: true }));
+        search_input.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector('textarea[aria-label="fate_extra_preview_page.source"]'),
+    ).toBeNull();
+
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(
+      container.querySelector('textarea[aria-label="fate_extra_preview_page.source"]'),
+    ).toBeNull();
+    const jump_input = container.querySelector<HTMLInputElement>(
+      'input[aria-label="fate_extra_preview_page.jump_to"]',
+    );
+    expect(jump_input?.max).toBe("0");
+    expect(jump_input?.disabled).toBe(true);
+  });
+
+  it("忽略 query_id 不匹配的迟到预览响应", async () => {
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve({
+          query_id: Number(body?.["query_id"] ?? 0) + 1,
+          total: 1,
+          items: [ITEM],
+        });
+      }
+      return Promise.resolve({ accepted: true });
+    });
+
+    await render_page();
+
+    expect(
+      container.querySelector('textarea[aria-label="fate_extra_preview_page.source"]'),
+    ).toBeNull();
+  });
+
+  it("搜索索引更新中时轮询后台任务并在成功后重载", async () => {
+    let index_completed = false;
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve(
+          index_completed
+            ? {
+                query_id: body?.["query_id"],
+                search_state: "ready",
+                index_ready: true,
+                index_generation: 2,
+                applied_items_revision: 4,
+                total: 1,
+                items: [ITEM],
+              }
+            : {
+                query_id: body?.["query_id"],
+                search_state: "updating",
+                index_ready: false,
+                index_generation: 1,
+                applied_items_revision: 3,
+              },
+        );
+      }
+      if (path === "/api/toolbox/fate-extra/index/rebuild") {
+        return Promise.resolve({ job_id: "index-job", status: "queued" });
+      }
+      if (path === "/api/toolbox/fate-extra/jobs/status") {
+        index_completed = true;
+        return Promise.resolve({
+          job_id: "index-job",
+          status: "succeeded",
+          result: { ready: true, search_ready: true, search_generation: 2 },
+        });
+      }
+      return Promise.resolve({ accepted: true });
+    });
+
+    await render_page();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api_fetch_mock).toHaveBeenCalledWith(
+      "/api/toolbox/fate-extra/index/rebuild",
+      { project_path: "D:\\project.lg" },
+      { signal: expect.anything() },
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(api_fetch_mock).toHaveBeenCalledWith(
+      "/api/toolbox/fate-extra/jobs/status",
+      { job_id: "index-job" },
+      { signal: expect.anything() },
+    );
+
+    await act(async () => {
+      vi.advanceTimersByTime(150);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(
+      container.querySelector<HTMLTextAreaElement>(
+        'textarea[aria-label="fate_extra_preview_page.source"]',
+      )?.value,
+    ).toBe("原文");
+  });
+
+  it("显示索引进度并支持取消后重试", async () => {
+    let rebuild_count = 0;
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve({
+          query_id: body?.["query_id"],
+          search_state: "updating",
+          index_ready: false,
+          total: 0,
+          items: [],
+        });
+      }
+      if (path === "/api/toolbox/fate-extra/index/rebuild") {
+        rebuild_count += 1;
+        return Promise.resolve({
+          job_id: `index-job-${rebuild_count.toString()}`,
+          status: "running",
+          phase: "build-documents",
+          completed: 20,
+          total: 100,
+          cancellable: true,
+        });
+      }
+      if (path === "/api/toolbox/fate-extra/jobs/cancel") {
+        return Promise.resolve({
+          job_id: body?.["job_id"],
+          status: "cancelling",
+          phase: "cancelling",
+          completed: 20,
+          total: 100,
+          cancellable: true,
+        });
+      }
+      if (path === "/api/toolbox/fate-extra/jobs/status") {
+        return Promise.resolve({
+          job_id: body?.["job_id"],
+          status: "cancelled",
+          phase: "cancelled",
+          completed: 20,
+          total: 100,
+          cancellable: false,
+        });
+      }
+      return Promise.resolve({ accepted: true });
+    });
+
+    await render_page();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain("build-documents 20/100");
+    const cancel_button = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("fate_extra_preview_page.index_cancel"),
+    );
+    await act(async () => {
+      cancel_button?.click();
+      await Promise.resolve();
+    });
+    expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/jobs/cancel", {
+      job_id: "index-job-1",
+    });
+
+    await act(async () => {
+      vi.advanceTimersByTime(500);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    const retry_button = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("fate_extra_preview_page.index_retry"),
+    );
+    expect(retry_button).toBeDefined();
+    expect(container.querySelector(".fate-extra-preview__error")).toBeNull();
+    await act(async () => {
+      retry_button?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(rebuild_count).toBe(2);
+  });
+
+  it.each([
+    ["启动请求失败", "start"],
+    ["轮询请求失败", "poll"],
+    ["启动响应缺少 job_id", "missing-job-id"],
+  ] as const)("%s 时进入可重试状态", async (_label, failure_mode) => {
+    let rebuild_count = 0;
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve({
+          query_id: body?.["query_id"],
+          search_state: "updating",
+          index_ready: false,
+          total: 0,
+          items: [],
+        });
+      }
+      if (path === "/api/toolbox/fate-extra/index/rebuild") {
+        rebuild_count += 1;
+        if (rebuild_count === 1 && failure_mode === "start") {
+          return Promise.reject(new Error("index start unavailable"));
+        }
+        if (rebuild_count === 1 && failure_mode === "missing-job-id") {
+          return Promise.resolve({ status: "running" });
+        }
+        return Promise.resolve(
+          rebuild_count === 1
+            ? { job_id: "index-job", status: "running" }
+            : {
+                job_id: "index-retry-job",
+                status: "failed",
+                error: { message: "retry stopped for test" },
+              },
+        );
+      }
+      if (path === "/api/toolbox/fate-extra/jobs/status") {
+        return failure_mode === "poll"
+          ? Promise.reject(new Error("index status unavailable"))
+          : Promise.resolve({ job_id: body?.["job_id"], status: "failed" });
+      }
+      return Promise.resolve({ accepted: true });
+    });
+
+    await render_page();
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    if (failure_mode === "poll") {
+      await act(async () => {
+        vi.advanceTimersByTime(500);
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+    }
+
+    const retry_button = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("fate_extra_preview_page.index_retry"),
+    );
+    expect(retry_button).toBeDefined();
+    expect(container.querySelector(".fate-extra-preview__error")?.textContent).not.toBe("");
+    await act(async () => {
+      retry_button?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(rebuild_count).toBe(2);
   });
 
   it("支持输入条目序号并按回车跳转到对应批次", async () => {
@@ -368,16 +801,21 @@ describe("FateExtraPreviewPage", () => {
       await Promise.resolve();
     });
 
-    expect(api_fetch_mock).toHaveBeenLastCalledWith("/api/toolbox/fate-extra/items", {
-      project_path: "D:\\project.lg",
-      search: "",
-      file_path: "",
-      warning: "",
-      category: "",
-      view_mode: "unique",
-      offset: 480,
-      limit: 120,
-    });
+    expect(api_fetch_mock).toHaveBeenLastCalledWith(
+      "/api/toolbox/fate-extra/items",
+      {
+        project_path: "D:\\project.lg",
+        search: "",
+        file_path: "",
+        warning: "",
+        category: "",
+        view_mode: "unique",
+        offset: 480,
+        limit: 120,
+        query_id: expect.any(Number),
+      },
+      { signal: expect.anything() },
+    );
     // The test API returns one row for every page, so selection is clamped to
     // the first available row of the requested 480-offset page.
     expect(jump_input?.value).toBe("481");
@@ -386,9 +824,10 @@ describe("FateExtraPreviewPage", () => {
   it("refreshes the machine draft after a project translation commit", async () => {
     await render_page();
 
-    api_fetch_mock.mockImplementation((path: string) => {
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
       if (path === "/api/toolbox/fate-extra/items") {
         return Promise.resolve({
+          query_id: body?.["query_id"],
           total: 501,
           items: [
             {
@@ -449,6 +888,7 @@ describe("FateExtraPreviewPage", () => {
       review_scope: "unit",
       proofread_translation: "",
       display_mode: "fullscreen",
+      project_path: "D:\\project.lg",
       expected_section_revisions: { items: 4, proofreading: 5 },
     });
     const next_button = [...container.querySelectorAll("button")].find((button) =>

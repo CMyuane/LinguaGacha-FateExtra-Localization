@@ -11,6 +11,11 @@ import {
   PROJECT_DATABASE_WRITEBACK_MIGRATION_IDS,
 } from "../migration/migration-orchestrator";
 import { ProjectDatabase } from "./database-operations";
+import { run_fate_extra_index_maintenance } from "./fate-extra-preview-search-index";
+import {
+  run_fate_extra_preview_search_worker_task,
+  type FateExtraPreviewSearchWorkerTaskInput,
+} from "../worker/tasks/fate-extra-preview-worker-task";
 
 let temp_dir = "";
 let cleanup_databases: ProjectDatabase[] = [];
@@ -33,6 +38,53 @@ function create_database_project(name: string): { database: ProjectDatabase; lg_
     args: { projectPath: lg_path, name },
   });
   return { database, lg_path };
+}
+
+function rebuild_and_activate(
+  database: ProjectDatabase,
+  projectPath: string,
+  itemsRevision: number,
+): void {
+  const build = run_fate_extra_index_maintenance(projectPath, itemsRevision);
+  database.execute({
+    name: "activateFateExtraPreviewSearchGeneration",
+    args: {
+      projectPath,
+      generation: build.generation,
+      expectedItemsRevision: build.items_revision,
+      expectedAdapterValue: build.adapter_value,
+    },
+  });
+}
+
+function query_fate_extra_preview(
+  database: ProjectDatabase,
+  projectPath: string,
+  query: Partial<
+    Omit<
+      FateExtraPreviewSearchWorkerTaskInput,
+      "projectPath" | "expectedGeneration" | "expectedItemsRevision"
+    >
+  > = {},
+): Record<string, unknown> {
+  const state = database.execute({
+    name: "getFateExtraTextUnitIndexState",
+    args: { projectPath },
+  }) as Record<string, unknown>;
+  return run_fate_extra_preview_search_worker_task({
+    projectPath,
+    search: "",
+    filePath: "",
+    category: "",
+    offset: 0,
+    limit: 20,
+    includeFiles: false,
+    includeTotal: true,
+    viewMode: "occurrence",
+    ...query,
+    expectedGeneration: Number(state["search_generation"] ?? 0),
+    expectedItemsRevision: Number(state["search_items_revision"] ?? 0),
+  }) as Record<string, unknown>;
 }
 
 function project_sidecar_paths(lg_path: string): string[] {
@@ -63,40 +115,36 @@ describe("ProjectDatabase", () => {
       args: {
         projectPath: lg_path,
         key: "fate_extra.adapter.v1",
-        value: { enabled: true, schema_version: 1, logical_text_count: 3 },
+        value: { enabled: true, schema_version: 1, logical_text_count: 4 },
       },
     });
-    for (const [id, src] of [
-      [1, "同文#RUBSどう#RUBE文#REND"],
-      [2, "同文#RUBSどう#RUBE文#REND"],
-      [3, "不同文本"],
-    ] as const) {
-      database.execute({
-        name: "setItem",
-        args: {
-          projectPath: lg_path,
-          item: {
-            id,
-            src,
-            dst: "初翻",
-            status: "NONE",
-            file_path: "route.txt",
-            row: id - 1,
-            extra_field: {
-              __linguagacha_fe_v1: {
-                proofread_translation: "",
-                display_mode: "auto",
-                classification: { category: "ordinary_independent_slot" },
-              },
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [
+          [1, "同文#RUBSどう#RUBE文#REND"],
+          [2, "同文#RUBSどう#RUBE文#REND"],
+          [3, "不同文本"],
+        ].map(([id, src]) => ({
+          id,
+          src,
+          dst: "初翻",
+          status: "NONE",
+          file_path: "route.txt",
+          row: Number(id) - 1,
+          extra_field: {
+            __linguagacha_fe_v1: {
+              proofread_translation: "",
+              display_mode: "auto",
+              classification: { category: "ordinary_independent_slot" },
             },
           },
-        },
-      });
-    }
+        })),
+      },
+    });
 
-    database.execute_transaction([
-      { name: "rebuildFateExtraTextUnitIndex", args: { projectPath: lg_path } },
-    ]);
+    rebuild_and_activate(database, lg_path, 0);
     expect(
       database.execute({
         name: "getFateExtraTextUnitIndexState",
@@ -110,20 +158,11 @@ describe("ProjectDatabase", () => {
       file_count: 1,
     });
 
-    const page = database.execute({
-      name: "getFateExtraItemsPage",
-      args: {
-        projectPath: lg_path,
-        search: "",
-        filePath: "",
-        category: "",
-        offset: 0,
-        limit: 10,
-        includeFiles: true,
-        includeTotal: true,
-        viewMode: "unique",
-      },
-    }) as Record<string, unknown>;
+    const page = query_fate_extra_preview(database, lg_path, {
+      limit: 10,
+      includeFiles: true,
+      viewMode: "unique",
+    });
     expect(page["total"]).toBe(2);
     expect(page["files"]).toEqual(["route.txt"]);
     expect(page["file_counts"]).toEqual({ "route.txt": 3 });
@@ -177,6 +216,268 @@ describe("ProjectDatabase", () => {
             ]?.["display_mode"],
         ),
     ).toEqual(["dialogue", "auto"]);
+  });
+
+  it("FE 预览搜索以短 gram 和 trigram FTS 支持字面包含查询", () => {
+    const { database, lg_path } = create_database_project("fate-extra-preview-search");
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 3 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [
+          { id: 1, src: "月", dst: "Moonlight", file_path: "route-a.txt" },
+          { id: 2, src: "月海原学园", dst: "校园", file_path: "route-b.txt" },
+          { id: 3, src: "100%_完成", dst: "literal wildcard", file_path: "route-c.txt" },
+          { id: 4, src: "月", dst: "Moonlight", file_path: "route-a.txt" },
+        ].map((item) => ({
+          ...item,
+          status: "NONE",
+          extra_field: {
+            __linguagacha_fe_v1: {
+              proofread_translation: "",
+              display_mode: "auto",
+              classification: { category: "ordinary_independent_slot" },
+            },
+          },
+        })),
+      },
+    });
+
+    rebuild_and_activate(database, lg_path, 0);
+
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({
+      search_ready: true,
+      search_generation: 1,
+      search_document_count: 13,
+    });
+
+    const search_ids = (search: string): number[] => {
+      const page = query_fate_extra_preview(database, lg_path, { search });
+      return (page["items"] as Array<Record<string, unknown>>).map((item) => Number(item["id"]));
+    };
+
+    expect(search_ids("月")).toEqual([1, 2, 4]);
+    expect(search_ids("月海")).toEqual([2]);
+    expect(search_ids("月海原")).toEqual([2]);
+    expect(search_ids("MOON")).toEqual([1, 4]);
+    expect(search_ids("%_")).toEqual([3]);
+    expect(search_ids("100%")).toEqual([3]);
+    expect(search_ids("不存在")).toEqual([]);
+
+    database.execute_transaction([
+      {
+        name: "patchItemFieldsByIds",
+        args: {
+          projectPath: lg_path,
+          itemIds: [1],
+          patch: { dst: "星光" },
+        },
+      },
+      { name: "bumpSectionRevisions", args: { projectPath: lg_path, sections: ["items"] } },
+      {
+        name: "refreshFateExtraPreviewSearchDocuments",
+        args: { projectPath: lg_path, itemIds: [1] },
+      },
+    ]);
+    expect(search_ids("星光")).toEqual([1]);
+    expect(search_ids("MOON")).toEqual([4]);
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({ ready: true, search_ready: true, search_generation: 1 });
+
+    database.execute({
+      name: "bumpSectionRevisions",
+      args: { projectPath: lg_path, sections: ["items"] },
+    });
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({ ready: false, search_ready: false, search_generation: 1 });
+
+    rebuild_and_activate(database, lg_path, 2);
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({ search_ready: true, search_generation: 2 });
+  });
+
+  it("FE 字库语料在数据库侧按最终校对、初翻、原文优先级去重", () => {
+    const { database, lg_path } = create_database_project("fate-extra-font-corpus");
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [
+          { id: 1, src: "原文甲", dst: "初翻甲", proofread: "终稿" },
+          { id: 2, src: "原文乙", dst: "初翻乙", proofread: "" },
+          { id: 3, src: "原文丙", dst: "", proofread: "" },
+          { id: 4, src: "重复原文", dst: "初翻乙", proofread: "" },
+        ].map(({ proofread, ...item }) => ({
+          ...item,
+          status: "NONE",
+          extra_field: {
+            __linguagacha_fe_v1: { proofread_translation: proofread },
+          },
+        })),
+      },
+    });
+
+    expect(
+      database.execute({
+        name: "getFateExtraFontCorpusTexts",
+        args: { projectPath: lg_path },
+      }),
+    ).toEqual(expect.arrayContaining(["终稿", "初翻乙", "原文丙"]));
+    expect(
+      database.execute({
+        name: "getFateExtraFontCorpusTexts",
+        args: { projectPath: lg_path },
+      }),
+    ).toHaveLength(3);
+  });
+
+  it("精简工程按路线物理顺序分页并保留共享译文组", () => {
+    const { database, lg_path } = create_database_project("fate-extra-compact-source");
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 6 },
+      },
+    });
+    const rows = [
+      { id: 1, src: "乙", dst: "乙译", file_path: "route-a.txt", row: 0 },
+      { id: 2, src: "甲", dst: "", file_path: "route-a.txt", row: 1 },
+      { id: 3, src: "乙", dst: "乙路线二", file_path: "route-a.txt", row: 2 },
+      { id: 4, src: "丙", dst: "丙译", file_path: "route-b.txt", row: 0 },
+      { id: 5, src: "补漏重复", dst: "补漏重复", file_path: "FE_补漏.txt", row: 0 },
+      { id: 6, src: "补漏重复", dst: "补漏重复", file_path: "FE_补漏.txt", row: 1 },
+      { id: 7, src: "乙", dst: "乙路线三", file_path: "route-b.txt", row: 1 },
+    ];
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: rows.map((row) => ({
+          ...row,
+          status: "NONE",
+          extra_field: {
+            __linguagacha_fe_v1: {
+              path: `field/${row.id.toString().padStart(4, "0")}.dat`,
+              char_offset: row.id * 10,
+              original_prefix: "",
+              source_line_numbers: [row.row + 1],
+              pass_through: [],
+              proofread_translation: "",
+              display_mode: "auto",
+              classification: {
+                category: "ordinary_independent_slot",
+                slot_capacity: 64,
+                allow_overlength: false,
+              },
+            },
+          },
+        })),
+      },
+    });
+    expect(
+      (
+        database.execute({
+          name: "getAllItems",
+          args: { projectPath: lg_path },
+        }) as Array<Record<string, unknown>>
+      ).find((item) => item["src"] === "甲")?.["dst"],
+    ).toBe("");
+
+    const compact_path = project_path("fate-extra-compact-target.lg");
+    database.execute({
+      name: "createFateExtraCompactProject",
+      args: {
+        projectPath: lg_path,
+        targetProjectPath: compact_path,
+        name: "compact-target",
+      },
+    });
+    rebuild_and_activate(database, compact_path, 0);
+
+    const compact_page = query_fate_extra_preview(database, compact_path, {
+      filePath: "route-a.txt",
+      limit: 10,
+      includeFiles: true,
+      viewMode: "unique",
+    });
+    expect(compact_page["total"]).toBe(3);
+    expect(compact_page["file_counts"]).toEqual({
+      "route-a.txt": 3,
+      "route-b.txt": 2,
+      "FE_补漏.txt": 1,
+    });
+    expect(
+      (compact_page["items"] as Array<Record<string, unknown>>).map((item) => [
+        item["src"],
+        item["dst"],
+        item["row"],
+        item["fe_physical_occurrence_id"],
+      ]),
+    ).toEqual([
+      ["乙", "乙译", 0, 1],
+      ["甲", "甲", 1, 2],
+      ["乙", "乙路线二", 2, 3],
+    ]);
+
+    const supplement_page = query_fate_extra_preview(database, compact_path, {
+      filePath: "FE_补漏.txt",
+      limit: 10,
+      viewMode: "unique",
+    });
+    expect(supplement_page["total"]).toBe(1);
+    expect(
+      (supplement_page["items"] as Array<Record<string, unknown>>).map((item) => [
+        item["src"],
+        item["row"],
+      ]),
+    ).toEqual([["补漏重复", 0]]);
+
+    const route_search = query_fate_extra_preview(database, compact_path, {
+      search: "route-b",
+      limit: 10,
+    });
+    expect(
+      (route_search["items"] as Array<Record<string, unknown>>).map(
+        (item) => item["fe_physical_occurrence_id"],
+      ),
+    ).toEqual([4, 7]);
+
+    const occurrence_translation_search = query_fate_extra_preview(database, compact_path, {
+      search: "乙路线三",
+      limit: 10,
+    });
+    expect(
+      (occurrence_translation_search["items"] as Array<Record<string, unknown>>).map(
+        (item) => item["fe_physical_occurrence_id"],
+      ),
+    ).toEqual([7]);
   });
 
   it("创建工程并读写 meta", () => {

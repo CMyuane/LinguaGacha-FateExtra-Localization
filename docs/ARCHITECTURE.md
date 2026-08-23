@@ -4,13 +4,13 @@
 
 ## 1. 专题地图
 
-| 问题 | 唯一归宿 |
-| --- | --- |
-| 系统分层、进程拓扑、跨层边界、运行时主链路 | 本文 |
-| CLI 入口、命令、临时工程、资源、输出、平台启动器 | [`CLI.md`](CLI.md) |
-| 后端 API / SSE、状态、任务、数据库、`.lg` 存储 | [`BACKEND.md`](BACKEND.md) |
+| 问题                                                                  | 唯一归宿                     |
+| --------------------------------------------------------------------- | ---------------------------- |
+| 系统分层、进程拓扑、跨层边界、运行时主链路                            | 本文                         |
+| CLI 入口、命令、临时工程、资源、输出、平台启动器                      | [`CLI.md`](CLI.md)           |
+| 后端 API / SSE、状态、任务、数据库、`.lg` 存储                        | [`BACKEND.md`](BACKEND.md)   |
 | Electron / preload / renderer、共享运行态、页面 query、导航、样式消费 | [`FRONTEND.md`](FRONTEND.md) |
-| 阅读路径、验证矩阵、文档同步和交付自检 | [`WORKFLOW.md`](WORKFLOW.md) |
+| 阅读路径、验证矩阵、文档同步和交付自检                                | [`WORKFLOW.md`](WORKFLOW.md) |
 
 ## 2. 运行时拓扑
 
@@ -19,6 +19,7 @@
 - GUI 与 CLI 都通过 `BackendBootstrap` 组装同一 `BackendServices`；GUI 开启本机 Gateway，CLI 关闭 Gateway 并直接消费服务与同进程事件流。
 - 发布态后端 worker 由产品入口配置为 `worker_threads`；`in_process` 只允许测试或源码运行显式选择，不作为失败回退。
 - `BackendServices` 是 Gateway、CLI job 与任务引擎共用的组合根，运行期服务只在这里装配。
+- FE 大数据链路使用四条互不复用执行队列的 worker 通道：扫描/应用、普通与精简导出、预览索引维护和预览只读查询。取消或重建任一通道的 worker 不得终止其他 FE 通道或通用校对任务。
 
 ```mermaid
 flowchart LR
@@ -49,7 +50,9 @@ flowchart LR
 ## 5. Fate/Extra 定制边界
 
 - `src/shared/fate-extra` 保存无状态的索引解析、元数据协议和 PSP 布局规则，可由后端、校对器和 renderer 共同使用。
-- `src/backend/toolbox/fate-extra-service.ts` 拥有扫描、迁移、事务应用和导出编排；外置分类 SQLite 始终以只读方式打开。
+- `src/backend/toolbox/fate-extra-service.ts` 只编排 FE job、项目身份和结果发布；外置分类 SQLite 始终以只读方式打开。扫描/应用 worker 流式解析输入并把序列化条目、资产、问题和指纹写入临时 staging SQLite，主进程只持有有期限的小型 draft handle；FE 导出 worker 对普通工程 items 或精简工程物理映射使用主键游标分页，生成完整暂存结果和去重字库 corpus，主进程不接收百万行 payload。
 - `src/backend/toolbox/fate-extra-font-service.ts` 负责语料收集与 helper 进程边界。字库生成器只读内置基线并写入用户选定的导出目录，不修改 `.lg` 条目。
 - FE 项目状态继续存放在现有 `meta` 和 `extra_field` 中，不增加 `text_type`。普通项目不会进入 FE 提示、校对、预览或导出路径。
-- 大型扫描与字库生成必须保持可移出主事件循环的服务边界；数据库替换及 revision 更新仍由单一项目事务提交。
+- 索引维护 worker 分批构建非活动 generation；预览只读查询 worker 只读已发布 generation，并以终止并重建专用 worker 的方式中断同步 SQLite 查询。两者都不持有 renderer、session cache 或业务写状态。
+- FE worker 只能访问任务载荷显式授予的工程或 staging 路径。主进程仍拥有 project epoch/revision 校验、`ProjectOperationGate`、`ProjectWriteStore` 和 committed event；应用 worker 仅在已取得独占写租约后执行单事务导入，pending manifest 与事务内 durable receipt 为硬崩溃恢复提供提交判据；索引 worker 只能构建并完成非活动 generation，active meta 由主进程复核身份后经 `ProjectDatabase` 短事务切换，任何 worker 都不得自行激活索引或发布项目事件。
+- 扫描/应用、FE 导出、索引、查询、通用 backend task 和字库 helper 的生命周期相互隔离；取消、崩溃或身份变化只能清理本通道的未发布状态，不能损坏旧完整工程、旧完整导出结果或旧完整索引。

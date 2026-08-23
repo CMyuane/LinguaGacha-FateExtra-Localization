@@ -30,6 +30,7 @@
 - query 顶层 `sectionRevisions` 是页面写入和任务命令的乐观锁来源；功能域局部 revision 只服务 cache 身份，不能替代操作 revision。
 - 页面写入只提交用户意图、设置镜像、显式 operation 与 query 返回的 revision，不提交前端计算出的 canonical facts。
 - `SCREEN_REGISTRY` 是页面注册与标题 key 的唯一入口。
+- `NAVIGATION_GROUPS` 是侧栏区域、分隔线和区域内排序的唯一入口，组件与 CSS 不维护第二套顺序。五个区域依次为：模型管理；工作台、校对、PSP 画面预览；基础设置、专家设置；术语表、文本保护、文本替换、自定义提示词；实验室、百宝箱。既有子菜单继续由各 navigation item 自身声明。
 - `ProjectSessionUiStateProvider` 只保存当前项目内可跨路由恢复的轻量 UI 状态，项目切换或关闭时清空，不写入后端事实。
 - `WorkbenchTasksSessionProvider` 保存翻译 / 分析完成后的跨路由 follow-up；页面计算缓存、弹窗、导入和提交中状态默认随页面挂载与卸载。
 - `src/frontend/widgets/interactions` 只承接通用交互与快捷键，不依赖 app state、页面领域、桌面桥、后端 API 或 SSE。
@@ -47,11 +48,13 @@
 
 ## 6. Fate/Extra 页面
 
-- “Fate/Extra 汉化适配”位于百宝箱，只在已打开项目时可用。页面先展示扫描报告，再允许通过共享 `commit_project_write` 提交转换。
+- “Fate/Extra 汉化适配”位于百宝箱，只在已打开项目时可用。扫描、应用和预览索引重建先取得 job snapshot，再每 500ms 读取 `/jobs/status`；页面显示阶段、进度、取消、失败原因和重试入口，成功应用后的项目变化只消费后端 canonical change。项目切换或页面卸载必须停止轮询并取消仍属于该页面的请求。
 - `fate-extra-preview` 是项目依赖路由，侧边栏显示“PSP 画面预览”。页面经 `/api/toolbox/fate-extra/items` 分页读取当前项目条目，不在 renderer 复制完整项目事实。
+- `api_fetch(path, body, { signal })` 是页面取消请求的统一入口。预览搜索实行 latest-wins：新输入、筛选变化、项目切换和组件卸载都 abort 旧请求；renderer 只接收当前 `query_id` 且与当前 items revision / index generation 相符的响应。预期取消不显示 toast、不进入 renderer 诊断，也不作为服务端 500。
 - 预览 Canvas 固定为 480×272；共享布局器提供 432 px、3 行、Ruby、颜色、变量、图标、字号、偏移和条件分支计算。renderer 只负责绘制与局部筛选。
 - Ruby 读音归属于当前正文行；Canvas 根据当前行是否含 Ruby 动态增加正文基线间距，禁止读音侵入上一行。Ruby 不参与正文可见字符换行计数。
-- PSP 预览默认使用严格去重的唯一文本视图，并显示物理出现次数；用户可切换到全部物理位置。旧工程的派生索引未就绪时，页面先显示物理位置首屏并提示后台建索引，完成后自动切回唯一文本视图，不允许首个列表请求同步阻塞 renderer。页面单次最多读取 120 条，重复组保存默认同步所有完全相同原文，也可改为仅保存当前位置以保留语境差异。
+- PSP 预览默认使用严格去重的唯一文本视图，并显示物理出现次数；用户可切换到全部物理位置。索引落后时页面读取旧完整 generation，或显示明确的 `updating` 状态与物理位置回退视图；不得触发 renderer 或 Electron 主进程同步扫描 `items` JSON。索引完成后按新 generation 重新请求当前 query。页面单次最多读取 120 条，重复组保存默认同步所有完全相同原文，也可改为仅保存当前位置以保留语境差异。
+- 精简工程选择分支文件后，页面按 `fate_extra_compact_occurrence.row_number + original_item_id` 读取该分支全部物理位置，不使用去重代表项的文件名或 `unit_id` 代替路线顺序；当前位置仍绑定共享 `compact_item_id`，相同原文继续共用译文。
 - `FE_PSP_OVERFLOW` 是后端/共享规则产生的校对状态，界面显示“溢出”。缺字和不可编码字符不属于校对状态；未同步字符以同尺寸 Noto Sans CJK 临时字形显示。
 - FE 适配页提供“生成精简工程”。用户通过系统保存对话框选择新的 `.lg`，路径不写死；当前工程已经精简时按钮禁用。
 - 精简工程的工作台和 PSP 唯一文本视图只加载有效去重条目，物理位置由后端映射分页提供，界面不复制完整映射。

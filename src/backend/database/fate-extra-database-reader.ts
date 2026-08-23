@@ -53,7 +53,9 @@ function number_array_from_json(value: unknown): number[] {
   }
 }
 
-function normalize_classification_row(row: Record<string, unknown>): FateExtraClassificationRow {
+export function normalize_fate_extra_classification_row(
+  row: Record<string, unknown>,
+): FateExtraClassificationRow {
   return {
     path: String(row["path"] ?? ""),
     char_offset: Number(row["char_offset"] ?? 0),
@@ -114,7 +116,7 @@ export function read_fate_extra_classifications(
              WHERE path = ? AND char_offset IN (${values})`,
           )
           .all(indexed_path, ...offsets);
-        output.push(...rows.map(normalize_classification_row));
+        output.push(...rows.map(normalize_fate_extra_classification_row));
       }
     }
     return output;
@@ -123,18 +125,74 @@ export function read_fate_extra_classifications(
   }
 }
 
-export function read_fate_extra_legacy_item_rows(
+/**
+ * 分类库全量读取只用于 FE 扫描 staging，使用 rowid 游标而非 OFFSET，并且每批释放数组。
+ */
+export function* iterate_fate_extra_classifications(
   database_path: string,
-): Array<{ id: number; data: string }> {
+  batch_size = 1_000,
+): Generator<FateExtraClassificationRow> {
+  const database = new DatabaseSync(database_path, { readOnly: true });
+  let after_rowid = 0;
+  try {
+    const available_columns = new Set(
+      database
+        .prepare("PRAGMA table_info(entries)")
+        .all()
+        .map((row) => String(row["name"] ?? "")),
+    );
+    const optional_columns = ["display_opcode", "portrait_id", "display_evidence"]
+      .map((column) => (available_columns.has(column) ? column : `NULL AS ${column}`))
+      .join(",\n  ");
+    const select = database.prepare(
+      `SELECT rowid AS _scan_rowid, ${REQUIRED_CLASSIFICATION_COLUMNS}, ${optional_columns}
+       FROM entries
+       WHERE rowid > ?
+       ORDER BY rowid
+       LIMIT ?`,
+    );
+    while (true) {
+      const rows = select.all(after_rowid, batch_size);
+      if (rows.length === 0) return;
+      for (const row of rows) {
+        after_rowid = Number(row["_scan_rowid"] ?? after_rowid);
+        yield normalize_fate_extra_classification_row(row);
+      }
+    }
+  } finally {
+    database.close();
+  }
+}
+
+/**
+ * 旧项目迁移按稳定主键游标读取；生成器提前结束时 finally 仍会关闭只读连接。
+ */
+export function* iterate_fate_extra_legacy_item_rows(
+  database_path: string,
+  batch_size = 1_000,
+): Generator<{ id: number; data: string }> {
+  const database = new DatabaseSync(database_path, { readOnly: true });
+  let after_id = -1;
+  try {
+    const select = database.prepare("SELECT id, data FROM items WHERE id > ? ORDER BY id LIMIT ?");
+    while (true) {
+      const rows = select.all(after_id, batch_size);
+      if (rows.length === 0) return;
+      for (const row of rows) {
+        const id = Number(row["id"] ?? 0);
+        yield { id, data: String(row["data"] ?? "{}") };
+        after_id = id;
+      }
+    }
+  } finally {
+    database.close();
+  }
+}
+
+export function count_fate_extra_legacy_item_rows(database_path: string): number {
   const database = new DatabaseSync(database_path, { readOnly: true });
   try {
-    return database
-      .prepare("SELECT id, data FROM items ORDER BY id")
-      .all()
-      .map((row) => ({
-        id: Number(row["id"] ?? 0),
-        data: String(row["data"] ?? "{}"),
-      }));
+    return Number(database.prepare("SELECT COUNT(*) AS count FROM items").get()?.["count"] ?? 0);
   } finally {
     database.close();
   }

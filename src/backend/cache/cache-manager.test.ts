@@ -107,6 +107,52 @@ function create_cache(options: {
 }
 
 describe("CacheManager", () => {
+  it("按普通、精简 FE 与完整 FE 三态选择 item 热机策略", async () => {
+    const standard_database = create_database({ items: [create_item()] });
+    const standard_cache = create_cache({ database: standard_database });
+    await standard_cache.warmProject("E:/Project/standard.lg");
+    expect(standard_cache.snapshot()).toMatchObject({ itemMode: "standard", itemCount: 1 });
+    expect(standard_database.execute).toHaveBeenCalledWith({
+      name: "getAllItems",
+      args: { projectPath: "E:/Project/standard.lg" },
+    });
+
+    const compact_database = create_database({
+      meta: {
+        "fate_extra.adapter.v1": { enabled: true, logical_text_count: 2 },
+        "fate_extra.compact.v1": { enabled: true, compact_item_count: 2 },
+      },
+      items: [create_item({ id: 1 }), create_item({ id: 2 })],
+    });
+    const compact_cache = create_cache({ database: compact_database });
+    await compact_cache.warmProject("E:/Project/compact.lg");
+    expect(compact_cache.snapshot()).toMatchObject({
+      itemMode: "fate-extra-compact",
+      itemCount: 2,
+    });
+    expect(compact_cache.items.readItems()).toHaveLength(2);
+    expect(
+      compact_database.execute.mock.calls.filter(([operation]) => operation.name === "getAllItems"),
+    ).toHaveLength(1);
+
+    const full_database = create_database({
+      meta: {
+        "fate_extra.adapter.v1": { enabled: true, logical_text_count: 941_489 },
+      },
+      throw_on_get_all_items: true,
+    });
+    const full_cache = create_cache({ database: full_database });
+    await full_cache.warmProject("E:/Project/full-fe.lg");
+    expect(full_cache.snapshot()).toMatchObject({
+      itemMode: "fate-extra-unmaterialized",
+      itemCount: 941_489,
+    });
+    expect(full_cache.items.readItems()).toEqual([]);
+    expect(
+      full_database.execute.mock.calls.filter(([operation]) => operation.name === "getAllItems"),
+    ).toHaveLength(0);
+  });
+
   it("热机后缓存当前工程 items、质量块、提示词块和 section revision", async () => {
     const cache = create_cache({
       database: create_database({
