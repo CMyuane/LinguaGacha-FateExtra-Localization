@@ -22,13 +22,15 @@ export type FateExtraPreviewSearchWorkerTaskInput = {
   warning?: string;
   encodedWidths?: Array<[string, number]>;
   projectEpoch?: number;
-  offset: number;
+  position: number;
   limit: number;
   includeFiles: boolean;
   includeTotal: boolean;
   viewMode: "unique" | "occurrence";
   expectedGeneration: number;
   expectedItemsRevision: number;
+  expectedNavigationGeneration: number;
+  expectedNavigationRevision: number;
 };
 
 /**
@@ -52,6 +54,7 @@ export function run_fate_extra_preview_index_worker_task(
     built_item_count: record.item_count,
     built_document_count: record.document_count,
     built_short_gram_count: record.short_gram_count,
+    built_navigation_generation: record.generation,
   };
 }
 

@@ -1,6 +1,14 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 import { JsonTool } from "../../shared/utils/json-tool";
+import {
+  activate_fate_extra_preview_navigation_generation,
+  advance_fate_extra_preview_navigation_revision,
+  build_fate_extra_preview_navigation_generation,
+  cleanup_fate_extra_preview_navigation_generation,
+  cleanup_inactive_fate_extra_preview_navigation_generations,
+  read_fate_extra_preview_navigation_state,
+} from "./fate-extra-preview-navigation-index";
 
 export const FATE_EXTRA_PREVIEW_SEARCH_ADAPTER_META_KEY = "fate_extra.preview-search.adapter";
 export const FATE_EXTRA_PREVIEW_SEARCH_ITEMS_REVISION_META_KEY =
@@ -45,6 +53,12 @@ export type FateExtraIndexState = {
   search_document_count: number;
   search_short_gram_count: number;
   search_items_revision: number;
+  navigation_ready: boolean;
+  navigation_generation: number;
+  navigation_items_revision: number;
+  navigation_unique_count: number;
+  navigation_occurrence_count: number;
+  navigation_file_count: number;
   items_revision: number;
 };
 
@@ -60,6 +74,7 @@ export type FateExtraInactiveIndexBuild = {
 type FateExtraIndexSourceIdentity = {
   adapter_value: string;
   compact_value: string | null;
+  compact_enabled: boolean;
   item_count: number;
   items_revision: number;
 };
@@ -109,6 +124,7 @@ export function read_fate_extra_preview_search_index_state(
 /** 读取文本单元和搜索 generation 的统一身份，供主进程和维护 worker 复用。 */
 export function read_fate_extra_index_state(db: DatabaseSync): FateExtraIndexState {
   const search = read_fate_extra_preview_search_index_state(db);
+  const navigation = read_fate_extra_preview_navigation_state(db);
   const occurrence_count = read_json_number_meta(db, FATE_EXTRA_TEXT_UNIT_ITEM_COUNT_META_KEY);
   const unit_count = read_json_number_meta(db, FATE_EXTRA_TEXT_UNIT_UNIT_COUNT_META_KEY);
   const file_count = read_json_number_meta(db, FATE_EXTRA_TEXT_UNIT_FILE_COUNT_META_KEY);
@@ -130,7 +146,8 @@ export function read_fate_extra_index_state(db: DatabaseSync): FateExtraIndexSta
       file_count > 0 &&
       adapter_value !== null &&
       adapter_value === indexed_adapter_value &&
-      text_unit_items_revision === search.items_revision,
+      text_unit_items_revision === search.items_revision &&
+      navigation.ready,
     item_count: search.item_count,
     occurrence_count,
     unit_count,
@@ -141,6 +158,12 @@ export function read_fate_extra_index_state(db: DatabaseSync): FateExtraIndexSta
     search_document_count: search.document_count,
     search_short_gram_count: search.short_gram_count,
     search_items_revision: search.indexed_items_revision,
+    navigation_ready: navigation.ready,
+    navigation_generation: navigation.generation,
+    navigation_items_revision: navigation.indexed_items_revision,
+    navigation_unique_count: navigation.unique_count,
+    navigation_occurrence_count: navigation.occurrence_count,
+    navigation_file_count: navigation.file_count,
     items_revision: search.items_revision,
   };
 }
@@ -214,6 +237,7 @@ export function run_fate_extra_index_maintenance(
     const identity = read_index_source_identity(db, expected_items_revision);
     const reserved_generation = next_search_generation(db);
     cleanup_inactive_search_generations(db);
+    cleanup_inactive_fate_extra_preview_navigation_generations(db);
 
     // 文本单元仍是现有公开接口的派生事实。它保留一次有界的集合 SQL 事务，
     // 但不再把后续逐页搜索 generation 构建包含在同一个写租约内。
@@ -224,6 +248,17 @@ export function run_fate_extra_index_maintenance(
     });
 
     generation = create_inactive_search_generation(db, identity, reserved_generation);
+    run_immediate_transaction(db, () => {
+      assert_index_source_identity(db, identity);
+      build_fate_extra_preview_navigation_generation(db, {
+        generation: generation!,
+        adapter_value: identity.adapter_value,
+        items_revision: identity.items_revision,
+        item_count: identity.item_count,
+        compact: identity.compact_enabled,
+      });
+      assert_index_source_identity(db, identity);
+    });
     build_inactive_search_generation(db, generation, identity, report_progress);
     const counts = complete_inactive_search_generation(db, generation, identity);
     return {
@@ -237,6 +272,7 @@ export function run_fate_extra_index_maintenance(
     if (generation !== null) {
       try {
         cleanup_search_generation(db, generation);
+        cleanup_fate_extra_preview_navigation_generation(db, generation);
       } catch (cleanup_error) {
         throw new AggregateError(
           [error, cleanup_error],
@@ -257,7 +293,9 @@ export function cleanup_fate_extra_inactive_preview_search_generations(
   const db = new DatabaseSync(project_path);
   try {
     db.exec("PRAGMA busy_timeout=5000");
-    return cleanup_inactive_search_generations(db);
+    const search_generations = cleanup_inactive_search_generations(db);
+    const navigation_generations = cleanup_inactive_fate_extra_preview_navigation_generations(db);
+    return Math.max(search_generations, navigation_generations);
   } finally {
     db.close();
   }
@@ -276,6 +314,7 @@ function read_index_source_identity(
   return {
     adapter_value,
     compact_value: read_meta_text(db, "fate_extra.compact.v1"),
+    compact_enabled: read_compact_enabled(db),
     item_count: scalar_count(db, "SELECT COUNT(*) AS count FROM items"),
     items_revision,
   };
@@ -343,7 +382,7 @@ function build_inactive_search_generation(
   identity: FateExtraIndexSourceIdentity,
   report_progress: (completed: number, total: number) => void,
 ): void {
-  const compact_project = identity.compact_value !== null;
+  const compact_project = identity.compact_enabled;
   const item_batch_size = compact_project
     ? SEARCH_COMPACT_BUILD_BATCH_SIZE
     : SEARCH_BUILD_BATCH_SIZE;
@@ -494,6 +533,12 @@ export function activate_fate_extra_preview_search_generation(
     ) {
       throw new Error("fate_extra_preview_index_activation_identity_changed");
     }
+    activate_fate_extra_preview_navigation_generation(
+      db,
+      Math.trunc(generation),
+      Math.trunc(expected_items_revision),
+      expected_adapter_value,
+    );
     write_identity_meta(
       db,
       Math.trunc(generation),
@@ -507,7 +552,9 @@ export function activate_fate_extra_preview_search_generation(
     if (
       !state.ready ||
       !state.search_ready ||
+      !state.navigation_ready ||
       state.search_generation !== Math.trunc(generation) ||
+      state.navigation_generation !== Math.trunc(generation) ||
       state.search_items_revision !== Math.trunc(expected_items_revision)
     ) {
       throw new Error("fate_extra_preview_index_activation_incomplete");
@@ -600,10 +647,9 @@ export function refresh_fate_extra_preview_search_documents(
   `);
   const document_statements = prepare_document_statements(db);
   const affected_document_ids = new Set<number>();
-  const read_compact_occurrences =
-    db.prepare("SELECT 1 FROM meta WHERE key = 'fate_extra.compact.v1'").get() === undefined
-      ? null
-      : db.prepare(`
+  const read_compact_occurrences = !read_compact_enabled(db)
+    ? null
+    : db.prepare(`
           SELECT
             occurrence.original_item_id,
             occurrence.original_machine_translation,
@@ -711,6 +757,16 @@ export function refresh_fate_extra_preview_search_documents(
     "fate_extra_preview_search_short_gram",
     generation,
   );
+  if (
+    !advance_fate_extra_preview_navigation_revision(
+      db,
+      generation,
+      indexed_items_revision,
+      items_revision,
+    )
+  ) {
+    return false;
+  }
   db.prepare(`
     UPDATE fate_extra_preview_search_generation
     SET items_revision = ?, document_count = ?, short_gram_count = ?
@@ -1235,6 +1291,22 @@ function scalar_count(db: DatabaseSync, sql: string): number {
 function read_meta_text(db: DatabaseSync, key: string): string | null {
   const value = db.prepare("SELECT value FROM meta WHERE key = ?").get(key)?.["value"];
   return typeof value === "string" ? value : null;
+}
+
+function read_compact_enabled(db: DatabaseSync): boolean {
+  const value = read_meta_text(db, "fate_extra.compact.v1");
+  if (value === null) return false;
+  try {
+    const parsed = JsonTool.parseStrict<unknown>(value);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      (parsed as DatabaseRow)["enabled"] === true
+    );
+  } catch {
+    return false;
+  }
 }
 
 function read_json_number_meta(db: DatabaseSync, key: string): number {

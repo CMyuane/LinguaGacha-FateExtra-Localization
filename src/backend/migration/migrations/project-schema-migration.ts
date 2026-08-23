@@ -5,7 +5,7 @@ import type { MigrationDescriptor, ProjectDatabaseMigrationContext } from "../mi
 
 type SchemaRow = Record<string, unknown>;
 
-export const PROJECT_DATABASE_SCHEMA_VERSION = 7; // 只表达当前表结构能力，不承载业务写回完成状态
+export const PROJECT_DATABASE_SCHEMA_VERSION = 8; // 只表达当前表结构能力，不承载业务写回完成状态
 
 /**
  * 迁移背景：
@@ -145,6 +145,55 @@ export class ProjectSchemaMigration {
         document_id INTEGER NOT NULL,
         PRIMARY KEY (generation, gram, document_id)
       ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_navigation_generation (
+        generation INTEGER PRIMARY KEY,
+        adapter_value TEXT NOT NULL,
+        items_revision INTEGER NOT NULL,
+        item_count INTEGER NOT NULL,
+        unique_count INTEGER NOT NULL,
+        occurrence_count INTEGER NOT NULL,
+        file_count INTEGER NOT NULL,
+        complete INTEGER NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_navigation_unit (
+        generation INTEGER NOT NULL,
+        position INTEGER NOT NULL,
+        unit_id INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        occurrence_count INTEGER NOT NULL,
+        PRIMARY KEY (generation, position),
+        UNIQUE (generation, unit_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_navigation_occurrence (
+        generation INTEGER NOT NULL,
+        occurrence_id INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        unit_id INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        global_position INTEGER NOT NULL,
+        file_position INTEGER NOT NULL,
+        PRIMARY KEY (generation, occurrence_id),
+        UNIQUE (generation, global_position),
+        UNIQUE (generation, file_path, file_position)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_navigation_unit_file (
+        generation INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        unit_id INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        occurrence_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, file_path, position),
+        UNIQUE (generation, file_path, unit_id)
+      ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_navigation_file_summary (
+        generation INTEGER NOT NULL,
+        file_path TEXT NOT NULL,
+        occurrence_count INTEGER NOT NULL,
+        unique_count INTEGER NOT NULL,
+        first_occurrence_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, file_path)
+      ) WITHOUT ROWID;
       CREATE VIRTUAL TABLE IF NOT EXISTS fate_extra_preview_search_fts USING fts5(
         search_text,
         content='fate_extra_preview_search_document',
@@ -202,6 +251,12 @@ export class ProjectSchemaMigration {
         ON fate_extra_preview_search_mapping(generation, field, document_id, item_id);
       CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_item_category
         ON fate_extra_preview_search_item(generation, category, item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_navigation_occurrence_item
+        ON fate_extra_preview_navigation_occurrence(generation, item_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_navigation_occurrence_unit
+        ON fate_extra_preview_navigation_occurrence(generation, unit_id);
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_navigation_unit_file_unit
+        ON fate_extra_preview_navigation_unit_file(generation, unit_id, file_path);
       CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_occurrence_source_hash
         ON fate_extra_compact_occurrence(source_hash);
       CREATE INDEX IF NOT EXISTS idx_fate_extra_compact_source_item

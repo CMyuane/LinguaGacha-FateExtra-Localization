@@ -115,7 +115,13 @@ export class FateExtraService {
   private readonly project_event_unsubscribers: Array<() => void> = [];
   private readonly display_file_summary_cache = new Map<
     string,
-    { files: string[]; file_counts: MutableRecord; total: number }
+    {
+      files: string[];
+      file_counts: MutableRecord;
+      total: number;
+      view_mode: "unique" | "occurrence";
+      navigation_generation: number;
+    }
   >();
   private readonly duplicate_index_ready = new Set<string>();
 
@@ -496,10 +502,7 @@ export class FateExtraService {
         args: { projectPath: project_path },
       }),
     );
-    const view_mode =
-      requested_view_mode === "unique" && index_state["ready"] !== true
-        ? "occurrence"
-        : requested_view_mode;
+    const view_mode = requested_view_mode;
     const search = normalize_fate_extra_preview_search_text(
       this.optional_raw_string(body, "search", ""),
     );
@@ -509,18 +512,20 @@ export class FateExtraService {
     const warning_filter = is_fate_extra_preview_warning_code(requested_warning)
       ? requested_warning
       : "";
-    const offset = Math.max(0, Math.trunc(Number(body["offset"] ?? 0)));
+    const position = Math.max(0, Math.trunc(Number(body["position"] ?? 0)));
     const limit = Math.max(1, Math.min(500, Math.trunc(Number(body["limit"] ?? 120))));
     const query_id = Math.trunc(Number(body["query_id"] ?? 0));
+    const requires_search_index =
+      search !== "" || category_filter !== "" || (warning_filter !== "" && file_filter !== "");
     if (
-      (view_mode === "unique" || search !== "" || file_filter !== "" || category_filter !== "") &&
-      index_state["search_ready"] !== true
+      index_state["navigation_ready"] !== true ||
+      (requires_search_index && index_state["search_ready"] !== true)
     ) {
       this.rebuild_duplicate_index({ project_path });
       const cached = this.display_file_summary_cache.get(project_path);
       return {
         total: 0,
-        offset,
+        position,
         items: [],
         files: cached?.files ?? [],
         file_counts: cached?.file_counts ?? {},
@@ -532,11 +537,20 @@ export class FateExtraService {
         query_id,
         index_generation: Number(index_state["search_generation"] ?? 0),
         applied_items_revision: Number(index_state["items_revision"] ?? 0),
+        navigation_generation: Number(index_state["navigation_generation"] ?? 0),
+        applied_navigation_revision: Number(index_state["navigation_items_revision"] ?? 0),
+        navigation_state: "updating",
         search_state: "updating",
       } as unknown as JsonRecord;
     }
 
-    const cached_file_summary = this.display_file_summary_cache.get(project_path);
+    const cached_file_summary_candidate = this.display_file_summary_cache.get(project_path);
+    const cached_file_summary =
+      cached_file_summary_candidate?.view_mode === view_mode &&
+      cached_file_summary_candidate.navigation_generation ===
+        Number(index_state["navigation_generation"] ?? 0)
+        ? cached_file_summary_candidate
+        : undefined;
     const should_read_file_summary =
       index_state["ready"] === true &&
       cached_file_summary === undefined &&
@@ -544,13 +558,15 @@ export class FateExtraService {
       file_filter === "" &&
       category_filter === "" &&
       warning_filter === "";
-    const has_index_filters = search !== "" || file_filter !== "" || category_filter !== "";
+    const has_index_filters = requires_search_index;
     const has_any_filters = has_index_filters || warning_filter !== "";
-    const requires_index = view_mode === "unique" || has_index_filters;
+    const requires_index = has_index_filters;
     const expected_generation = Number(index_state["search_generation"] ?? 0);
     const expected_items_revision = Number(
       index_state[requires_index ? "search_items_revision" : "items_revision"] ?? -1,
     );
+    const expected_navigation_generation = Number(index_state["navigation_generation"] ?? 0);
+    const expected_navigation_revision = Number(index_state["navigation_items_revision"] ?? -1);
     const page = await this.workers!.preview.run(
       {
         type: "fate_extra_preview_search",
@@ -565,7 +581,7 @@ export class FateExtraService {
               ? this.font_service.read_encoded_width_snapshot()
               : [],
           projectEpoch: query_project_epoch,
-          offset,
+          position,
           limit,
           includeFiles: should_read_file_summary,
           includeTotal:
@@ -573,6 +589,8 @@ export class FateExtraService {
           viewMode: view_mode,
           expectedGeneration: expected_generation,
           expectedItemsRevision: expected_items_revision,
+          expectedNavigationGeneration: expected_navigation_generation,
+          expectedNavigationRevision: expected_navigation_revision,
         },
       },
       signal,
@@ -588,7 +606,9 @@ export class FateExtraService {
     const page_record = read_record(page);
     if (
       Number(page_record["index_generation"] ?? -1) !== expected_generation ||
-      Number(page_record["applied_items_revision"] ?? -1) !== expected_items_revision
+      Number(page_record["applied_items_revision"] ?? -1) !== expected_items_revision ||
+      Number(page_record["navigation_generation"] ?? -1) !== expected_navigation_generation ||
+      Number(page_record["applied_navigation_revision"] ?? -1) !== expected_navigation_revision
     ) {
       this.throw_validation_error("FE 预览索引已更新，已丢弃旧查询。");
     }
@@ -603,6 +623,11 @@ export class FateExtraService {
     );
     if (
       verified_revision !== expected_items_revision ||
+      verified_index_state["navigation_ready"] !== true ||
+      Number(verified_index_state["navigation_generation"] ?? -1) !==
+        expected_navigation_generation ||
+      Number(verified_index_state["navigation_items_revision"] ?? -1) !==
+        expected_navigation_revision ||
       (requires_index &&
         (verified_index_state["search_ready"] !== true ||
           Number(verified_index_state["search_generation"] ?? -1) !== expected_generation))
@@ -619,11 +644,22 @@ export class FateExtraService {
           : [],
         file_counts: read_record(page_record["file_counts"]),
         total: Number(page_record["total"] ?? 0),
+        view_mode,
+        navigation_generation: expected_navigation_generation,
       });
     }
+    const stored_file_summary = this.display_file_summary_cache.get(project_path);
     const file_summary =
-      this.display_file_summary_cache.get(project_path) ??
-      ({ files: [], file_counts: {}, total: 0 } as const);
+      stored_file_summary?.view_mode === view_mode &&
+      stored_file_summary.navigation_generation === expected_navigation_generation
+        ? stored_file_summary
+        : ({
+            files: [],
+            file_counts: {},
+            total: 0,
+            view_mode,
+            navigation_generation: expected_navigation_generation,
+          } as const);
     return this.assemble_preview_items_page(body, page_record, verified_index_state, file_summary);
   }
 
@@ -639,14 +675,11 @@ export class FateExtraService {
   ): JsonRecord {
     const requested_view_mode =
       String(body["view_mode"] ?? "unique") === "occurrence" ? "occurrence" : "unique";
-    const view_mode =
-      requested_view_mode === "unique" && index_state["ready"] !== true
-        ? "occurrence"
-        : requested_view_mode;
+    const view_mode = requested_view_mode;
     const search = normalize_fate_extra_preview_search_text(
       this.optional_raw_string(body, "search", ""),
     );
-    const offset = Math.max(0, Math.trunc(Number(body["offset"] ?? 0)));
+    const position = Math.max(0, Math.trunc(Number(body["position"] ?? 0)));
     const source_items = Array.isArray(page["items"])
       ? page["items"].filter(
           (item): item is MutableRecord =>
@@ -717,7 +750,7 @@ export class FateExtraService {
     });
     return {
       total: Number(page["total"] ?? -1) >= 0 ? Number(page["total"] ?? 0) : file_summary.total,
-      offset,
+      position,
       items: rows,
       files: file_summary.files,
       file_counts: file_summary.file_counts,
@@ -729,6 +762,9 @@ export class FateExtraService {
       index_state,
       query_id: Math.trunc(Number(body["query_id"] ?? 0)),
       index_generation: Number(index_state["search_generation"] ?? 0),
+      navigation_generation: Number(index_state["navigation_generation"] ?? 0),
+      applied_navigation_revision: Number(index_state["navigation_items_revision"] ?? 0),
+      navigation_state: index_state["navigation_ready"] === true ? "ready" : "updating",
       applied_items_revision: Number(
         index_state["search_ready"] === true
           ? (index_state["search_items_revision"] ?? 0)
@@ -764,6 +800,7 @@ export class FateExtraService {
       reuseSucceeded:
         index_state["ready"] === true &&
         index_state["search_ready"] === true &&
+        index_state["navigation_ready"] === true &&
         Number(index_state["search_items_revision"] ?? -1) === items_revision,
       run: async (signal, report_progress) => {
         try {
