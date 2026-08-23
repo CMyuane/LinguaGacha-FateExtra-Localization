@@ -73,7 +73,11 @@ export const zh_cn_app = {
   ) as Record<keyof typeof LANGUAGE_DISPLAY_NAMES, string>,
   navigation_action: {
     theme: "变换自如",
-    switch_theme: "切换主题",
+    theme_option: {
+      system: "跟随系统",
+      light: "浅色",
+      dark: "深色",
+    },
     toggle_lg_base_font: "切换字体",
     language: "字字珠玑",
     language_option: {

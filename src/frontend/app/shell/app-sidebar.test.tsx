@@ -57,6 +57,7 @@ describe("AppSidebar", () => {
                 }
                 badged_bottom_action_ids={new Set()}
                 app_language={options.app_language ?? "ZH"}
+                theme_preference="system"
                 profile_label_key="app.profile.status"
                 profile_tooltip_key="app.profile.status_tooltip"
                 is_profile_update_available={false}
@@ -64,6 +65,7 @@ describe("AppSidebar", () => {
                 on_toggle_group={options.on_toggle_group ?? vi.fn()}
                 on_bottom_action={vi.fn()}
                 on_appearance_menu_action={vi.fn()}
+                on_select_theme_preference={vi.fn()}
                 on_select_app_language={options.on_select_app_language ?? vi.fn()}
                 on_profile_action={vi.fn()}
               />

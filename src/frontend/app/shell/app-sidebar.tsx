@@ -1,5 +1,6 @@
-import { ChevronDown, SunMoon, Type } from "lucide-react";
+import { ChevronDown, Type } from "lucide-react";
 
+import { THEME_PREFERENCES, type ThemePreference } from "@frontend/app/navigation/types";
 import type {
   AppearanceMenuActionId,
   BottomAction,
@@ -44,6 +45,12 @@ const APP_LANGUAGE_LABEL_KEYS: Readonly<Record<AppLanguage, LocaleKey>> = Object
   DE: "app.navigation_action.language_option.DE",
 });
 
+const THEME_PREFERENCE_LABEL_KEYS: Readonly<Record<ThemePreference, LocaleKey>> = Object.freeze({
+  system: "app.navigation_action.theme_option.system",
+  light: "app.navigation_action.theme_option.light",
+  dark: "app.navigation_action.theme_option.dark",
+});
+
 type AppSidebarProps = {
   groups: NavigationGroup[];
   bottom_actions: BottomAction[];
@@ -53,6 +60,7 @@ type AppSidebarProps = {
   disabled_bottom_action_ids: ReadonlySet<BottomActionId>;
   badged_bottom_action_ids: ReadonlySet<BottomActionId>;
   app_language: AppLanguage;
+  theme_preference: ThemePreference;
   profile_label_key: LocaleKey;
   profile_tooltip_key: LocaleKey;
   is_profile_update_available: boolean;
@@ -60,6 +68,7 @@ type AppSidebarProps = {
   on_toggle_group: (route_id: RouteId) => void;
   on_bottom_action: (action_id: BottomActionId) => void;
   on_appearance_menu_action: (action_id: AppearanceMenuActionId) => void;
+  on_select_theme_preference: (preference: ThemePreference) => void;
   on_select_app_language: (language: AppLanguage) => void;
   on_profile_action: () => void;
 };
@@ -236,14 +245,20 @@ export function AppSidebar(props: AppSidebarProps): JSX.Element {
                           <Type size={16} />
                           <span>{t("app.navigation_action.toggle_lg_base_font")}</span>
                         </AppDropdownMenuItem>
-                        <AppDropdownMenuItem
-                          onSelect={() => {
-                            props.on_appearance_menu_action("theme-mode");
+                        <AppDropdownMenuRadioGroup
+                          value={props.theme_preference}
+                          onValueChange={(value) => {
+                            if (THEME_PREFERENCES.includes(value as ThemePreference)) {
+                              props.on_select_theme_preference(value as ThemePreference);
+                            }
                           }}
                         >
-                          <SunMoon size={16} />
-                          <span>{t("app.navigation_action.switch_theme")}</span>
-                        </AppDropdownMenuItem>
+                          {THEME_PREFERENCES.map((preference) => (
+                            <AppDropdownMenuRadioItem key={preference} value={preference}>
+                              {t(THEME_PREFERENCE_LABEL_KEYS[preference])}
+                            </AppDropdownMenuRadioItem>
+                          ))}
+                        </AppDropdownMenuRadioGroup>
                       </AppDropdownMenuGroup>
                     </AppDropdownMenuContent>
                   </AppDropdownMenu>

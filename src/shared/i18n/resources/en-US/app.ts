@@ -77,7 +77,11 @@ export const en_us_app = {
   ) as Record<keyof typeof LANGUAGE_DISPLAY_NAMES, string>,
   navigation_action: {
     theme: "Theme",
-    switch_theme: "Switch Theme",
+    theme_option: {
+      system: "Use System Setting",
+      light: "Light",
+      dark: "Dark",
+    },
     toggle_lg_base_font: "Switch Font",
     language: "Language",
     language_option: {

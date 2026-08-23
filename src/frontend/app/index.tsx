@@ -44,7 +44,9 @@ import type {
   AppearanceMenuActionId,
   BottomActionId,
   RouteId,
+  ThemePreference,
 } from "@frontend/app/navigation/types";
+import { is_theme_preference } from "@frontend/app/navigation/types";
 import { LocaleProvider, useI18n } from "@frontend/app/locale/locale-provider";
 import { SidebarInset, SidebarProvider } from "@frontend/shadcn/sidebar";
 import { Toaster } from "@frontend/shadcn/sonner";
@@ -198,24 +200,25 @@ function read_sidebar_state(): boolean {
   }
 }
 
-// 只读取边界事实并返回稳定快照，不在读取阶段产生写入副作用。
 /**
- * 读取当前场景需要的稳定数据。
+ * 主题存储边界只清理非法旧值；合法偏好和无值场景保持原样交给 next-themes。
  */
-function read_theme_mode(): ThemeMode {
+function prepare_theme_preference_storage(): ThemePreference {
   if (typeof window === "undefined") {
-    return "light";
+    return "system";
   }
 
   const stored_theme = window.localStorage.getItem(THEME_STORAGE_KEY);
-
-  if (stored_theme === "light" || stored_theme === "dark") {
+  if (is_theme_preference(stored_theme)) {
     return stored_theme;
-  } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-    return "dark";
-  } else {
-    return "light";
   }
+  if (stored_theme !== null) window.localStorage.removeItem(THEME_STORAGE_KEY);
+  return "system";
+}
+
+function resolve_theme_mode(resolved_theme: string | undefined): ThemeMode {
+  if (resolved_theme === "dark" || resolved_theme === "light") return resolved_theme;
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 // 只读取边界事实并返回稳定快照，不在读取阶段产生写入副作用。
@@ -341,7 +344,7 @@ function AppContent(props: AppContentProps): JSX.Element {
   } = useDesktopState();
   const { push_toast } = useDesktopToast();
   const { t } = useI18n();
-  const { resolvedTheme, setTheme } = useTheme();
+  const { theme, resolvedTheme, setTheme } = useTheme();
   const shell_info = window.desktopApp.shell;
   const [selected_route, set_selected_route] = useState<RouteId>(DEFAULT_ROUTE_ID);
   const [expanded_items, set_expanded_items] = useState<Set<RouteId>>(() => new Set());
@@ -366,8 +369,8 @@ function AppContent(props: AppContentProps): JSX.Element {
   const app_titlebar_title = format_app_titlebar_title(app_title, app_version);
   const update_release = read_update_release(update_dialog_state);
   const update_release_url = update_release?.release_url ?? null;
-  const theme_mode: ThemeMode =
-    resolvedTheme === "dark" ? "dark" : resolvedTheme === "light" ? "light" : read_theme_mode();
+  const theme_preference: ThemePreference = is_theme_preference(theme) ? theme : "system";
+  const theme_mode = resolve_theme_mode(resolvedTheme);
 
   useEffect(() => {
     update_renderer_diagnostics_context({
@@ -667,15 +670,13 @@ function AppContent(props: AppContentProps): JSX.Element {
    * 承接当前模块的核心控制分支。
    */
   function handle_appearance_menu_action(action_id: AppearanceMenuActionId): void {
-    if (action_id === "theme-mode") {
-      if (theme_mode === "light") {
-        setTheme("dark");
-      } else {
-        setTheme("light");
-      }
-    } else {
+    if (action_id === "font-family") {
       props.set_is_lg_base_font_enabled(!props.is_lg_base_font_enabled);
     }
+  }
+
+  function handle_select_theme_preference(preference: ThemePreference): void {
+    setTheme(preference);
   }
 
   /**
@@ -896,6 +897,7 @@ function AppContent(props: AppContentProps): JSX.Element {
               }
               badged_bottom_action_ids={badged_bottom_action_ids}
               app_language={settings_snapshot.app_language}
+              theme_preference={theme_preference}
               profile_label_key={
                 update_release_url === null ? "app.profile.status" : "app.profile.update_available"
               }
@@ -909,6 +911,7 @@ function AppContent(props: AppContentProps): JSX.Element {
               on_toggle_group={handle_toggle_group}
               on_bottom_action={handle_bottom_action}
               on_appearance_menu_action={handle_appearance_menu_action}
+              on_select_theme_preference={handle_select_theme_preference}
               on_select_app_language={handle_select_app_language}
               on_profile_action={handle_profile_action}
             />
@@ -976,11 +979,13 @@ function read_initial_log_window_app_language(): AppLanguage {
  */
 function WindowVisualProviders({ children }: { children: ReactNode }): JSX.Element {
   // 多窗口共享的视觉壳层只承载主题、tooltip 和提示，不读取项目或任务运行态
+  const default_theme = prepare_theme_preference_storage();
   return (
     <ThemeProvider
       attribute="class"
-      defaultTheme={read_theme_mode()}
-      enableSystem={false}
+      defaultTheme={default_theme}
+      enableSystem
+      disableTransitionOnChange
       storageKey={THEME_STORAGE_KEY}
       themes={["light", "dark"]}
     >

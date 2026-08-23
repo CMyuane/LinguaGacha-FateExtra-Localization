@@ -78,7 +78,11 @@ export const de_de_app = {
   ) as Record<keyof typeof LANGUAGE_DISPLAY_NAMES, string>,
   navigation_action: {
     theme: "Design",
-    switch_theme: "Design wechseln",
+    theme_option: {
+      system: "Systemeinstellung verwenden",
+      light: "Hell",
+      dark: "Dunkel",
+    },
     toggle_lg_base_font: "Schriftart wechseln",
     language: "Sprache",
     language_option: {
