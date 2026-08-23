@@ -42,6 +42,11 @@ describe("ProjectSchemaMigration", () => {
       "fate_extra_compact_override",
       "fate_extra_compact_source",
       "fate_extra_file_summary",
+      "fate_extra_preview_navigation_file_summary",
+      "fate_extra_preview_navigation_generation",
+      "fate_extra_preview_navigation_occurrence",
+      "fate_extra_preview_navigation_unit",
+      "fate_extra_preview_navigation_unit_file",
       "fate_extra_preview_search_document",
       "fate_extra_preview_search_file_summary",
       "fate_extra_preview_search_fts",
@@ -74,7 +79,7 @@ describe("ProjectSchemaMigration", () => {
     { kind: "plain" as const, label: "普通" },
     { kind: "fate-extra" as const, label: "FE" },
     { kind: "compact" as const, label: "FE 精简" },
-  ])("schema 7 打开旧 $label 项目时只创建空派生索引结构", ({ kind }) => {
+  ])("schema 8 打开旧 $label 项目时只创建空派生索引结构", ({ kind }) => {
     const db = open_database(`legacy-schema-6-${kind}.lg`);
     create_schema_6_fixture(db, kind);
     const facts_before = read_project_facts(db);
@@ -103,10 +108,19 @@ describe("ProjectSchemaMigration", () => {
       generation: 0,
       item: 0,
       mapping: 0,
+      navigation_file_summary: 0,
+      navigation_generation: 0,
+      navigation_occurrence: 0,
+      navigation_unit: 0,
+      navigation_unit_file: 0,
       short_gram: 0,
     });
     expect(
-      db.prepare("SELECT key FROM meta WHERE key LIKE 'fate_extra.preview-search.%'").all(),
+      db
+        .prepare(
+          "SELECT key FROM meta WHERE key LIKE 'fate_extra.preview-search.%' OR key LIKE 'fate_extra.preview-navigation.%'",
+        )
+        .all(),
     ).toEqual([]);
     expect(derived_writes).toEqual([]);
   });
@@ -165,6 +179,11 @@ describe("ProjectSchemaMigration", () => {
 type LegacyProjectKind = "plain" | "fate-extra" | "compact";
 
 const DERIVED_SEARCH_DATA_TABLES = new Set([
+  "fate_extra_preview_navigation_file_summary",
+  "fate_extra_preview_navigation_generation",
+  "fate_extra_preview_navigation_occurrence",
+  "fate_extra_preview_navigation_unit",
+  "fate_extra_preview_navigation_unit_file",
   "fate_extra_preview_search_document",
   "fate_extra_preview_search_file_summary",
   "fate_extra_preview_search_generation",
@@ -183,6 +202,11 @@ const DERIVED_SEARCH_WRITE_ACTIONS = new Set([
 function create_schema_6_fixture(db: DatabaseSync, kind: LegacyProjectKind): void {
   ProjectSchemaMigration.run(db);
   db.exec(`
+    DROP TABLE fate_extra_preview_navigation_file_summary;
+    DROP TABLE fate_extra_preview_navigation_unit_file;
+    DROP TABLE fate_extra_preview_navigation_occurrence;
+    DROP TABLE fate_extra_preview_navigation_unit;
+    DROP TABLE fate_extra_preview_navigation_generation;
     DROP TABLE fate_extra_preview_search_fts;
     DROP TABLE fate_extra_preview_search_short_gram;
     DROP TABLE fate_extra_preview_search_file_summary;
@@ -275,6 +299,11 @@ function read_project_facts(db: DatabaseSync): Record<string, unknown[]> {
 
 function read_preview_search_counts(db: DatabaseSync): Record<string, number> {
   return {
+    navigation_generation: read_table_count(db, "fate_extra_preview_navigation_generation"),
+    navigation_unit: read_table_count(db, "fate_extra_preview_navigation_unit"),
+    navigation_occurrence: read_table_count(db, "fate_extra_preview_navigation_occurrence"),
+    navigation_unit_file: read_table_count(db, "fate_extra_preview_navigation_unit_file"),
+    navigation_file_summary: read_table_count(db, "fate_extra_preview_navigation_file_summary"),
     generation: read_table_count(db, "fate_extra_preview_search_generation"),
     document: read_table_count(db, "fate_extra_preview_search_document"),
     item: read_table_count(db, "fate_extra_preview_search_item"),
