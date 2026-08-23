@@ -136,6 +136,11 @@ export const de_de_app = {
         action:
           "Stellen Sie sicher, dass die Projektdatei sich noch an ihrem ursprünglichen Speicherort befindet …",
       },
+      compact_required: {
+        message: "Dieses Fate/Extra-Projekt wurde noch nicht komprimiert …",
+        action:
+          "Erstellen und öffnen Sie zuerst ein komprimiertes Projekt über den Werkzeugkasten …",
+      },
     },
     file: {
       not_found: {

@@ -8,7 +8,7 @@ import { createProofreadingListReader } from "../../shared/proofreading/proofrea
 import type { ProjectDataSectionRevisions } from "../../shared/project-event";
 import {
   FATE_EXTRA_ADAPTER_META_KEY,
-  FATE_EXTRA_COMPACT_META_KEY,
+  resolve_fate_extra_project_mode,
 } from "../../shared/fate-extra/fate-extra-types";
 import { AnalysisCache } from "./analysis/analysis-cache";
 import { create_cache_change, type CacheChange } from "./cache-change";
@@ -191,24 +191,14 @@ export class CacheManager implements CacheReadPort {
   private rebuild_full_project_cache(project_path: string): void {
     const meta = this.data_reader.get_all_meta(project_path);
     const adapter = meta[FATE_EXTRA_ADAPTER_META_KEY];
-    const compact = meta[FATE_EXTRA_COMPACT_META_KEY];
-    const is_fate_extra_adapter =
+    const item_mode = resolve_fate_extra_project_mode(meta);
+    const adapter_record =
+      item_mode !== "standard" &&
       typeof adapter === "object" &&
       adapter !== null &&
-      !Array.isArray(adapter) &&
-      adapter["enabled"] === true;
-    const is_fate_extra_compact =
-      is_fate_extra_adapter &&
-      typeof compact === "object" &&
-      compact !== null &&
-      !Array.isArray(compact) &&
-      compact["enabled"] === true;
-    const adapter_record = is_fate_extra_adapter ? adapter : {};
-    const item_mode: ItemCacheMode = !is_fate_extra_adapter
-      ? "standard"
-      : is_fate_extra_compact
-        ? "fate-extra-compact"
-        : "fate-extra-unmaterialized";
+      !Array.isArray(adapter)
+        ? adapter
+        : {};
     const items_snapshot =
       item_mode === "fate-extra-unmaterialized"
         ? this.data_reader.empty_items_snapshot()

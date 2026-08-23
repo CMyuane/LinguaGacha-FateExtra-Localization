@@ -129,6 +129,10 @@ export const zh_cn_app = {
         message: "工程文件不存在 …",
         action: "请确认工程文件仍在原位置 …",
       },
+      compact_required: {
+        message: "当前 Fate/Extra 工程尚未精简 …",
+        action: "请先在百宝箱中生成并打开精简工程 …",
+      },
     },
     file: {
       not_found: {

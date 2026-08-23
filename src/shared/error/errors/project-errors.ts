@@ -23,3 +23,12 @@ export class ProjectNotFoundError extends AppError {
     super({ code: "project.not_found", ...args });
   }
 }
+
+/**
+ * ProjectCompactRequiredError 表示当前操作只支持可编辑代表项已经物化的精简工程。
+ */
+export class ProjectCompactRequiredError extends AppError {
+  public constructor() {
+    super({ code: "project.compact_required" });
+  }
+}

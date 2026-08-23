@@ -17,6 +17,7 @@ export type AppErrorCode =
   | "request.route_not_found"
   | "project.not_loaded"
   | "project.not_found"
+  | "project.compact_required"
   | "file.not_found"
   | "file.unsupported_format"
   | "file.parse_failed"
@@ -74,6 +75,11 @@ export const APP_ERROR_DEFINITIONS: Readonly<Record<AppErrorCode, AppErrorDefini
     status: 404,
     severity: "expected",
     action_key: "app.error.project.not_found.action",
+  },
+  "project.compact_required": {
+    status: 409,
+    severity: "expected",
+    action_key: "app.error.project.compact_required.action",
   },
   "file.not_found": {
     status: 404,
