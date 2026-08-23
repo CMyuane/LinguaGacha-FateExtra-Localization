@@ -6,6 +6,7 @@ import type { AppLanguage } from "@domain/app-language";
 import { LocaleProvider } from "@frontend/app/locale/locale-provider";
 import { BOTTOM_ACTIONS, NAVIGATION_GROUPS } from "@frontend/app/navigation/schema";
 import type { NavigationGroup, RouteId } from "@frontend/app/navigation/types";
+import type { ThemePreference } from "@frontend/app/navigation/types";
 import { SidebarProvider } from "@frontend/shadcn/sidebar";
 import { TooltipProvider } from "@frontend/shadcn/tooltip";
 import { AppSidebar } from "./app-sidebar";
@@ -18,6 +19,8 @@ type RenderSidebarOptions = {
   expanded_items?: ReadonlySet<RouteId>;
   on_select_route?: (route_id: RouteId) => void;
   on_toggle_group?: (route_id: RouteId) => void;
+  theme_preference?: ThemePreference;
+  on_select_theme_preference?: (preference: ThemePreference) => void;
 };
 
 describe("AppSidebar", () => {
@@ -57,7 +60,7 @@ describe("AppSidebar", () => {
                 }
                 badged_bottom_action_ids={new Set()}
                 app_language={options.app_language ?? "ZH"}
-                theme_preference="system"
+                theme_preference={options.theme_preference ?? "system"}
                 profile_label_key="app.profile.status"
                 profile_tooltip_key="app.profile.status_tooltip"
                 is_profile_update_available={false}
@@ -65,7 +68,7 @@ describe("AppSidebar", () => {
                 on_toggle_group={options.on_toggle_group ?? vi.fn()}
                 on_bottom_action={vi.fn()}
                 on_appearance_menu_action={vi.fn()}
-                on_select_theme_preference={vi.fn()}
+                on_select_theme_preference={options.on_select_theme_preference ?? vi.fn()}
                 on_select_app_language={options.on_select_app_language ?? vi.fn()}
                 on_profile_action={vi.fn()}
               />
@@ -86,6 +89,39 @@ describe("AppSidebar", () => {
       trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
     });
   }
+
+  async function open_appearance_menu(): Promise<void> {
+    const trigger = document.querySelector<HTMLButtonElement>('button[aria-label="变换自如"]');
+    if (trigger === null) {
+      throw new Error("缺少外观菜单按钮。");
+    }
+    await act(async () => {
+      trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+    });
+  }
+
+  it("外观菜单以受控单选项展示跟随系统、浅色和深色", async () => {
+    const selected: ThemePreference[] = [];
+    await render_sidebar({
+      theme_preference: "dark",
+      on_select_theme_preference: (preference) => selected.push(preference),
+    });
+    await open_appearance_menu();
+
+    const options = Array.from(document.querySelectorAll<HTMLElement>('[role="menuitemradio"]'));
+    expect(options.map((option) => option.textContent?.trim())).toEqual([
+      "跟随系统",
+      "浅色",
+      "深色",
+    ]);
+    expect(options.map((option) => option.getAttribute("aria-checked"))).toEqual([
+      "false",
+      "false",
+      "true",
+    ]);
+    await act(async () => options[0]?.click());
+    expect(selected).toEqual(["system"]);
+  });
 
   it("打开语言菜单时列出本地语言名称并标记当前语言", async () => {
     await render_sidebar({ app_language: "EN" });

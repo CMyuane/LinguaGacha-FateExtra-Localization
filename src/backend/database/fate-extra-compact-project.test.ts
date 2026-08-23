@@ -133,6 +133,7 @@ describe("Fate/Extra compact project", () => {
           original_item_id: 1,
           original_machine_translation: "",
           original_status: "NONE",
+          representative_translation_authoritative: false,
           source_hash: expect.stringMatching(/^[a-f0-9]{64}$/u),
         }),
         expect.objectContaining({
