@@ -22,6 +22,7 @@
 - HTTP 写入结果与 `project.data_changed` SSE 共用同一事件入口、去重窗口和恢复策略；共享层只生成轻量 `ProjectChangeSignal`，页面根据目标 section 重新 query。
 - `DesktopRefreshScheduler` 只合并可延迟的 task snapshot 和项目刷新信号；项目切换、设置刷新、写入结果和任务终态先冲刷窗口。
 - flush、SSE 或写入处理失败进入 renderer 诊断，并通过可等待、可去重的权威 query 恢复；当前项目的有效事件不静默丢弃。
+- `lg-theme-mode` 是主窗口与日志窗口共享的主题偏好存储，只允许 `system`、`light`、`dark`；无值或非法值按 `system` 处理，既有明暗值保持兼容。`theme` 只表示用户偏好，DOM、CodeMirror、Toast 和原生标题栏只消费 `resolvedTheme`。系统明暗变化由共享 `ThemeProvider` 实时解析，renderer 再把二态结果发送给保持 `light | dark` 契约的标题栏 bridge。
 
 ## 3. 页面、导航与 session 状态
 
