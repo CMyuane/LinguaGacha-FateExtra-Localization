@@ -721,6 +721,8 @@ describe("FateExtraService 后台任务", () => {
               review_scope: "occurrence",
               index_generation: 1,
               applied_items_revision: 1,
+              navigation_generation: 1,
+              applied_navigation_revision: 1,
             });
         }),
     );
@@ -728,12 +730,18 @@ describe("FateExtraService 后台任务", () => {
     const request = fixture.service.list_items({
       project_path: PROJECT_PATH,
       view_mode: "occurrence",
-      offset: 0,
+      position: 0,
       limit: 120,
     });
     await vi.waitFor(() => expect(fixture.preview_run).toHaveBeenCalledOnce());
     expect(fixture.preview_run.mock.calls[0]?.[0]).toMatchObject({
-      input: { projectEpoch: 1, expectedGeneration: 1, expectedItemsRevision: 1 },
+      input: {
+        projectEpoch: 1,
+        expectedGeneration: 1,
+        expectedItemsRevision: 1,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 1,
+      },
     });
 
     await event_bus.publish(create_project_unloaded_event(PROJECT_PATH));
@@ -765,11 +773,13 @@ describe("FateExtraService 后台任务", () => {
       review_scope: "occurrence",
       index_generation: 1,
       applied_items_revision: 1,
+      navigation_generation: 1,
+      applied_navigation_revision: 1,
     });
     const body = {
       project_path: PROJECT_PATH,
       view_mode: "occurrence",
-      offset: 0,
+      position: 0,
       limit: 120,
     };
 
@@ -850,7 +860,7 @@ describe("FateExtraService 后台任务", () => {
         project_path: PROJECT_PATH,
         view_mode: "occurrence",
         warning: "FE_MIGRATION_REVIEW",
-        offset: 0,
+        position: 0,
         limit: 120,
       },
       controller.signal,
@@ -953,9 +963,12 @@ function create_job_service(
       return {
         ready: index_ready,
         search_ready: index_ready,
+        navigation_ready: index_ready,
         items_revision: revisions.items,
         search_items_revision: index_ready ? revisions.items : 0,
         search_generation: index_ready ? 1 : 0,
+        navigation_items_revision: index_ready ? revisions.items : 0,
+        navigation_generation: index_ready ? 1 : 0,
       };
     }
     if (operation.name === "getFateExtraCompactState") {
@@ -968,8 +981,11 @@ function create_job_service(
       return {
         ready: true,
         search_ready: true,
+        navigation_ready: true,
         search_generation: Number(operation.args?.["generation"] ?? 0),
         search_items_revision: Number(operation.args?.["expectedItemsRevision"] ?? 0),
+        navigation_generation: Number(operation.args?.["generation"] ?? 0),
+        navigation_items_revision: Number(operation.args?.["expectedItemsRevision"] ?? 0),
       };
     }
     return {};

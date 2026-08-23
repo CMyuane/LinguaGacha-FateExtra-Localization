@@ -99,6 +99,9 @@ type PreviewList = {
   index_ready?: boolean;
   index_generation?: number;
   applied_items_revision?: number;
+  navigation_generation?: number;
+  applied_navigation_revision?: number;
+  navigation_state?: "ready" | "updating";
   search_state?: "ready" | "updating";
 };
 
@@ -299,10 +302,11 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [total, set_total] = useState(0);
   const [settled_query_identity, set_settled_query_identity] = useState("");
   const [file_summary_project_path, set_file_summary_project_path] = useState("");
-  const [offset, set_offset] = useState(0);
+  const [position, set_position] = useState(0);
   const [selected, set_selected] = useState(0);
   const [jump_value, set_jump_value] = useState("0");
   const [search, set_search] = useState("");
+  const [debounced_search, set_debounced_search] = useState("");
   const [view_mode, set_view_mode] = useState<"unique" | "occurrence">("unique");
   const [index_ready, set_index_ready] = useState<boolean | null>(null);
   const [search_state, set_search_state] = useState<"ready" | "updating">("ready");
@@ -314,6 +318,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const index_rebuild_project_ref = useRef("");
   const index_job_id_ref = useRef("");
   const preview_query_sequence_ref = useRef(0);
+  const preview_query_abort_ref = useRef<AbortController | null>(null);
   const [review_scope, set_review_scope] = useState<"unit" | "occurrence">("unit");
   const [file_path, set_file_path] = useState("");
   const [warning, set_warning] = useState("");
@@ -341,27 +346,33 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [context_payload, set_context_payload] = useState<ContextPayload | null>(null);
   const project_path = project_snapshot.loaded ? project_snapshot.path : "";
   const readonly = is_project_write_locked(task_snapshot);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => set_debounced_search(search), 120);
+    preview_query_abort_ref.current?.abort();
+    set_settled_query_identity("");
+    return () => window.clearTimeout(timeout);
+  }, [search]);
   const preview_query_identity = useMemo(
     () =>
       JSON.stringify([
         project_path,
         project_change_signal.seq,
         reload_seq,
-        search,
+        debounced_search,
         view_mode,
         file_path,
         warning,
         category,
-        offset,
+        position,
       ]),
     [
       category,
       file_path,
-      offset,
+      position,
       project_change_signal.seq,
       project_path,
       reload_seq,
-      search,
+      debounced_search,
       view_mode,
       warning,
     ],
@@ -381,7 +392,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     set_files([]);
     set_file_counts({});
     set_total(0);
-    set_offset(0);
+    set_position(0);
     set_selected(0);
     set_file_path("");
     set_index_ready(null);
@@ -402,82 +413,83 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   useEffect(() => {
     let alive = true;
     const abort_controller = new AbortController();
+    preview_query_abort_ref.current = abort_controller;
     if (project_path === "") {
       set_items([]);
       return;
     }
-    const timeout = window.setTimeout(() => {
-      const query_id = ++preview_query_sequence_ref.current;
-      void api_fetch<PreviewList>(
-        "/api/toolbox/fate-extra/items",
-        {
-          project_path,
-          search,
-          view_mode,
-          file_path,
-          warning,
-          category,
-          offset,
-          limit: PREVIEW_PAGE_SIZE,
-          query_id,
-        },
-        { signal: abort_controller.signal },
-      )
-        .then((payload) => {
-          if (!alive || payload.query_id !== query_id) return;
-          if (payload.search_state === "updating") {
-            set_settled_query_identity(preview_query_identity);
-            set_items([]);
-            set_total(0);
-            set_selected(0);
-            set_context_open(false);
-            set_context_loading(false);
-            set_context_error("");
-            set_context_payload(null);
-            set_search_state("updating");
-            set_index_ready(false);
-            set_error("");
-            return;
-          }
-          set_search_state("ready");
-          const next_items = payload.items ?? [];
+    const query_id = ++preview_query_sequence_ref.current;
+    void api_fetch<PreviewList>(
+      "/api/toolbox/fate-extra/items",
+      {
+        project_path,
+        search: debounced_search,
+        view_mode,
+        file_path,
+        warning,
+        category,
+        position,
+        limit: PREVIEW_PAGE_SIZE,
+        query_id,
+      },
+      { signal: abort_controller.signal },
+    )
+      .then((payload) => {
+        if (!alive || payload.query_id !== query_id) return;
+        if (payload.search_state === "updating") {
           set_settled_query_identity(preview_query_identity);
-          set_items(next_items);
-          set_total(Number(payload.total ?? 0));
-          set_review_scope(
-            payload.review_scope ??
-              ((payload.view_mode ?? view_mode) === "unique" ? "unit" : "occurrence"),
-          );
-          set_index_ready(payload.index_ready ?? true);
-          if (file_path === "") {
-            set_file_summary_project_path(project_path);
-            set_files(payload.files ?? []);
-            set_file_counts(payload.file_counts ?? {});
-          }
-          set_selected((value) => Math.min(value, Math.max(0, next_items.length - 1)));
+          set_items([]);
+          set_total(0);
+          set_selected(0);
+          set_context_open(false);
+          set_context_loading(false);
+          set_context_error("");
+          set_context_payload(null);
+          set_search_state("updating");
+          set_index_ready(false);
           set_error("");
-        })
-        .catch((reason: unknown) => {
-          if (abort_controller.signal.aborted) return;
-          if (alive) {
-            set_error(error_message(reason, t("fate_extra_preview_page.load_failed")));
-          }
-        });
-    }, 120);
+          return;
+        }
+        set_search_state("ready");
+        const next_items = payload.items ?? [];
+        set_settled_query_identity(preview_query_identity);
+        set_items(next_items);
+        set_total(Number(payload.total ?? 0));
+        set_review_scope(
+          payload.review_scope ??
+            ((payload.view_mode ?? view_mode) === "unique" ? "unit" : "occurrence"),
+        );
+        set_index_ready(payload.index_ready ?? true);
+        if (file_path === "") {
+          set_file_summary_project_path(project_path);
+          set_files(payload.files ?? []);
+          set_file_counts(payload.file_counts ?? {});
+        }
+        set_selected((value) => Math.min(value, Math.max(0, next_items.length - 1)));
+        set_error("");
+      })
+      .catch((reason: unknown) => {
+        if (abort_controller.signal.aborted) return;
+        if (alive) {
+          set_error(error_message(reason, t("fate_extra_preview_page.load_failed")));
+        }
+      });
     return () => {
       alive = false;
       abort_controller.abort();
-      window.clearTimeout(timeout);
+      if (preview_query_abort_ref.current === abort_controller) {
+        preview_query_abort_ref.current = null;
+      }
     };
   }, [
     category,
+    debounced_search,
     file_path,
-    offset,
+    position,
     project_change_signal.seq,
     project_path,
     preview_query_identity,
     reload_seq,
-    search,
     t,
     view_mode,
     warning,
@@ -540,7 +552,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       if (ready) {
         set_index_retry_available(false);
         set_search_state("ready");
-        set_offset(0);
+        set_position(0);
         set_selected(0);
         set_reload_seq((value) => value + 1);
       } else {
@@ -597,7 +609,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   }
 
   const current = visible_items[selected] ?? null;
-  const current_position = current === null ? 0 : offset + selected + 1;
+  const current_position = current === null ? 0 : position + selected + 1;
   useEffect(() => {
     set_draft_proofread(current?.proofread_translation ?? "");
     set_draft_display_mode(current?.display_mode ?? "auto");
@@ -992,8 +1004,8 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       set_selected((value) => value - 1);
       return;
     }
-    if (offset > 0) {
-      set_offset(Math.max(0, offset - PREVIEW_PAGE_SIZE));
+    if (position > 0) {
+      set_position(Math.max(0, position - PREVIEW_PAGE_SIZE));
       set_selected(PREVIEW_PAGE_SIZE - 1);
     }
   }
@@ -1003,8 +1015,8 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       set_selected((value) => value + 1);
       return;
     }
-    if (offset + visible_items.length < visible_total) {
-      set_offset(offset + PREVIEW_PAGE_SIZE);
+    if (position + visible_items.length < visible_total) {
+      set_position(position + PREVIEW_PAGE_SIZE);
       set_selected(0);
     }
   }
@@ -1018,7 +1030,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     }
     const target_position = Math.min(visible_total, Math.max(1, Math.trunc(requested_position)));
     const target_index = target_position - 1;
-    set_offset(Math.floor(target_index / PREVIEW_PAGE_SIZE) * PREVIEW_PAGE_SIZE);
+    set_position(Math.floor(target_index / PREVIEW_PAGE_SIZE) * PREVIEW_PAGE_SIZE);
     set_selected(target_index % PREVIEW_PAGE_SIZE);
     set_jump_value(String(target_position));
   }
@@ -1072,7 +1084,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           disabled={navigation_blocked}
           onChange={(event) => {
             set_view_mode(event.target.value as "unique" | "occurrence");
-            set_offset(0);
+            set_position(0);
             set_selected(0);
           }}
         >
@@ -1085,7 +1097,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           placeholder={t("fate_extra_preview_page.search")}
           onChange={(event) => {
             set_search(event.target.value);
-            set_offset(0);
+            set_position(0);
             set_selected(0);
           }}
         />
@@ -1094,7 +1106,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           disabled={navigation_blocked}
           onChange={(event) => {
             set_file_path(event.target.value);
-            set_offset(0);
+            set_position(0);
             set_selected(0);
           }}
         >
@@ -1114,7 +1126,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           disabled={navigation_blocked}
           onChange={(event) => {
             set_warning(event.target.value);
-            set_offset(0);
+            set_position(0);
             set_selected(0);
           }}
         >
@@ -1130,7 +1142,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           disabled={navigation_blocked}
           onChange={(event) => {
             set_category(event.target.value);
-            set_offset(0);
+            set_position(0);
             set_selected(0);
           }}
         >
@@ -1541,7 +1553,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       <footer className="fate-extra-preview__footer">
         <AppButton
           variant="outline"
-          disabled={navigation_blocked || visible_total <= 0 || (offset === 0 && selected <= 0)}
+          disabled={navigation_blocked || visible_total <= 0 || (position === 0 && selected <= 0)}
           onClick={show_previous}
         >
           <ChevronLeft data-icon="inline-start" />
@@ -1577,7 +1589,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         </div>
         <AppButton
           variant="outline"
-          disabled={navigation_blocked || offset + selected + 1 >= visible_total}
+          disabled={navigation_blocked || position + selected + 1 >= visible_total}
           onClick={show_next}
         >
           {t("fate_extra_preview_page.next")}

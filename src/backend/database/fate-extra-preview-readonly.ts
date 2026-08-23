@@ -9,6 +9,7 @@ import {
 } from "../../shared/fate-extra/fate-extra-warning";
 import { JsonTool } from "../../shared/utils/json-tool";
 import type { DatabaseJsonValue } from "./database-types";
+import { read_fate_extra_preview_navigation_state } from "./fate-extra-preview-navigation-index";
 import {
   build_fate_extra_preview_search_match_query,
   fate_extra_preview_search_length,
@@ -27,14 +28,22 @@ export type FateExtraPreviewReadonlyQuery = {
   warning?: string;
   encodedWidths?: Array<[string, number]>;
   projectEpoch?: number;
-  offset: number;
+  position: number;
   limit: number;
   includeFiles: boolean;
   includeTotal: boolean;
   viewMode: "unique" | "occurrence";
   expectedGeneration: number;
   expectedItemsRevision: number;
+  expectedNavigationGeneration: number;
+  expectedNavigationRevision: number;
 };
+
+let persistent_readonly_connection: {
+  project_path: string;
+  project_epoch: number;
+  db: DatabaseSync;
+} | null = null;
 
 /**
  * 预览 worker 的真正只读边界。readOnly + query_only 保证它既不迁移 schema，
@@ -43,21 +52,28 @@ export type FateExtraPreviewReadonlyQuery = {
 export function query_fate_extra_preview_readonly(
   input: FateExtraPreviewReadonlyQuery,
 ): DatabaseJsonValue {
-  const db = new DatabaseSync(input.projectPath, { readOnly: true });
+  const persistent = input.projectEpoch !== undefined;
+  const db = persistent
+    ? read_persistent_connection(input)
+    : open_readonly_connection(input.projectPath);
   try {
-    db.exec("PRAGMA query_only=ON; PRAGMA busy_timeout=5000; BEGIN");
+    db.exec("BEGIN");
     const state = read_fate_extra_preview_search_index_state(db);
-    assert_query_identity(state, input);
-    const page = read_preview_page(db, input, state.generation);
+    const navigation = read_fate_extra_preview_navigation_state(db);
+    assert_query_identity(state, navigation, input);
+    const page = read_preview_page(db, input, state.generation, navigation.generation);
     const final_state = read_fate_extra_preview_search_index_state(db);
-    assert_query_identity(final_state, input);
+    const final_navigation = read_fate_extra_preview_navigation_state(db);
+    assert_query_identity(final_state, final_navigation, input);
     db.exec("COMMIT");
     return {
       ...as_record(page),
       index_generation: state.generation,
+      navigation_generation: navigation.generation,
       applied_items_revision: query_requires_index(input)
         ? state.indexed_items_revision
         : state.items_revision,
+      applied_navigation_revision: navigation.indexed_items_revision,
     } as DatabaseJsonValue;
   } catch (error) {
     try {
@@ -65,48 +81,89 @@ export function query_fate_extra_preview_readonly(
     } catch {
       // BEGIN 之前失败时没有事务可回滚，关闭只读句柄即可。
     }
+    if (persistent) close_persistent_connection();
     throw error;
   } finally {
-    db.close();
+    if (!persistent) db.close();
   }
+}
+
+function open_readonly_connection(project_path: string): DatabaseSync {
+  const db = new DatabaseSync(project_path, { readOnly: true });
+  db.exec("PRAGMA query_only=ON; PRAGMA busy_timeout=5000");
+  return db;
+}
+
+function read_persistent_connection(input: FateExtraPreviewReadonlyQuery): DatabaseSync {
+  const project_epoch = Math.trunc(input.projectEpoch ?? 0);
+  if (
+    persistent_readonly_connection !== null &&
+    (persistent_readonly_connection.project_path !== input.projectPath ||
+      persistent_readonly_connection.project_epoch !== project_epoch)
+  ) {
+    close_persistent_connection();
+  }
+  if (persistent_readonly_connection === null) {
+    persistent_readonly_connection = {
+      project_path: input.projectPath,
+      project_epoch,
+      db: open_readonly_connection(input.projectPath),
+    };
+  }
+  return persistent_readonly_connection.db;
+}
+
+function close_persistent_connection(): void {
+  const connection = persistent_readonly_connection;
+  persistent_readonly_connection = null;
+  connection?.db.close();
 }
 
 function assert_query_identity(
   state: ReturnType<typeof read_fate_extra_preview_search_index_state>,
+  navigation: ReturnType<typeof read_fate_extra_preview_navigation_state>,
   input: FateExtraPreviewReadonlyQuery,
 ): void {
-  const matches = query_requires_index(input)
+  const search_matches = query_requires_index(input)
     ? state.ready &&
       state.generation === Math.trunc(input.expectedGeneration) &&
       state.indexed_items_revision === Math.trunc(input.expectedItemsRevision)
     : state.items_revision === Math.trunc(input.expectedItemsRevision);
-  if (!matches) {
+  const navigation_matches =
+    navigation.ready &&
+    navigation.generation === Math.trunc(input.expectedNavigationGeneration) &&
+    navigation.indexed_items_revision === Math.trunc(input.expectedNavigationRevision);
+  if (!search_matches || !navigation_matches) {
     throw new Error("fate_extra_preview_query_identity_changed");
   }
 }
 
 function query_requires_index(input: FateExtraPreviewReadonlyQuery): boolean {
-  return (
-    input.viewMode === "unique" ||
-    input.search !== "" ||
-    input.filePath !== "" ||
-    input.category !== ""
-  );
+  return input.search !== "" || input.category !== "";
 }
 
 function read_preview_page(
   db: DatabaseSync,
   input: FateExtraPreviewReadonlyQuery,
-  generation: number,
+  search_generation: number,
+  navigation_generation: number,
 ): DatabaseJsonValue {
-  const compact = db.prepare("SELECT 1 FROM meta WHERE key = 'fate_extra.compact.v1'").get();
+  const compact = read_compact_enabled(db);
   const warning = input.warning ?? "";
   if (is_fate_extra_preview_warning_code(warning)) {
-    return read_warning_filtered_page(db, input, generation, warning, compact !== undefined);
+    return read_warning_filtered_page(
+      db,
+      input,
+      search_generation,
+      navigation_generation,
+      warning,
+      compact,
+    );
   }
-  if (compact !== undefined) return read_compact_page(db, input, generation);
-  if (input.viewMode === "unique") return read_unique_page(db, input, generation);
-  return read_occurrence_page(db, input, generation);
+  if (input.search !== "" || input.category !== "") {
+    return read_index_filtered_page(db, input, search_generation, navigation_generation, compact);
+  }
+  return read_navigation_page(db, input, navigation_generation, compact);
 }
 
 const WARNING_SCAN_BATCH_SIZE = 2_000;
@@ -132,7 +189,8 @@ let warning_match_cache: { key: string; index: WarningMatchIndex } | null = null
 function read_warning_filtered_page(
   db: DatabaseSync,
   input: FateExtraPreviewReadonlyQuery,
-  generation: number,
+  search_generation: number,
+  navigation_generation: number,
   warning: FateExtraPreviewWarningCode,
   compact: boolean,
 ): DatabaseJsonValue {
@@ -146,17 +204,24 @@ function read_warning_filtered_page(
     return total;
   };
   const unique_scope = input.viewMode === "unique" && (!compact || input.filePath === "");
-  const offset = safe_offset(input.offset);
+  const position = safe_position(input.position);
   const limit = safe_limit(input.limit);
-  const cache_key = build_warning_cache_key(input, generation, warning, compact);
+  const cache_key = build_warning_cache_key(input, search_generation, warning, compact);
   let index = warning_match_cache?.key === cache_key ? warning_match_cache.index : null;
   if (index === null) {
     index = unique_scope
-      ? scan_unique_warning_index(db, input, generation, warning, compact, measure_encoded_bytes)
+      ? scan_unique_warning_index(
+          db,
+          input,
+          search_generation,
+          warning,
+          compact,
+          measure_encoded_bytes,
+        )
       : scan_occurrence_warning_index(
           db,
           input,
-          generation,
+          search_generation,
           warning,
           compact,
           measure_encoded_bytes,
@@ -164,21 +229,14 @@ function read_warning_filtered_page(
     warning_match_cache = { key: cache_key, index };
   }
   const total = "units" in index ? index.units.length : index.ids.length;
-  const rows = hydrate_warning_page(db, index, offset, limit).map((row) => ({
+  const rows = hydrate_warning_page(db, index, position, limit).map((row) => ({
     ...row,
     fe_warning_codes: [warning],
   }));
   const file_rows = input.includeFiles
     ? compact
-      ? read_compact_file_rows(db)
-      : (db
-          .prepare(`
-            SELECT file_path, occurrence_count AS count
-            FROM fate_extra_file_summary
-            ORDER BY first_item_id
-            LIMIT 200
-          `)
-          .all() as DatabaseRow[])
+      ? read_navigation_file_rows(db, navigation_generation, input.viewMode, true)
+      : read_navigation_file_rows(db, navigation_generation, input.viewMode, false)
     : [];
   return {
     ...as_record(page_result(rows, { count: total }, file_rows, input.viewMode)),
@@ -622,310 +680,371 @@ function compact_occurrence_select_columns_sql(): string {
   `;
 }
 
-function read_occurrence_page(
+function read_navigation_page(
   db: DatabaseSync,
   input: FateExtraPreviewReadonlyQuery,
   generation: number,
+  compact: boolean,
 ): DatabaseJsonValue {
-  if (input.search !== "" && input.filePath === "" && input.category === "") {
-    return read_indexed_occurrence_search_page(db, input, generation);
-  }
-  const conditions: string[] = [];
-  const parameters: QueryValue[] = [];
-  if (input.filePath !== "") {
-    conditions.push(`item.id IN (
-      SELECT mapping.item_id
-      FROM fate_extra_preview_search_mapping AS mapping
-      JOIN fate_extra_preview_search_document AS document
-        ON document.document_id = mapping.document_id
-        AND document.generation = mapping.generation
-      WHERE mapping.generation = ?
-        AND mapping.field = 'file-exact'
-        AND document.search_text = ?
-    )`);
-    parameters.push(generation, input.filePath);
-  }
-  if (input.category !== "") {
-    conditions.push(`item.id IN (
-      SELECT item_id FROM fate_extra_preview_search_item
-      WHERE generation = ? AND category = ?
-    )`);
-    parameters.push(generation, input.category);
-  }
-  if (input.search !== "") {
-    const filter = build_search_filter(input.search, "item.id", generation);
-    conditions.push(filter.sql);
-    parameters.push(...filter.parameters);
-  }
-  const where = conditions.length === 0 ? "" : ` WHERE ${conditions.join(" AND ")}`;
-  const total_row = input.includeTotal
-    ? db.prepare(`SELECT COUNT(*) AS count FROM items AS item${where}`).get(...parameters)
-    : undefined;
-  const rows = db
-    .prepare(
-      `SELECT item.id, item.data FROM items AS item${where} ORDER BY item.id LIMIT ? OFFSET ?`,
-    )
-    .all(...parameters, safe_limit(input.limit), safe_offset(input.offset))
-    .map((row) => ({ ...as_record(parse_json(row["data"])), id: row_number(row, "id") }));
+  const position = safe_position(input.position);
+  const limit = safe_limit(input.limit);
+  const compact_file_uses_occurrences =
+    compact && input.filePath !== "" && input.filePath !== FATE_EXTRA_SUPPLEMENT_FILE;
+  const unique_scope = input.viewMode === "unique" && !compact_file_uses_occurrences;
+  const rows = unique_scope
+    ? read_navigation_unit_page(db, input, generation, compact, position, limit)
+    : read_navigation_occurrence_page(db, input, generation, compact, position, limit);
+  const total = read_navigation_total(db, input, generation, compact, unique_scope);
   const file_rows = input.includeFiles
-    ? db
-        .prepare(`
-          SELECT file_path, occurrence_count AS count
-          FROM fate_extra_file_summary
-          ORDER BY first_item_id
-          LIMIT 200
-        `)
-        .all()
+    ? read_navigation_file_rows(db, generation, input.viewMode, compact)
     : [];
-  return page_result(rows, total_row, file_rows, input.viewMode);
-}
-
-function read_indexed_occurrence_search_page(
-  db: DatabaseSync,
-  input: FateExtraPreviewReadonlyQuery,
-  generation: number,
-): DatabaseJsonValue {
-  const matched = build_fate_extra_preview_matched_document_query(input.search, generation);
-  const common_table = `WITH matched_document(document_id, field) AS MATERIALIZED (
-    ${matched.sql}
-  )`;
-  const matched_summary = as_record(
-    db
-      .prepare(`${common_table}
-        SELECT COUNT(*) AS document_count, COUNT(DISTINCT field) AS field_count
-        FROM matched_document`)
-      .get(...matched.parameters),
-  );
-  const document_count = row_number(matched_summary, "document_count");
-  const total_row =
-    !input.includeTotal || document_count === 0
-      ? input.includeTotal
-        ? ({ count: 0 } as DatabaseRow)
-        : undefined
-      : db
-          .prepare(`${common_table}
-            ${
-              row_number(matched_summary, "field_count") === 1
-                ? `SELECT COALESCE(SUM(summary.occurrence_count), 0) AS count
-                   FROM matched_document
-                   JOIN fate_extra_preview_search_file_summary AS summary
-                     ON summary.generation = ?
-                     AND summary.document_id = matched_document.document_id`
-                : `SELECT COUNT(DISTINCT mapping.item_id) AS count
-                   FROM matched_document
-                   CROSS JOIN fate_extra_preview_search_mapping AS mapping
-                     INDEXED BY idx_fate_extra_preview_search_item_document
-                   WHERE mapping.generation = ?
-                     AND mapping.document_id = matched_document.document_id`
-            }`)
-          .get(...matched.parameters, generation);
-  const rows =
-    document_count === 0
-      ? []
-      : db
-          .prepare(`${common_table}
-            SELECT item.id, item.data
-            FROM fate_extra_preview_search_mapping AS mapping
-              INDEXED BY idx_fate_extra_preview_search_mapping_item
-            JOIN items AS item ON item.id = mapping.item_id
-            WHERE mapping.generation = ?
-              AND mapping.document_id IN (SELECT document_id FROM matched_document)
-            GROUP BY mapping.item_id
-            ORDER BY mapping.item_id
-            LIMIT ? OFFSET ?`)
-          .all(
-            ...matched.parameters,
-            generation,
-            safe_limit(input.limit),
-            safe_offset(input.offset),
-          )
-          .map((row) => ({ ...as_record(parse_json(row["data"])), id: row_number(row, "id") }));
-  const file_rows = input.includeFiles
-    ? (db
-        .prepare(`
-          SELECT file_path, occurrence_count AS count
-          FROM fate_extra_file_summary
-          ORDER BY first_item_id
-          LIMIT 200
-        `)
-        .all() as DatabaseRow[])
-    : [];
-  return page_result(rows, total_row, file_rows, "occurrence");
-}
-
-function read_compact_page(
-  db: DatabaseSync,
-  input: FateExtraPreviewReadonlyQuery,
-  generation: number,
-): DatabaseJsonValue {
-  if (input.viewMode === "unique" && input.filePath === "") {
-    const page = as_record(read_unique_page(db, { ...input, includeFiles: false }, generation));
-    if (!input.includeFiles) return page as DatabaseJsonValue;
-    const file_rows = read_compact_file_rows(db);
-    page["files"] = file_rows.map((row) => row_text(row, "file_path"));
-    page["file_counts"] = Object.fromEntries(
-      file_rows.map((row) => [row_text(row, "file_path"), row_number(row, "count")]),
-    );
-    page["review_scope"] = "unit";
-    return page as DatabaseJsonValue;
-  }
-
-  const conditions = ["compact_source.excluded_reason = ''"];
-  const parameters: QueryValue[] = [];
-  const deduplicate_supplement =
-    input.viewMode === "unique" && input.filePath === FATE_EXTRA_SUPPLEMENT_FILE;
-  if (input.filePath !== "") {
-    conditions.push("occurrence.file_path = ?");
-    parameters.push(input.filePath);
-  }
-  if (input.category !== "") {
-    conditions.push("occurrence.safety_category = ?");
-    parameters.push(input.category);
-  }
-  if (input.search !== "") {
-    const filter = build_compact_search_filter(input.search, generation);
-    conditions.push(filter.sql);
-    parameters.push(...filter.parameters);
-  }
-  if (deduplicate_supplement) {
-    conditions.push(`occurrence.original_item_id = (
-      SELECT MIN(candidate.original_item_id)
-      FROM fate_extra_compact_occurrence AS candidate
-      WHERE candidate.file_path = occurrence.file_path
-        AND candidate.source_hash = occurrence.source_hash
-    )`);
-  }
-  const where = ` WHERE ${conditions.join(" AND ")}`;
-  const from = `
-    FROM fate_extra_compact_occurrence AS occurrence
-    JOIN fate_extra_compact_source AS compact_source
-      ON compact_source.source_hash = occurrence.source_hash
-    JOIN items AS item ON item.id = compact_source.compact_item_id
-    LEFT JOIN fate_extra_text_occurrence AS text_occurrence
-      ON text_occurrence.item_id = item.id
-  `;
-  const total_row = input.includeTotal
-    ? db.prepare(`SELECT COUNT(*) AS count ${from}${where}`).get(...parameters)
-    : undefined;
-  const order_by =
-    input.filePath === ""
-      ? "occurrence.original_item_id"
-      : "occurrence.row_number, occurrence.original_item_id";
-  const rows = db
-    .prepare(`
-      SELECT
-        occurrence.original_item_id,
-        occurrence.file_path AS occurrence_file_path,
-        occurrence.row_number AS occurrence_row_number,
-        occurrence.resource_path,
-        occurrence.char_offset,
-        occurrence.original_prefix,
-        occurrence.source_line_numbers,
-        occurrence.pass_through,
-        occurrence.display_mode AS occurrence_display_mode,
-        occurrence.safety_category,
-        occurrence.slot_capacity,
-        occurrence.allow_overlength,
-        occurrence.original_machine_translation,
-        compact_source.source,
-        compact_source.occurrence_count,
-        compact_source.compact_item_id,
-        text_occurrence.unit_id,
-        item.data
-      ${from}${where}
-      ORDER BY ${order_by}
-      LIMIT ? OFFSET ?
-    `)
-    .all(...parameters, safe_limit(input.limit), safe_offset(input.offset))
-    .map(project_compact_row);
-  const file_rows = input.includeFiles ? read_compact_file_rows(db) : [];
   return {
-    ...as_record(page_result(rows, total_row, file_rows, input.viewMode)),
-    review_scope: "unit",
-    compact_route_projection: true,
+    ...as_record(page_result(rows, { count: total }, file_rows, input.viewMode)),
+    review_scope: unique_scope ? "unit" : input.viewMode === "unique" ? "unit" : "occurrence",
+    ...(compact && !unique_scope ? { compact_route_projection: true } : {}),
   } as DatabaseJsonValue;
 }
 
-function read_unique_page(
+function read_navigation_occurrence_page(
   db: DatabaseSync,
   input: FateExtraPreviewReadonlyQuery,
   generation: number,
+  compact: boolean,
+  position: number,
+  limit: number,
+): DatabaseRow[] {
+  const position_column = input.filePath === "" ? "global_position" : "file_position";
+  const file_condition = input.filePath === "" ? "" : " AND navigation.file_path = ?";
+  const parameters: QueryValue[] =
+    input.filePath === ""
+      ? [generation, position, limit]
+      : [generation, input.filePath, position, limit];
+  if (!compact) {
+    return db
+      .prepare(`
+        SELECT item.id, item.data
+        FROM fate_extra_preview_navigation_occurrence AS navigation
+        JOIN items AS item ON item.id = navigation.item_id
+        WHERE navigation.generation = ?${file_condition}
+          AND navigation.${position_column} >= ?
+        ORDER BY navigation.${position_column}
+        LIMIT ?
+      `)
+      .all(...parameters)
+      .map((row) => ({ ...as_record(parse_json(row["data"])), id: row_number(row, "id") }));
+  }
+  return db
+    .prepare(`
+      SELECT ${compact_occurrence_select_columns_sql()}
+      FROM fate_extra_preview_navigation_occurrence AS navigation
+      JOIN fate_extra_compact_occurrence AS occurrence
+        ON occurrence.original_item_id = navigation.occurrence_id
+      JOIN fate_extra_compact_source AS compact_source
+        ON compact_source.source_hash = occurrence.source_hash
+      JOIN items AS item ON item.id = compact_source.compact_item_id
+      LEFT JOIN fate_extra_text_occurrence AS text_occurrence
+        ON text_occurrence.item_id = item.id
+      WHERE navigation.generation = ?${file_condition}
+        AND navigation.${position_column} >= ?
+      ORDER BY navigation.${position_column}
+      LIMIT ?
+    `)
+    .all(...parameters)
+    .map(project_compact_row);
+}
+
+function read_navigation_unit_page(
+  db: DatabaseSync,
+  input: FateExtraPreviewReadonlyQuery,
+  generation: number,
+  compact: boolean,
+  position: number,
+  limit: number,
+): DatabaseRow[] {
+  if (input.filePath === "") {
+    return db
+      .prepare(`
+        SELECT navigation.unit_id, navigation.occurrence_count, item.id, item.data
+        FROM fate_extra_preview_navigation_unit AS navigation
+        JOIN items AS item ON item.id = navigation.item_id
+        WHERE navigation.generation = ? AND navigation.position >= ?
+        ORDER BY navigation.position
+        LIMIT ?
+      `)
+      .all(generation, position, limit)
+      .map(project_navigation_unit_row);
+  }
+  if (!compact) {
+    return db
+      .prepare(`
+        SELECT navigation.unit_id, unit.occurrence_count, item.id, item.data
+        FROM fate_extra_preview_navigation_unit_file AS navigation
+        JOIN fate_extra_text_unit AS unit ON unit.unit_id = navigation.unit_id
+        JOIN items AS item ON item.id = navigation.item_id
+        WHERE navigation.generation = ? AND navigation.file_path = ?
+          AND navigation.position >= ?
+        ORDER BY navigation.position
+        LIMIT ?
+      `)
+      .all(generation, input.filePath, position, limit)
+      .map(project_navigation_unit_row);
+  }
+  return db
+    .prepare(`
+      SELECT ${compact_occurrence_select_columns_sql()}
+      FROM fate_extra_preview_navigation_unit_file AS navigation
+      JOIN fate_extra_compact_occurrence AS occurrence
+        ON occurrence.original_item_id = navigation.occurrence_id
+      JOIN fate_extra_compact_source AS compact_source
+        ON compact_source.source_hash = occurrence.source_hash
+      JOIN items AS item ON item.id = compact_source.compact_item_id
+      LEFT JOIN fate_extra_text_occurrence AS text_occurrence
+        ON text_occurrence.item_id = item.id
+      WHERE navigation.generation = ? AND navigation.file_path = ?
+        AND navigation.position >= ?
+      ORDER BY navigation.position
+      LIMIT ?
+    `)
+    .all(generation, input.filePath, position, limit)
+    .map(project_compact_row);
+}
+
+function project_navigation_unit_row(row: DatabaseRow): DatabaseRow {
+  return {
+    ...as_record(parse_json(row["data"])),
+    id: row_number(row, "id"),
+    fe_text_unit_id: row_number(row, "unit_id"),
+    fe_occurrence_count: row_number(row, "occurrence_count"),
+  };
+}
+
+function read_navigation_total(
+  db: DatabaseSync,
+  input: FateExtraPreviewReadonlyQuery,
+  generation: number,
+  compact: boolean,
+  unique_scope: boolean,
+): number {
+  if (input.filePath === "") {
+    const key = unique_scope ? "unique_count" : "occurrence_count";
+    return row_number(
+      db
+        .prepare(`SELECT ${key} FROM fate_extra_preview_navigation_generation WHERE generation = ?`)
+        .get(generation) ?? {},
+      key,
+    );
+  }
+  const row =
+    db
+      .prepare(`
+        SELECT unique_count, occurrence_count
+        FROM fate_extra_preview_navigation_file_summary
+        WHERE generation = ? AND file_path = ?
+      `)
+      .get(generation, input.filePath) ?? {};
+  const use_unique = unique_scope && (!compact || input.filePath === FATE_EXTRA_SUPPLEMENT_FILE);
+  return row_number(row, use_unique ? "unique_count" : "occurrence_count");
+}
+
+type FilteredMatchIndex = WarningMatchIndex;
+
+let filtered_match_cache: { key: string; index: FilteredMatchIndex } | null = null;
+
+function read_index_filtered_page(
+  db: DatabaseSync,
+  input: FateExtraPreviewReadonlyQuery,
+  search_generation: number,
+  navigation_generation: number,
+  compact: boolean,
 ): DatabaseJsonValue {
-  const conditions: string[] = [];
-  const parameters: QueryValue[] = [];
+  const compact_file_uses_occurrences =
+    compact && input.filePath !== "" && input.filePath !== FATE_EXTRA_SUPPLEMENT_FILE;
+  const unique_scope = input.viewMode === "unique" && !compact_file_uses_occurrences;
+  const key = JSON.stringify([
+    input.projectPath,
+    input.projectEpoch ?? 0,
+    input.expectedItemsRevision,
+    search_generation,
+    navigation_generation,
+    compact,
+    input.viewMode,
+    input.search,
+    input.filePath,
+    input.category,
+  ]);
+  let index = filtered_match_cache?.key === key ? filtered_match_cache.index : null;
+  if (index === null) {
+    index = unique_scope
+      ? scan_navigation_unit_matches(db, input, search_generation, navigation_generation, compact)
+      : scan_navigation_occurrence_matches(
+          db,
+          input,
+          search_generation,
+          navigation_generation,
+          compact,
+        );
+    filtered_match_cache = { key, index };
+  }
+  const total = "units" in index ? index.units.length : index.ids.length;
+  const rows = hydrate_warning_page(
+    db,
+    index,
+    safe_position(input.position),
+    safe_limit(input.limit),
+  );
+  const file_rows = input.includeFiles
+    ? read_navigation_file_rows(db, navigation_generation, input.viewMode, compact)
+    : [];
+  return {
+    ...as_record(page_result(rows, { count: total }, file_rows, input.viewMode)),
+    review_scope: unique_scope ? "unit" : input.viewMode === "unique" ? "unit" : "occurrence",
+    ...(compact && !unique_scope ? { compact_route_projection: true } : {}),
+  } as DatabaseJsonValue;
+}
+
+function scan_navigation_occurrence_matches(
+  db: DatabaseSync,
+  input: FateExtraPreviewReadonlyQuery,
+  search_generation: number,
+  navigation_generation: number,
+  compact: boolean,
+): FilteredMatchIndex {
+  const conditions = ["navigation.generation = ?"];
+  const parameters: QueryValue[] = [navigation_generation];
+  if (input.filePath !== "") {
+    conditions.push("navigation.file_path = ?");
+    parameters.push(input.filePath);
+  }
+  if (input.category !== "") {
+    conditions.push(
+      compact
+        ? "occurrence.safety_category = ?"
+        : `navigation.item_id IN (
+            SELECT item_id FROM fate_extra_preview_search_item
+            WHERE generation = ? AND category = ?
+          )`,
+    );
+    if (!compact) parameters.push(search_generation);
+    parameters.push(input.category);
+  }
+  if (input.search !== "") {
+    const filter = compact
+      ? build_compact_search_filter(input.search, search_generation)
+      : build_search_filter(input.search, "navigation.item_id", search_generation);
+    conditions.push(filter.sql);
+    parameters.push(...filter.parameters);
+  }
+  const order_by =
+    input.filePath === "" ? "navigation.global_position" : "navigation.file_position";
+  const rows = db
+    .prepare(`
+      SELECT navigation.occurrence_id
+      FROM fate_extra_preview_navigation_occurrence AS navigation
+      ${
+        compact
+          ? "JOIN fate_extra_compact_occurrence AS occurrence ON occurrence.original_item_id = navigation.occurrence_id"
+          : ""
+      }
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY ${order_by}
+    `)
+    .all(...parameters);
+  return {
+    kind: compact ? "compact-occurrence" : "normal-occurrence",
+    ids: rows.map((row) => row_number(row, "occurrence_id")),
+  };
+}
+
+function scan_navigation_unit_matches(
+  db: DatabaseSync,
+  input: FateExtraPreviewReadonlyQuery,
+  search_generation: number,
+  navigation_generation: number,
+  compact: boolean,
+): FilteredMatchIndex {
+  if (compact && input.filePath === FATE_EXTRA_SUPPLEMENT_FILE) {
+    const conditions = ["navigation.generation = ?", "navigation.file_path = ?"];
+    const parameters: QueryValue[] = [navigation_generation, input.filePath];
+    if (input.category !== "") {
+      conditions.push("occurrence.safety_category = ?");
+      parameters.push(input.category);
+    }
+    if (input.search !== "") {
+      const filter = build_compact_search_filter(input.search, search_generation);
+      conditions.push(filter.sql);
+      parameters.push(...filter.parameters);
+    }
+    return {
+      kind: "compact-unique",
+      units: db
+        .prepare(`
+          SELECT navigation.unit_id, navigation.occurrence_id AS physical_occurrence_id,
+            navigation.position AS order_id
+          FROM fate_extra_preview_navigation_unit_file AS navigation
+          JOIN fate_extra_compact_occurrence AS occurrence
+            ON occurrence.original_item_id = navigation.occurrence_id
+          WHERE ${conditions.join(" AND ")}
+          ORDER BY navigation.position
+        `)
+        .all(...parameters)
+        .map((row) => ({
+          unit_id: row_number(row, "unit_id"),
+          physical_occurrence_id: row_number(row, "physical_occurrence_id"),
+          order_id: row_number(row, "order_id"),
+        })),
+    };
+  }
+  const conditions = ["navigation.generation = ?"];
+  const parameters: QueryValue[] = [navigation_generation];
   if (input.filePath !== "") {
     conditions.push(`EXISTS (
-      SELECT 1
-      FROM fate_extra_preview_search_item AS filtered_item
-      JOIN fate_extra_preview_search_mapping AS mapping
-        ON mapping.generation = filtered_item.generation
-        AND mapping.item_id = filtered_item.item_id
-      JOIN fate_extra_preview_search_document AS document
-        ON document.generation = mapping.generation
-        AND document.document_id = mapping.document_id
-      WHERE filtered_item.generation = ?
-        AND filtered_item.unit_id = unit.unit_id
-        AND mapping.field = 'file-exact'
-        AND document.search_text = ?
+      SELECT 1 FROM fate_extra_preview_navigation_unit_file AS unit_file
+      WHERE unit_file.generation = navigation.generation
+        AND unit_file.file_path = ? AND unit_file.unit_id = navigation.unit_id
     )`);
-    parameters.push(generation, input.filePath);
+    parameters.push(input.filePath);
   }
   if (input.category !== "") {
     conditions.push(`EXISTS (
-      SELECT 1
-      FROM fate_extra_preview_search_item AS filtered_item
-      WHERE filtered_item.generation = ?
-        AND filtered_item.unit_id = unit.unit_id
-        AND filtered_item.category = ?
+      SELECT 1 FROM fate_extra_preview_search_item AS search_item
+      WHERE search_item.generation = ? AND search_item.unit_id = navigation.unit_id
+        AND search_item.category = ?
     )`);
-    parameters.push(generation, input.category);
+    parameters.push(search_generation, input.category);
   }
   if (input.search !== "") {
     const filter = build_search_filter(
       input.search,
-      "unit.unit_id",
-      generation,
+      "navigation.unit_id",
+      search_generation,
       "search_item.unit_id",
     );
     conditions.push(filter.sql);
     parameters.push(...filter.parameters);
   }
-  const where = conditions.length === 0 ? "" : ` WHERE ${conditions.join(" AND ")}`;
-  const total_row = input.includeTotal
-    ? db
-        .prepare(`SELECT COUNT(*) AS count FROM fate_extra_text_unit AS unit${where}`)
-        .get(...parameters)
-    : undefined;
   const rows = db
     .prepare(`
-      SELECT unit.unit_id, unit.occurrence_count, item.id, item.data
-      FROM fate_extra_text_unit AS unit
-      JOIN items AS item ON item.id = unit.representative_item_id
-      ${where}
-      ORDER BY unit.representative_item_id
-      LIMIT ? OFFSET ?
+      SELECT navigation.unit_id, navigation.item_id,
+        (SELECT MIN(occurrence.occurrence_id)
+         FROM fate_extra_preview_navigation_occurrence AS occurrence
+         WHERE occurrence.generation = navigation.generation
+           AND occurrence.unit_id = navigation.unit_id) AS physical_occurrence_id,
+        navigation.position AS order_id
+      FROM fate_extra_preview_navigation_unit AS navigation
+      WHERE ${conditions.join(" AND ")}
+      ORDER BY navigation.position
     `)
-    .all(...parameters, safe_limit(input.limit), safe_offset(input.offset))
-    .map((row) => ({
-      ...as_record(parse_json(row["data"])),
-      id: row_number(row, "id"),
-      fe_text_unit_id: row_number(row, "unit_id"),
-      fe_occurrence_count: row_number(row, "occurrence_count"),
-    }));
-  const file_rows = input.includeFiles
-    ? db
-        .prepare(`
-          SELECT file_path, occurrence_count AS count
-          FROM fate_extra_file_summary
-          ORDER BY first_item_id
-          LIMIT 200
-        `)
-        .all()
-    : [];
+    .all(...parameters);
   return {
-    ...as_record(page_result(rows, total_row, file_rows, "unique")),
-    review_scope: "unit",
-  } as DatabaseJsonValue;
+    kind: compact ? "compact-unique" : "normal-unique",
+    units: rows.map((row) => ({
+      unit_id: row_number(row, "unit_id"),
+      physical_occurrence_id: compact
+        ? row_number(row, "physical_occurrence_id")
+        : row_number(row, "item_id"),
+      order_id: row_number(row, "order_id"),
+    })),
+  };
 }
 
 function build_search_filter(
@@ -1043,25 +1162,29 @@ function project_compact_row(row: DatabaseRow): DatabaseRow {
   };
 }
 
-function read_compact_file_rows(db: DatabaseSync): DatabaseRow[] {
+function read_navigation_file_rows(
+  db: DatabaseSync,
+  generation: number,
+  view_mode: "unique" | "occurrence",
+  compact: boolean,
+): DatabaseRow[] {
+  const count_expression =
+    view_mode === "occurrence"
+      ? "occurrence_count"
+      : compact
+        ? `CASE WHEN file_path = ? THEN unique_count ELSE occurrence_count END`
+        : "occurrence_count";
+  const parameters: QueryValue[] =
+    compact && view_mode === "unique" ? [FATE_EXTRA_SUPPLEMENT_FILE] : [];
   return db
     .prepare(`
-      SELECT
-        occurrence.file_path,
-        CASE WHEN occurrence.file_path = ?
-          THEN COUNT(DISTINCT occurrence.source_hash)
-          ELSE COUNT(*)
-        END AS count,
-        MIN(occurrence.original_item_id) AS first_item_id
-      FROM fate_extra_compact_occurrence AS occurrence
-      JOIN fate_extra_compact_source AS compact_source
-        ON compact_source.source_hash = occurrence.source_hash
-      WHERE compact_source.excluded_reason = ''
-      GROUP BY occurrence.file_path
-      ORDER BY first_item_id
+      SELECT file_path, ${count_expression} AS count, first_occurrence_id AS first_item_id
+      FROM fate_extra_preview_navigation_file_summary
+      WHERE generation = ?
+      ORDER BY first_occurrence_id
       LIMIT 200
     `)
-    .all(FATE_EXTRA_SUPPLEMENT_FILE) as DatabaseRow[];
+    .all(...parameters, generation) as DatabaseRow[];
 }
 
 function page_result(
@@ -1081,7 +1204,7 @@ function page_result(
   };
 }
 
-function safe_offset(value: number): number {
+function safe_position(value: number): number {
   return Math.max(0, Math.trunc(value));
 }
 
@@ -1091,6 +1214,24 @@ function safe_limit(value: number): number {
 
 function parse_json(value: unknown): DatabaseJsonValue {
   return typeof value === "string" ? JsonTool.parseStrict<DatabaseJsonValue>(value) : null;
+}
+
+function read_compact_enabled(db: DatabaseSync): boolean {
+  const value = db.prepare("SELECT value FROM meta WHERE key = 'fate_extra.compact.v1'").get()?.[
+    "value"
+  ];
+  if (typeof value !== "string") return false;
+  try {
+    const parsed = JsonTool.parseStrict<unknown>(value);
+    return (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      !Array.isArray(parsed) &&
+      (parsed as DatabaseRow)["enabled"] === true
+    );
+  } catch {
+    return false;
+  }
 }
 
 function as_record(value: unknown): DatabaseRow {

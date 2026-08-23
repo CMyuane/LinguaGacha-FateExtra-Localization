@@ -41,6 +41,7 @@ import {
 } from "../project/project-changes";
 import { count_analysis_glossary_candidates } from "../../shared/analysis-candidate";
 import { is_task_skipped_item_status } from "../../domain/task";
+import { resolve_fate_extra_project_mode } from "../../shared/fate-extra/fate-extra-types";
 import * as AppErrors from "../../shared/error";
 import { t_main_log } from "../log/log-text";
 
@@ -431,17 +432,23 @@ export class WorkbenchService {
     const mode = String(request["mode"] ?? "").toLowerCase();
     this.assert_no_legacy_fields(request, ["items", "translation_extras", "prefilter_config"]);
     return this.project_operation_gate.run_exclusive_project_write(async () => {
+      const project_mode = resolve_fate_extra_project_mode(this.get_all_meta(project_path));
+      if (project_mode === "fate-extra-unmaterialized") {
+        throw new AppErrors.ProjectCompactRequiredError();
+      }
       if (mode === "all") {
-        const reset_item_drafts = await this.reparse_all_asset_identity_items(project_path);
         const settings = this.read_project_write_settings(
           project_path,
           request["project_settings"],
         );
         const snapshot = this.read_workbench_write_snapshot(project_path);
-        const reset_items = this.bind_reset_all_items_to_current_ids(
-          snapshot.item_records,
-          reset_item_drafts,
-        );
+        const reset_items =
+          project_mode === "fate-extra-compact"
+            ? this.build_compact_reset_all_items(snapshot.item_records)
+            : this.bind_reset_all_items_to_current_ids(
+                snapshot.item_records,
+                await this.reparse_all_asset_identity_items(project_path),
+              );
         const files = this.build_file_section_from_item_records(
           snapshot.asset_records,
           reset_items,
@@ -470,7 +477,7 @@ export class WorkbenchService {
           if (item.status !== "ERROR") {
             continue;
           }
-          item.dst = "";
+          item.dst = project_mode === "fate-extra-compact" ? item.src : "";
           item.name_dst = null;
           item.status = "NONE";
           item.retry_count = 0;
@@ -1042,6 +1049,25 @@ export class WorkbenchService {
       }
     }
     return item_drafts;
+  }
+
+  /**
+   * 精简工程的当前 items 已是可编辑代表项；重置只改翻译字段，保留 FE 身份和校对元数据。
+   */
+  private build_compact_reset_all_items(
+    current_item_records: MutableJsonRecord[],
+  ): ProjectItemPublicRecord[] {
+    const current_items = this.to_public_items_by_id(current_item_records);
+    if (current_items.size !== current_item_records.length) {
+      this.throw_translation_reset_identity_error("current_item_identity_invalid");
+    }
+    return [...current_items.values()].map((item) => ({
+      ...item,
+      dst: item.src,
+      name_dst: null,
+      status: "NONE",
+      retry_count: 0,
+    }));
   }
 
   /**

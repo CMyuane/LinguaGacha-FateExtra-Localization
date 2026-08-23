@@ -44,8 +44,18 @@ type WorkerCommand =
       projectPath: string;
       search: string;
       limit: number;
+      position?: number;
+      filePath?: string;
+      viewMode?: "unique" | "occurrence";
+      includeFiles?: boolean;
     }
   | { kind: "preview-explain"; projectPath: string; search: string }
+  | {
+      kind: "preview-navigation-explain";
+      projectPath: string;
+      position: number;
+      filePath: string;
+    }
   | { kind: "preview-state"; projectPath: string }
   | {
       kind: "compact-export-pass";
@@ -143,19 +153,24 @@ async function execute(command: WorkerCommand): Promise<unknown> {
       return run_fate_extra_preview_search_worker_task({
         projectPath: command.projectPath,
         search: command.search,
-        filePath: "",
+        filePath: command.filePath ?? "",
         category: "",
-        offset: 0,
+        projectEpoch: 1,
+        position: command.position ?? 0,
         limit: command.limit,
-        includeFiles: false,
+        includeFiles: command.includeFiles ?? false,
         includeTotal: true,
-        viewMode: "occurrence",
+        viewMode: command.viewMode ?? "occurrence",
         expectedGeneration: identity.generation,
         expectedItemsRevision: identity.items_revision,
+        expectedNavigationGeneration: identity.navigation_generation,
+        expectedNavigationRevision: identity.items_revision,
       });
     }
     case "preview-explain":
       return explain_preview_search(command.projectPath, command.search);
+    case "preview-navigation-explain":
+      return explain_preview_navigation(command.projectPath, command.position, command.filePath);
     case "preview-state":
       return read_preview_state(command.projectPath);
     case "compact-export-pass":
@@ -795,6 +810,42 @@ function explain_preview_search(project_path: string, search: string): JsonRecor
   }
 }
 
+function explain_preview_navigation(
+  project_path: string,
+  position: number,
+  file_path: string,
+): JsonRecord {
+  const database = new DatabaseSync(project_path, { readOnly: true });
+  try {
+    const generation = read_json_meta_number(database, "fate_extra.preview-navigation.generation");
+    const position_column = file_path === "" ? "global_position" : "file_position";
+    const file_condition = file_path === "" ? "" : " AND navigation.file_path = ?";
+    const sql = `
+      SELECT item.id
+      FROM fate_extra_preview_navigation_occurrence AS navigation
+      JOIN items AS item ON item.id = navigation.item_id
+      WHERE navigation.generation = ?${file_condition}
+        AND navigation.${position_column} >= ?
+      ORDER BY navigation.${position_column}
+      LIMIT ?
+    `;
+    const parameters =
+      file_path === "" ? [generation, position, 160] : [generation, file_path, position, 160];
+    const plan = database
+      .prepare(`EXPLAIN QUERY PLAN ${sql}`)
+      .all(...parameters)
+      .map((row) => String(row["detail"] ?? ""));
+    return {
+      sql_uses_offset: /\bOFFSET\b/iu.test(sql),
+      sql_reads_item_json: /json_extract/iu.test(sql),
+      scans_items: plan.some((detail) => /\bSCAN(?: TABLE)? items\b/iu.test(detail)),
+      plan,
+    };
+  } finally {
+    database.close();
+  }
+}
+
 function read_preview_state(project_path: string): JsonRecord {
   const database = new DatabaseSync(project_path, { readOnly: true });
   try {
@@ -810,12 +861,23 @@ function read_preview_state(project_path: string): JsonRecord {
       `)
       .all()
       .map((row) => ({ ...row }));
+    const navigation_generations = database
+      .prepare(`
+        SELECT generation, items_revision, item_count, unique_count,
+          occurrence_count, file_count, complete
+        FROM fate_extra_preview_navigation_generation
+        ORDER BY generation
+      `)
+      .all()
+      .map((row) => ({ ...row }));
     return {
       active_generation,
       generation_count: generations.length,
-      incomplete_generation_count: generations.filter((row) => Number(row["complete"]) !== 1)
-        .length,
+      incomplete_generation_count:
+        generations.filter((row) => Number(row["complete"]) !== 1).length +
+        navigation_generations.filter((row) => Number(row["complete"]) !== 1).length,
       generations,
+      navigation_generations,
       item_count: Number(
         database.prepare("SELECT COUNT(*) AS count FROM items").get()?.["count"] ?? 0,
       ),
@@ -827,12 +889,17 @@ function read_preview_state(project_path: string): JsonRecord {
 
 function read_preview_identity(project_path: string): {
   generation: number;
+  navigation_generation: number;
   items_revision: number;
 } {
   const database = new DatabaseSync(project_path, { readOnly: true });
   try {
     return {
       generation: read_json_meta_number(database, "fate_extra.preview-search.generation"),
+      navigation_generation: read_json_meta_number(
+        database,
+        "fate_extra.preview-navigation.generation",
+      ),
       items_revision: read_json_meta_number(database, "project_runtime_revision.items"),
     };
   } finally {

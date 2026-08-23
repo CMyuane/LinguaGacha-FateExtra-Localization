@@ -123,20 +123,29 @@ describe("ProjectWriteStore", () => {
         name: "getFateExtraTextUnitIndexState",
         args: { projectPath: project_path },
       }),
-    ).toMatchObject({ search_ready: true, search_generation: 1, search_items_revision: 1 });
+    ).toMatchObject({
+      search_ready: true,
+      search_generation: 1,
+      search_items_revision: 1,
+      navigation_ready: true,
+      navigation_generation: 1,
+      navigation_items_revision: 1,
+    });
     expect(
       run_fate_extra_preview_search_worker_task({
         projectPath: project_path,
         search: "星光译文",
         filePath: "",
         category: "",
-        offset: 0,
+        position: 0,
         limit: 20,
         includeFiles: false,
         includeTotal: true,
         viewMode: "occurrence",
         expectedGeneration: 1,
         expectedItemsRevision: 1,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 1,
       }),
     ).toMatchObject({ total: 1 });
   });
@@ -250,13 +259,15 @@ describe("ProjectWriteStore", () => {
       search: "",
       filePath: "",
       category: "",
-      offset: 0,
+      position: 0,
       limit: 20,
       includeFiles: false,
       includeTotal: true,
       viewMode: "occurrence",
       expectedGeneration: build.generation,
       expectedItemsRevision: 0,
+      expectedNavigationGeneration: build.generation,
+      expectedNavigationRevision: 0,
     });
     const preview_items = (preview as unknown as Record<string, unknown>)["items"] as Array<
       Record<string, unknown>

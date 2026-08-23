@@ -77,11 +77,12 @@ npm run format -- --check
 - 导航测试完整断言五个区域、四条分隔线、区域内顺序、既有子菜单和展开/折叠。
 - 校对缓存测试覆盖热命中零读取、同身份单飞、项目或 revision 切换，以及旧 generation 迟到。
 - 工作台缓存测试覆盖普通、精简 FE、完整 FE 三态；精简工程必须以 28,433 个代表项得到 7,869 个 `PROCESSED`，即使 `dst` 全部非空且 `translation_extras` 过期。完整 FE 打开及热查询不得调用 `getAllItems`，精简工程连续 100 次热快照不得读取完整 items 或数据库。
+- 翻译重置测试覆盖普通、精简 FE 和未物化 FE：精简全量/失败项重置不读物理资源或映射，并保留 item 身份、原文、文件位置、FE 元数据、物理映射、覆盖和最终校对稿；事务故障后数据、revision 和事件均不得留下半成品。
 - 普通与精简 FE 导出测试覆盖主键游标跨 ID 空洞无重漏、查询计划无 OFFSET、格式兼容、路径越界拒绝、无关文件保留、临时输出、revision 冲突和 writer 失败清理；主进程不得调用 `getAllItems` 或接收全量 item payload。
 - FE 扫描与应用测试覆盖 golden fixture 等价、单项目至多一个 draft、精简工程入口拒绝、取消、过期、卸载、dispose、事务回滚，以及 pending manifest 在提交前/后的重启恢复和歧义状态误删保护。
-- 索引测试覆盖重复启动合并、取消、worker 崩溃、revision 变化、旧 cleanup 与新 generation 构建串行化、非活动 generation 清理、原子切换、同路径 close/reopen epoch 隔离和旧完整 generation 可读；warning 查询覆盖第 121 条以后唯一命中仍有精确 total/分页，并覆盖四类 warning 与普通/精简工程。
-- 搜索测试用旧 `includes` 语义作 oracle，覆盖 CJK 1/2/3 字、ASCII 大小写、Ruby、控制符、文件路径、精确计数、跳转、伪造/迟到 `(item_id, unit_id)` 回滚和 `AbortSignal` / latest-wins；查询计划必须证明 FTS 命中集驱动文档主键复核。
-- schema 7 迁移测试覆盖旧普通、FE 与精简项目，并证明打开项目不会同步触发全量索引重建。
+- 索引测试覆盖搜索/导航 generation 重复启动合并、取消、worker 崩溃、revision 变化、旧 cleanup 与新构建串行化、非活动 generation 清理、原子切换和同路径 close/reopen epoch 隔离；导航语义覆盖唯一/物理模式、全局/文件位置、补漏去重、远距离跳页和精确 total。warning 查询覆盖第 121 条以后唯一命中仍可达。
+- 搜索测试用旧 `includes` 语义作 oracle，覆盖 CJK 1/2/3 字、ASCII 大小写、Ruby、控制符、文件路径、精确计数、跳转、伪造/迟到 `(item_id, unit_id)` 回滚和 `AbortSignal` / latest-wins；查询计划必须证明 FTS 命中集驱动文档主键复核，导航计划必须无 `OFFSET`、无 `items` JSON 扫描。
+- schema 8 迁移测试覆盖旧普通、FE 与精简项目，并证明打开项目只创建空派生结构、不同步触发全量索引重建。
 - 既有 FE 回归仍覆盖索引解析与双模式导出、18/19 全宽字边界、第四行溢出、所有从者/性别分支、字库映射/纹理/manifest 一致性、编码槽耗尽安全失败，以及六份当前译文主字库和 Ruby 字库零缺字。
 
 ### 7.2 正式数据一致性
@@ -100,6 +101,7 @@ npm run format -- --check
 | 精简导出 | 189 页时每个 JSON/CSV 流写入次数 ≤191；100k→1m 耗时增长 ≤12 倍；无二次 OFFSET 曲线                           |
 | FE 扫描  | 主进程 50ms 心跳最大漂移 ≤100ms；主进程 heap 增量 <128MiB；ready draft <5MiB；worker RSS 目标 <512MiB        |
 | 索引任务 | 启动/取消请求 ACK p95 ≤100ms；worker 完全退出 ≤500ms；冷建期间 `/health` p95 ≤100ms；取消后 1 秒内无 staging |
+| 预览导航 | generation 就绪后首次加载、文件切换和任意页跳转 p95 ≤200ms；同筛选前后条 p95 ≤100ms；查询计划无 OFFSET/JSON 扫描 |
 | 搜索     | ≥3 字 p95 ≤200ms、p99 ≤500ms；1～2 字 p95 ≤500ms；查询计划不得扫描 `items`/`filtered_item` JSON              |
 | 连续输入 | 十次快速输入只展示最后一次结果；队列不超过 1 active + 1 pending；取消 worker 在 500ms 内退出                 |
 

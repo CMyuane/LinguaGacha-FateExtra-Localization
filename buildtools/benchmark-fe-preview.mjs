@@ -117,6 +117,84 @@ try {
   }
 
   const search_results = [];
+  const navigation_probe = await worker.call({
+    kind: "preview-search",
+    projectPath: indexed_project,
+    search: "",
+    position: 0,
+    limit: 160,
+    includeFiles: true,
+    viewMode: "occurrence",
+  });
+  const probe_files = Array.isArray(navigation_probe.payload.files)
+    ? navigation_probe.payload.files.map(String)
+    : [];
+  const probe_file_counts = navigation_probe.payload.file_counts ?? {};
+  const first_file = probe_files[0] ?? "";
+  const occurrence_count = Number(
+    index_runs[0]?.index_result.navigation_occurrence_count ?? navigation_probe.payload.total ?? 0,
+  );
+  const first_file_count = Number(probe_file_counts[first_file] ?? 0);
+  const navigation_scenarios = [
+    { name: "initial-load", position: 0, file_path: "" },
+    {
+      name: "global-far-jump",
+      position: Math.max(0, Math.floor(occurrence_count * 0.9)),
+      file_path: "",
+    },
+    ...(first_file === ""
+      ? []
+      : [
+          { name: "file-switch", position: 0, file_path: first_file },
+          {
+            name: "file-far-jump",
+            position: Math.max(0, Math.floor(first_file_count * 0.9)),
+            file_path: first_file,
+          },
+        ]),
+  ];
+  const navigation_results = [];
+  for (const scenario of navigation_scenarios) {
+    const samples = [];
+    const totals = [];
+    for (let index = 0; index < search_repetitions; index += 1) {
+      const started = performance.now();
+      const result = await worker.call({
+        kind: "preview-search",
+        projectPath: indexed_project,
+        search: "",
+        position: scenario.position,
+        filePath: scenario.file_path,
+        limit: 160,
+        viewMode: "occurrence",
+      });
+      samples.push(performance.now() - started);
+      totals.push(Number(result.payload.total ?? -1));
+    }
+    const latency = summarize_samples(samples);
+    const explain = await worker.call({
+      kind: "preview-navigation-explain",
+      projectPath: indexed_project,
+      position: scenario.position,
+      filePath: scenario.file_path,
+    });
+    navigation_results.push({
+      ...scenario,
+      repetitions: search_repetitions,
+      latency_ms: latency,
+      exact_totals: [...new Set(totals)],
+      explain_query_plan: explain.payload,
+      gates: {
+        latency_p95_at_most_200ms: latency.p95_ms <= 200,
+        exact_total_stable_and_nonnegative:
+          new Set(totals).size === 1 && totals.every((total) => total >= 0),
+        no_offset_or_items_json_scan:
+          explain.payload.sql_uses_offset === false &&
+          explain.payload.sql_reads_item_json === false &&
+          explain.payload.scans_items === false,
+      },
+    });
+  }
   for (const query of queries) {
     for (let index = 0; index < search_warmups; index += 1) {
       await worker.call({
@@ -156,7 +234,6 @@ try {
       repetitions: search_repetitions,
       latency_ms: latency,
       exact_totals: [...new Set(query_counts)],
-      count_and_page_statement_count_per_request: 2,
       worker_heap_delta_mib: summarize_values(worker_heap_deltas),
       explain_query_plan: explain.payload,
       gates: {
@@ -185,11 +262,12 @@ try {
   const gate_summary = build_gate_summary({
     index_runs,
     search_results,
+    navigation_results,
     cancellation,
     formal_profile_observed: index_runs.every(
       (run) =>
         run.state.item_count === 941_489 &&
-        run.index_result.occurrence_count === 941_489 &&
+        run.index_result.navigation_occurrence_count === 941_489 &&
         run.index_result.unit_count === 28_433,
     ),
     require_complete_profile: !self_check && !allow_partial,
@@ -203,7 +281,8 @@ try {
     setup,
     methodology: {
       index_scope: "每次从 SQLite backup 生成独立副本，并通过生产 preview index worker task 冷建。",
-      search_scope: "通过生产只读 preview worker task 同时执行精确 COUNT 与 160 行分页。",
+      search_scope:
+        "通过生产只读 preview worker task 构建或复用精确结果位置缓存，并返回 160 行分页。",
       main_health_proxy:
         "50ms 主线程心跳用于测量阻塞；本脚本不启动 HTTP 服务，/health p95 需在 Electron 集成验收复核。",
       cancellation_scope:
@@ -244,13 +323,14 @@ try {
       },
     },
     search: search_results,
+    navigation: navigation_results,
     query_accounting: {
       index_worker_dispatch_count: index_warmups + index_repetitions + cancel_repetitions,
       index_cleanup_worker_dispatch_count: cancel_repetitions,
       search_worker_request_count: queries.length * (search_warmups + search_repetitions),
-      count_and_page_statement_count: queries.length * (search_warmups + search_repetitions) * 2,
-      sqlite_identity_and_internal_statement_count:
-        "not-instrumented; reported count covers the user-visible exact COUNT and page statements",
+      navigation_worker_request_count: 1 + navigation_scenarios.length * search_repetitions,
+      sqlite_statement_count:
+        "not-instrumented; navigation and filtered match caches use different hydration shapes",
     },
     cancellation,
     gate_summary,
@@ -394,6 +474,7 @@ async function run_single_cancellation_probe(args) {
 function build_gate_summary({
   index_runs,
   search_results,
+  navigation_results,
   cancellation,
   formal_profile_observed,
   require_complete_profile,
@@ -413,6 +494,10 @@ function build_gate_summary({
     },
     ...search_results.map((result, index) => ({
       prefix: `search[${index.toString()}].gates`,
+      value: result.gates,
+    })),
+    ...navigation_results.map((result, index) => ({
+      prefix: `navigation[${index.toString()}].gates`,
       value: result.gates,
     })),
     { prefix: "cancellation.gates", value: cancellation.gates },

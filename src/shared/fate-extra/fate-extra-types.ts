@@ -9,6 +9,8 @@ export const FATE_EXTRA_CONTROL_WARNING_CODE = "FE_CONTROL_SYNTAX";
 export const FATE_EXTRA_SAFETY_BLOCKER_CODE = "FE_SAFETY_BLOCKER";
 export const FATE_EXTRA_SCHEMA_VERSION = 1;
 
+export type FateExtraProjectMode = "standard" | "fate-extra-compact" | "fate-extra-unmaterialized";
+
 // Runtime paths are deliberately user-selected.  Never bake a developer machine path
 // into a distributable build.
 export const FATE_EXTRA_DEFAULT_CLASSIFICATION_DATABASE = "";
@@ -96,6 +98,30 @@ export type FateExtraFileFormat = {
   eol: "\r\n" | "\n" | "\r";
   trailing_eol: boolean;
 };
+
+/**
+ * 只按持久 meta 身份区分普通、精简 FE 与未物化 FE，避免各消费方维护不同判定。
+ */
+export function resolve_fate_extra_project_mode(
+  meta: Readonly<Record<string, unknown>>,
+): FateExtraProjectMode {
+  const adapter = meta[FATE_EXTRA_ADAPTER_META_KEY];
+  const compact = meta[FATE_EXTRA_COMPACT_META_KEY];
+  const adapter_enabled =
+    typeof adapter === "object" &&
+    adapter !== null &&
+    !Array.isArray(adapter) &&
+    (adapter as Record<string, unknown>)["enabled"] === true;
+  if (!adapter_enabled) {
+    return "standard";
+  }
+  const compact_enabled =
+    typeof compact === "object" &&
+    compact !== null &&
+    !Array.isArray(compact) &&
+    (compact as Record<string, unknown>)["enabled"] === true;
+  return compact_enabled ? "fate-extra-compact" : "fate-extra-unmaterialized";
+}
 
 export function read_fate_extra_item_metadata(
   extra_field: JsonValue | undefined,

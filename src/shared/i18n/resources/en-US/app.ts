@@ -133,6 +133,10 @@ export const en_us_app = {
         message: "The project file does not exist …",
         action: "Make sure the project file is still in its original location …",
       },
+      compact_required: {
+        message: "This Fate/Extra project has not been compacted …",
+        action: "Create and open a compact project from the Toolbox first …",
+      },
     },
     file: {
       not_found: {

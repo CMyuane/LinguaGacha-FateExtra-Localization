@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -460,6 +461,254 @@ describe("WorkbenchService", () => {
         analysis: { payloadMode: "canonical-delta" },
       },
     });
+    database.close();
+  });
+
+  it("精简 FE translation reset all 只重置代表项并保留物理映射", async () => {
+    const { database, service, lg_path } = create_service();
+    const source_path = project_path("route.txt");
+    fs.writeFileSync(source_path, "物理第一行\n物理第二行\n物理第三行", "utf-8");
+    database.execute({
+      name: "addAssetFromSource",
+      args: { projectPath: lg_path, path: "route.txt", sourcePath: source_path, sortOrder: 0 },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 2 },
+      },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.compact.v1",
+        value: { enabled: true, compact_item_count: 1, physical_item_count: 2 },
+      },
+    });
+    const compact_extra_field = {
+      __linguagacha_fe_v1: {
+        schema_version: 1,
+        path: "resource/data.bin",
+        char_offset: 32,
+        original_prefix: "prefix",
+        source_hash: "hash",
+        source_line_numbers: [1],
+        pass_through: [],
+        classification: {
+          category: "dialogue",
+          category_zh: "对白",
+          confidence: "high",
+          reason: "fixture",
+          resource_path: "resource/data.bin",
+          byte_offset: 32,
+          source_bytes: 8,
+          slot_capacity: 16,
+          slot_end: 48,
+          allow_overlength: false,
+          allow_relocation: false,
+          translator_message: "",
+          pointer_offsets: [],
+          address_limit: null,
+          preserve_high16: false,
+          shared_storage_group: "",
+          shared_group_start: null,
+          shared_group_end: null,
+          shared_group_members: null,
+          format_handler: "indexed",
+        },
+        migration_review: false,
+        migration_source: "fixture",
+        proofread_translation: "最终校对稿",
+        display_mode: "poem",
+        compact_source_hash: "hash",
+        compact_occurrence_count: 2,
+      },
+    };
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [
+          create_persistent_item({
+            item_id: 41,
+            src: "代表原文",
+            dst: "机器初翻",
+            name_dst: "译名",
+            extra_field: compact_extra_field,
+            tag: "保留标签",
+            status: "PROCESSED",
+            retry_count: 3,
+            row_number: 17,
+            file_path: "route.txt",
+          }),
+        ],
+      },
+    });
+    const fixture = new DatabaseSync(lg_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES ('hash', '代表原文', 41, 41, 2, '');
+      INSERT INTO fate_extra_compact_occurrence (
+        original_item_id, source_hash, file_path, row_number, resource_path,
+        char_offset, original_prefix, source_line_numbers, pass_through, display_mode
+      ) VALUES
+        (41, 'hash', 'route.txt', 17, 'resource/data.bin', 32, 'prefix', '[1]', '[]', 'poem'),
+        (99, 'hash', 'route.txt', 99, 'resource/data.bin', 64, 'prefix', '[2]', '[]', 'dialogue');
+      INSERT INTO fate_extra_compact_override (original_item_id, translation, updated_at)
+      VALUES (99, '位置覆盖译文', '2026-08-23T00:00:00.000Z');
+    `);
+    const mapping_before = fixture
+      .prepare("SELECT * FROM fate_extra_compact_occurrence ORDER BY original_item_id")
+      .all();
+    const override_before = fixture
+      .prepare("SELECT * FROM fate_extra_compact_override ORDER BY original_item_id")
+      .all();
+    fixture.close();
+    const parse_asset = vi.spyOn(FileFormatService.prototype, "parse_asset");
+    const get_all_items_count = count_database_operations(database, "getAllItems");
+
+    await expect(
+      service.apply_translation_reset({
+        mode: "all",
+        project_settings: {
+          source_language: "ALL",
+          target_language: "ZH",
+          mtool_optimizer_enable: false,
+          skip_duplicate_source_text_enable: false,
+        },
+        expected_section_revisions: { items: 0, analysis: 0 },
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+
+    expect(parse_asset).not.toHaveBeenCalled();
+    expect(get_all_items_count()).toBe(1);
+    expect(database.execute({ name: "getAllItems", args: { projectPath: lg_path } })).toEqual([
+      create_persistent_item({
+        item_id: 41,
+        src: "代表原文",
+        dst: "代表原文",
+        name_dst: null,
+        extra_field: compact_extra_field,
+        tag: "保留标签",
+        status: "NONE",
+        retry_count: 0,
+        row_number: 17,
+        file_path: "route.txt",
+      }),
+    ]);
+    const committed = new DatabaseSync(lg_path, { readOnly: true });
+    expect(
+      committed
+        .prepare("SELECT * FROM fate_extra_compact_occurrence ORDER BY original_item_id")
+        .all(),
+    ).toEqual(mapping_before);
+    expect(
+      committed
+        .prepare("SELECT * FROM fate_extra_compact_override ORDER BY original_item_id")
+        .all(),
+    ).toEqual(override_before);
+    committed.close();
+    database.close();
+  });
+
+  it("精简 FE translation reset failed 只恢复失败代表项的原文占位", async () => {
+    const { database, service, lg_path } = create_service();
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 2 },
+      },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.compact.v1",
+        value: { enabled: true, compact_item_count: 2 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [
+          create_persistent_item({
+            item_id: 41,
+            src: "失败原文",
+            dst: "失败译文",
+            status: "ERROR",
+            retry_count: 2,
+            extra_field: { preserved: true },
+          }),
+          create_persistent_item({
+            item_id: 42,
+            src: "成功原文",
+            dst: "成功译文",
+            status: "PROCESSED",
+          }),
+        ],
+      },
+    });
+    const parse_asset = vi.spyOn(FileFormatService.prototype, "parse_asset");
+
+    await expect(
+      service.apply_translation_reset({
+        mode: "failed",
+        expected_section_revisions: { items: 0 },
+      }),
+    ).resolves.toMatchObject({ accepted: true });
+
+    expect(parse_asset).not.toHaveBeenCalled();
+    expect(database.execute({ name: "getAllItems", args: { projectPath: lg_path } })).toEqual([
+      create_persistent_item({
+        item_id: 41,
+        src: "失败原文",
+        dst: "失败原文",
+        status: "NONE",
+        retry_count: 0,
+        extra_field: { preserved: true },
+      }),
+      create_persistent_item({
+        item_id: 42,
+        src: "成功原文",
+        dst: "成功译文",
+        status: "PROCESSED",
+      }),
+    ]);
+    database.close();
+  });
+
+  it("未物化 FE translation reset 明确要求先创建精简工程且不读取 items", async () => {
+    const { database, service, lg_path } = create_service();
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 941_489 },
+      },
+    });
+    const get_all_items_count = count_database_operations(database, "getAllItems");
+
+    await expect(
+      service.apply_translation_reset({
+        mode: "all",
+        project_settings: { source_language: "ALL", target_language: "ZH" },
+        expected_section_revisions: { items: 0, analysis: 0 },
+      }),
+    ).rejects.toMatchObject({
+      code: "project.compact_required",
+      message_key: "app.error.project.compact_required.message",
+    });
+
+    expect(get_all_items_count()).toBe(0);
     database.close();
   });
 

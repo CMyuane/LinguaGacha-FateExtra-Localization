@@ -96,6 +96,14 @@ describe("fate-extra preview worker task", () => {
     },
   });
 
+  it("预览生产查询不再接受 OFFSET 分页", () => {
+    const source = fs.readFileSync(
+      path.resolve("src/backend/database/fate-extra-preview-readonly.ts"),
+      "utf-8",
+    );
+    expect(source).not.toMatch(/\bOFFSET\b/u);
+  });
+
   it("在独立连接重建索引并用派生投影搜索", () => {
     temp_directory = fs.mkdtempSync(path.join(os.tmpdir(), "linguagacha-fe-preview-worker-"));
     const project_path = path.join(temp_directory, "preview.lg");
@@ -146,17 +154,87 @@ describe("fate-extra preview worker task", () => {
       search: "月海原",
       filePath: "",
       category: "",
-      offset: 0,
+      position: 0,
       limit: 20,
       includeFiles: false,
       includeTotal: true,
       viewMode: "occurrence",
       expectedGeneration: 1,
       expectedItemsRevision: 0,
+      expectedNavigationGeneration: 1,
+      expectedNavigationRevision: 0,
     }) as Record<string, unknown>;
 
     expect(result["total"]).toBe(1);
     expect(result["items"]).toEqual([expect.objectContaining({ id: 1, src: "月海原学园" })]);
+  });
+
+  it("按 generation 位置跨越远距离分页并复用文件内位置", () => {
+    temp_directory = fs.mkdtempSync(path.join(os.tmpdir(), "linguagacha-fe-navigation-"));
+    const project_path = path.join(temp_directory, "navigation.lg");
+    const database = new ProjectDatabase();
+    database.execute({
+      name: "createProject",
+      args: { projectPath: project_path, name: "navigation" },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 260 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: Array.from({ length: 260 }, (_, index) => ({
+          id: index + 1,
+          src: `原文${(index + 1).toString()}`,
+          dst: "",
+          file_path: index % 2 === 0 ? "route-a.txt" : "route-b.txt",
+          row: index,
+          status: "NONE",
+          extra_field: warning_metadata({ path: "route.bin", char_offset: index }),
+        })),
+      },
+    });
+    database.close();
+    expect(build_and_activate(project_path)).toMatchObject({
+      navigation_ready: true,
+      navigation_generation: 1,
+      navigation_items_revision: 0,
+    });
+
+    const query = (position: number, filePath = "") =>
+      run_fate_extra_preview_search_worker_task({
+        projectPath: project_path,
+        search: "",
+        filePath,
+        category: "",
+        position,
+        limit: 20,
+        includeFiles: true,
+        includeTotal: true,
+        viewMode: "occurrence",
+        expectedGeneration: 1,
+        expectedItemsRevision: 0,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 0,
+      }) as Record<string, unknown>;
+    expect(
+      (query(240)["items"] as Array<Record<string, unknown>>).map((item) => item["id"]),
+    ).toEqual(Array.from({ length: 20 }, (_, index) => index + 241));
+    const file_page = query(100, "route-b.txt");
+    expect(file_page["total"]).toBe(130);
+    expect(
+      (file_page["items"] as Array<Record<string, unknown>>).slice(0, 3).map((item) => item["id"]),
+    ).toEqual([202, 204, 206]);
+    expect(file_page).toMatchObject({
+      navigation_generation: 1,
+      applied_navigation_revision: 0,
+    });
   });
 
   it("只读查询不迁移工程，并按字段边界和 generation 身份复核", () => {
@@ -216,13 +294,15 @@ describe("fate-extra preview worker task", () => {
         search: text,
         filePath: "",
         category: "",
-        offset: 0,
+        position: 0,
         limit: 20,
         includeFiles: false,
         includeTotal: true,
         viewMode: "occurrence",
         expectedGeneration: 1,
         expectedItemsRevision: 0,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 0,
       }) as Record<string, unknown>;
     const search = (text: string): number[] =>
       (query(text)["items"] as Array<Record<string, unknown>>).map((item) => Number(item["id"]));
@@ -373,13 +453,15 @@ describe("fate-extra preview worker task", () => {
       filePath: "",
       category: "",
       warning: "FE_MIGRATION_REVIEW",
-      offset: 0,
+      position: 0,
       limit: 120,
       includeFiles: false,
       includeTotal: true,
       viewMode: "occurrence",
       expectedGeneration: 1,
       expectedItemsRevision: 0,
+      expectedNavigationGeneration: 1,
+      expectedNavigationRevision: 0,
     }) as Record<string, unknown>;
 
     expect(result["total"]).toBe(1);
@@ -458,13 +540,15 @@ describe("fate-extra preview worker task", () => {
         category: "",
         warning,
         encodedWidths,
-        offset: 0,
+        position: 0,
         limit: 20,
         includeFiles: false,
         includeTotal: true,
         viewMode: "occurrence",
         expectedGeneration: 1,
         expectedItemsRevision: 0,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 0,
       }) as Record<string, unknown>;
       expect(result["total"]).toBe(1);
       return (result["items"] as Array<Record<string, unknown>>).map((item) => item["id"]);
@@ -522,13 +606,15 @@ describe("fate-extra preview worker task", () => {
         filePath: "",
         category: "",
         warning: "FE_STORAGE_CAPACITY",
-        offset: 0,
+        position: 0,
         limit: 20,
         includeFiles: false,
         includeTotal: true,
         viewMode,
         expectedGeneration: 1,
         expectedItemsRevision: 0,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 0,
       }) as Record<string, unknown>;
     expect(query("occurrence")).toMatchObject({
       total: 1,

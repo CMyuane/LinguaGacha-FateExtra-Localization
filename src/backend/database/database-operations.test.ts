@@ -63,7 +63,11 @@ function query_fate_extra_preview(
   query: Partial<
     Omit<
       FateExtraPreviewSearchWorkerTaskInput,
-      "projectPath" | "expectedGeneration" | "expectedItemsRevision"
+      | "projectPath"
+      | "expectedGeneration"
+      | "expectedItemsRevision"
+      | "expectedNavigationGeneration"
+      | "expectedNavigationRevision"
     >
   > = {},
 ): Record<string, unknown> {
@@ -76,7 +80,7 @@ function query_fate_extra_preview(
     search: "",
     filePath: "",
     category: "",
-    offset: 0,
+    position: 0,
     limit: 20,
     includeFiles: false,
     includeTotal: true,
@@ -84,6 +88,8 @@ function query_fate_extra_preview(
     ...query,
     expectedGeneration: Number(state["search_generation"] ?? 0),
     expectedItemsRevision: Number(state["search_items_revision"] ?? 0),
+    expectedNavigationGeneration: Number(state["navigation_generation"] ?? 0),
+    expectedNavigationRevision: Number(state["navigation_items_revision"] ?? 0),
   }) as Record<string, unknown>;
 }
 

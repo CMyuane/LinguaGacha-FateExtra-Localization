@@ -1,12 +1,13 @@
 import type { ProjectDataRecord } from "../project/project-data";
 import type { ProjectDataSectionRevisions } from "../../shared/project-event";
+import type { FateExtraProjectMode } from "../../shared/fate-extra/fate-extra-types";
 
 /**
  * CacheFreshness 表示 session 热读缓存是否可直接服务查询。
  */
 export type CacheFreshness = "empty" | "fresh" | "recoverable_error";
 
-export type ItemCacheMode = "standard" | "fate-extra-compact" | "fate-extra-unmaterialized";
+export type ItemCacheMode = FateExtraProjectMode;
 
 export type CacheItemSummaryFileEntry = {
   rel_path: string;
