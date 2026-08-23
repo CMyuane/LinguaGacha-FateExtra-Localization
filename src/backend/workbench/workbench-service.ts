@@ -469,14 +469,21 @@ export class WorkbenchService {
           items: this.persistent_items_from_public_record(write_output.items),
           meta: this.build_prefilter_reset_meta(settings, write_output),
           resetAnalysis: true,
+          ...(project_mode === "fate-extra-compact"
+            ? {
+                authoritativeTranslationItemIds: reset_items.map((item) => item.item_id),
+              }
+            : {}),
         });
       }
       if (mode === "failed") {
         const items = this.to_public_item_record(this.get_all_items(project_path));
+        const failed_item_ids: number[] = [];
         for (const item of Object.values(items)) {
           if (item.status !== "ERROR") {
             continue;
           }
+          failed_item_ids.push(item.item_id);
           item.dst = project_mode === "fate-extra-compact" ? item.src : "";
           item.name_dst = null;
           item.status = "NONE";
@@ -488,6 +495,9 @@ export class WorkbenchService {
           expectedSectionRevisions: request["expected_section_revisions"],
           items: this.persistent_items_from_public_record(items),
           translationExtras: translation_extras as MutableJsonRecord,
+          ...(project_mode === "fate-extra-compact"
+            ? { authoritativeTranslationItemIds: failed_item_ids }
+            : {}),
         });
       }
       throw new AppErrors.RequestValidationError();

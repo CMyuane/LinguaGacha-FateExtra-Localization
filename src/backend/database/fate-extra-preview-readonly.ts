@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 
-import { FATE_EXTRA_SUPPLEMENT_FILE } from "../../shared/fate-extra/fate-extra-types";
-import { read_fate_extra_item_metadata } from "../../shared/fate-extra/fate-extra-types";
+import {
+  FATE_EXTRA_SUPPLEMENT_FILE,
+  read_fate_extra_item_metadata,
+  resolve_fate_extra_compact_machine_translation,
+} from "../../shared/fate-extra/fate-extra-types";
 import {
   has_fate_extra_preview_warning,
   is_fate_extra_preview_warning_code,
@@ -675,6 +678,7 @@ function compact_occurrence_select_columns_sql(): string {
     compact_source.source,
     compact_source.occurrence_count,
     compact_source.compact_item_id,
+    compact_source.representative_translation_authoritative,
     text_occurrence.unit_id,
     item.data
   `;
@@ -1133,8 +1137,12 @@ function build_compact_search_filter(
 
 function project_compact_row(row: DatabaseRow): DatabaseRow {
   const item = as_record(parse_json(row["data"]));
-  const occurrence_translation = row_text(row, "original_machine_translation");
-  if (occurrence_translation !== "") item["dst"] = occurrence_translation;
+  item["dst"] = resolve_fate_extra_compact_machine_translation({
+    representativeTranslation: String(item["dst"] ?? ""),
+    originalMachineTranslation: row_text(row, "original_machine_translation"),
+    representativeTranslationAuthoritative:
+      row_number(row, "representative_translation_authoritative") === 1,
+  });
   const extra_field = as_record(item["extra_field"]);
   const metadata = as_record(extra_field["__linguagacha_fe_v1"]);
   const classification = as_record(metadata["classification"]);

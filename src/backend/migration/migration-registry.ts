@@ -1,6 +1,7 @@
 import type { MigrationDescriptor } from "./migration-types";
 import { analysis_checkpoint_status_migration } from "./migrations/analysis-checkpoint-status-migration";
 import { epub_ruby_block_text_migration } from "./migrations/epub-ruby-block-text-migration";
+import { fate_extra_compact_translation_authority_migration } from "./migrations/fate-extra-compact-translation-authority-migration";
 import { legacy_default_config_migration } from "./migrations/legacy-default-config-migration";
 import { project_item_stable_metadata_migration } from "./migrations/project-item-stable-metadata-migration";
 import { project_item_public_contract_migration } from "./migrations/project-item-public-contract-migration";
@@ -25,6 +26,7 @@ export const MIGRATIONS: readonly MigrationDescriptor[] = [
   project_item_stable_metadata_migration,
   trans_item_metadata_migration,
   project_item_public_contract_migration,
+  fate_extra_compact_translation_authority_migration,
   analysis_checkpoint_status_migration,
   text_preserve_mode_migration,
   quality_default_meta_migration,

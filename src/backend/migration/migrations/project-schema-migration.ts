@@ -5,7 +5,7 @@ import type { MigrationDescriptor, ProjectDatabaseMigrationContext } from "../mi
 
 type SchemaRow = Record<string, unknown>;
 
-export const PROJECT_DATABASE_SCHEMA_VERSION = 8; // 只表达当前表结构能力，不承载业务写回完成状态
+export const PROJECT_DATABASE_SCHEMA_VERSION = 9; // 只表达当前表结构能力，不承载业务写回完成状态
 
 /**
  * 迁移背景：
@@ -41,6 +41,7 @@ export class ProjectSchemaMigration {
     this.ensure_preview_search_schema(db);
     this.ensure_asset_sort_order_column(db);
     this.ensure_compact_occurrence_translation_columns(db);
+    this.ensure_compact_source_translation_authority_column(db);
     this.ensure_compact_machine_drafts(db);
     this.write_meta_version(db, "schema_version", PROJECT_DATABASE_SCHEMA_VERSION);
   }
@@ -209,7 +210,8 @@ export class ProjectSchemaMigration {
         excluded_reason TEXT NOT NULL DEFAULT '',
         machine_translation_count INTEGER NOT NULL DEFAULT 0,
         proofread_translation_count INTEGER NOT NULL DEFAULT 0,
-        safety_category_count INTEGER NOT NULL DEFAULT 0
+        safety_category_count INTEGER NOT NULL DEFAULT 0,
+        representative_translation_authoritative INTEGER NOT NULL DEFAULT 0
       );
       CREATE TABLE IF NOT EXISTS fate_extra_compact_occurrence (
         original_item_id INTEGER PRIMARY KEY,
@@ -402,6 +404,26 @@ export class ProjectSchemaMigration {
         db.exec(`ALTER TABLE fate_extra_compact_occurrence ADD COLUMN ${column} ${definition}`);
       }
     }
+  }
+
+  /**
+   * Schema v9 records whether a compact representative translation supersedes
+   * every physical occurrence's retained machine draft.
+   */
+  private static ensure_compact_source_translation_authority_column(db: DatabaseSync): void {
+    const columns = new Set(
+      db
+        .prepare("PRAGMA table_info(fate_extra_compact_source)")
+        .all()
+        .map((row) => row_text(row, "name")),
+    );
+    if (columns.has("representative_translation_authoritative")) {
+      return;
+    }
+    db.exec(`
+      ALTER TABLE fate_extra_compact_source
+      ADD COLUMN representative_translation_authoritative INTEGER NOT NULL DEFAULT 0
+    `);
   }
 
   /**

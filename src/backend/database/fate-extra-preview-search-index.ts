@@ -1,6 +1,7 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
 
 import { JsonTool } from "../../shared/utils/json-tool";
+import { resolve_fate_extra_compact_machine_translation } from "../../shared/fate-extra/fate-extra-types";
 import {
   activate_fate_extra_preview_navigation_generation,
   advance_fate_extra_preview_navigation_revision,
@@ -653,7 +654,8 @@ export function refresh_fate_extra_preview_search_documents(
           SELECT
             occurrence.original_item_id,
             occurrence.original_machine_translation,
-            source.source
+            source.source,
+            source.representative_translation_authoritative
           FROM fate_extra_compact_source AS source
           JOIN fate_extra_compact_occurrence AS occurrence
             ON occurrence.source_hash = source.source_hash
@@ -688,10 +690,15 @@ export function refresh_fate_extra_preview_search_documents(
     }
     for (const occurrence of compact_occurrences) {
       const occurrence_id = row_number(occurrence, "original_item_id");
-      const original_dst = row_text(occurrence, "original_machine_translation");
+      const machine_translation = resolve_fate_extra_compact_machine_translation({
+        representativeTranslation: item_text(item, "dst"),
+        originalMachineTranslation: row_text(occurrence, "original_machine_translation"),
+        representativeTranslationAuthoritative:
+          row_number(occurrence, "representative_translation_authoritative") === 1,
+      });
       for (const [field, text] of [
         ["src", row_text(occurrence, "source")],
-        ["dst", original_dst === "" ? item_text(item, "dst") : original_dst],
+        ["dst", machine_translation],
         ["proofread", item_text(metadata, "proofread_translation")],
       ] as const) {
         const document_id = ensure_document(generation, field, text, document_statements);
@@ -842,7 +849,7 @@ function build_search_item_batch(
       ["src", "source.source"],
       [
         "dst",
-        "CASE WHEN occurrence.original_machine_translation <> '' THEN occurrence.original_machine_translation ELSE COALESCE(json_extract(item.data, '$.dst'), '') END",
+        "CASE WHEN source.representative_translation_authoritative = 1 THEN COALESCE(json_extract(item.data, '$.dst'), '') WHEN occurrence.original_machine_translation <> '' THEN occurrence.original_machine_translation ELSE COALESCE(json_extract(item.data, '$.dst'), '') END",
       ],
       [
         "proofread",

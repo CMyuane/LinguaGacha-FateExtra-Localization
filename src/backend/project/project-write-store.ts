@@ -357,6 +357,14 @@ export class ProjectWriteStore {
             patch: request.fieldPatch as unknown as DatabaseJsonValue,
           }),
         ];
+        if (Object.prototype.hasOwnProperty.call(request.fieldPatch, "dst")) {
+          operations.push(
+            this.mark_fate_extra_compact_translation_operation(
+              request.projectPath,
+              changed_item_ids,
+            ),
+          );
+        }
         if (request.updateTranslationExtras) {
           operations.push(
             this.op("upsertMetaEntries", {
@@ -400,6 +408,9 @@ export class ProjectWriteStore {
       item_id: this.read_positive_item_id(change.next["id"], "proofreading_patch_item_id"),
       patch: this.build_translation_patch_from_items(change.current, change.next),
     }));
+    const authoritative_translation_item_ids = patches
+      .filter((patch) => patch.patch.dst !== undefined)
+      .map((patch) => patch.item_id);
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
       expectedSectionRevisions: request.expectedSectionRevisions,
@@ -415,6 +426,14 @@ export class ProjectWriteStore {
             patches: this.to_database_translation_patches(patches),
           }),
         ];
+        if (authoritative_translation_item_ids.length > 0) {
+          operations.push(
+            this.mark_fate_extra_compact_translation_operation(
+              request.projectPath,
+              authoritative_translation_item_ids,
+            ),
+          );
+        }
         if (request.updateTranslationExtras) {
           operations.push(
             this.op("upsertMetaEntries", {
@@ -454,6 +473,7 @@ export class ProjectWriteStore {
     items?: MutableJsonRecord[];
     meta?: MutableJsonRecord;
     resetAnalysis?: boolean;
+    authoritativeTranslationItemIds?: number[];
     itemsPayload?: Pick<ProjectChangeItemsPayload, "payloadMode" | "changedIds" | "deleteIds">;
     filesPayload?: Pick<ProjectChangeFilesPayload, "payloadMode" | "changedPaths" | "deletePaths">;
     sections?: RuntimeCommitRequest["sections"];
@@ -491,6 +511,14 @@ export class ProjectWriteStore {
               projectPath: request.projectPath,
               items: request.items as unknown as DatabaseJsonValue,
             }),
+          );
+        }
+        if ((request.authoritativeTranslationItemIds?.length ?? 0) > 0) {
+          operations.push(
+            this.mark_fate_extra_compact_translation_operation(
+              request.projectPath,
+              request.authoritativeTranslationItemIds ?? [],
+            ),
           );
         }
         if (request.meta !== undefined && Object.keys(request.meta).length > 0) {
@@ -762,6 +790,7 @@ export class ProjectWriteStore {
     expectedSectionRevisions: ApiJsonValue | undefined;
     items: MutableJsonRecord[];
     translationExtras: MutableJsonRecord;
+    authoritativeTranslationItemIds?: number[];
   }): Promise<ProjectWriteResult> {
     return await this.replace_workbench_items_and_files({
       projectPath: request.projectPath,
@@ -773,6 +802,7 @@ export class ProjectWriteStore {
       meta: {
         translation_extras: request.translationExtras as unknown as ApiJsonValue,
       },
+      authoritativeTranslationItemIds: request.authoritativeTranslationItemIds,
     });
   }
 
@@ -941,6 +971,9 @@ export class ProjectWriteStore {
     const patches = this.normalize_translation_item_patches(request.items);
     this.assert_patch_targets_exist(request.projectPath, patches);
     const changed_item_ids = patches.map((patch) => patch.item_id);
+    const authoritative_translation_item_ids = patches
+      .filter((patch) => patch.patch.dst !== undefined)
+      .map((patch) => patch.item_id);
     await this.commit_runtime_change({
       projectPath: request.projectPath,
       requireExpectedSectionRevisions: false,
@@ -956,6 +989,14 @@ export class ProjectWriteStore {
           projectPath: request.projectPath,
           patches: this.to_database_translation_patches(patches),
         }),
+        ...(authoritative_translation_item_ids.length === 0
+          ? []
+          : [
+              this.mark_fate_extra_compact_translation_operation(
+                request.projectPath,
+                authoritative_translation_item_ids,
+              ),
+            ]),
         this.op("upsertMetaEntries", {
           projectPath: request.projectPath,
           meta: {
@@ -1037,6 +1078,16 @@ export class ProjectWriteStore {
     return this.op("deleteAsset", {
       projectPath: project_path,
       path: write.path,
+    });
+  }
+
+  private mark_fate_extra_compact_translation_operation(
+    project_path: string,
+    item_ids: number[],
+  ): DatabaseOperation {
+    return this.op("markFateExtraCompactRepresentativeTranslations", {
+      projectPath: project_path,
+      itemIds: item_ids as unknown as DatabaseJsonValue,
     });
   }
 

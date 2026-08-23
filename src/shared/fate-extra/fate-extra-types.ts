@@ -182,3 +182,20 @@ export function resolve_fate_extra_effective_translation(
   const proofread = read_fate_extra_proofread_translation(metadata);
   return proofread !== "" ? proofread : machine_translation;
 }
+
+/**
+ * 精简项目保留每个物理位置的初始机翻；代表项一旦经合法写入口修改，
+ * 当前代表译文即成为整组 machine layer 的唯一值。
+ */
+export function resolve_fate_extra_compact_machine_translation(args: {
+  representativeTranslation: string;
+  originalMachineTranslation: string;
+  representativeTranslationAuthoritative: boolean;
+}): string {
+  if (args.representativeTranslationAuthoritative) {
+    return args.representativeTranslation;
+  }
+  return args.originalMachineTranslation === ""
+    ? args.representativeTranslation
+    : args.originalMachineTranslation;
+}

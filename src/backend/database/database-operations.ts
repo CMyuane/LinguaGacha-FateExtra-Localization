@@ -12,6 +12,7 @@ import type { DatabaseJsonValue, DatabaseOperation } from "./database-types";
 import * as AppErrors from "../../shared/error";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 import { normalize_project_item_field_patch } from "../../shared/project/project-item-field-patch";
+import { resolve_fate_extra_compact_machine_translation } from "../../shared/fate-extra/fate-extra-types";
 import {
   activate_fate_extra_preview_search_generation,
   read_fate_extra_index_state,
@@ -382,6 +383,12 @@ export class ProjectDatabase {
         this.patch_item_translation_fields(
           this.require_string(args, "projectPath"),
           this.require_array(args, "patches"),
+        );
+        return null;
+      case "markFateExtraCompactRepresentativeTranslations":
+        this.mark_fate_extra_compact_representative_translations(
+          this.require_string(args, "projectPath"),
+          this.require_number_array(args, "itemIds"),
         );
         return null;
       case "getRules":
@@ -1445,6 +1452,9 @@ export class ProjectDatabase {
               occurrence.char_offset,
               MIN(source.compact_item_id) AS representative_item_id,
               MIN(source.source) AS fallback_source,
+              MIN(occurrence.original_item_id) AS context_occurrence_id,
+              MIN(source.representative_translation_authoritative)
+                AS representative_translation_authoritative,
               COUNT(DISTINCT source.source) AS source_count
             FROM fate_extra_compact_occurrence AS occurrence
             JOIN fate_extra_compact_source AS source
@@ -1457,16 +1467,21 @@ export class ProjectDatabase {
               char_offset,
               representative_item_id,
               fallback_source,
+              context_occurrence_id,
+              representative_translation_authoritative,
               ROW_NUMBER() OVER (ORDER BY char_offset) - 1 AS block_ordinal,
               COUNT(*) OVER () AS block_count
             FROM exact_entry WHERE source_count = 1
           ), target AS (
             SELECT block_ordinal FROM ordered_entry WHERE char_offset = ?
           )
-          SELECT ordered_entry.*, item.data AS item_data
+          SELECT ordered_entry.*, item.data AS item_data,
+            context_occurrence.original_machine_translation
           FROM ordered_entry
           CROSS JOIN target
           LEFT JOIN items AS item ON item.id = ordered_entry.representative_item_id
+          LEFT JOIN fate_extra_compact_occurrence AS context_occurrence
+            ON context_occurrence.original_item_id = ordered_entry.context_occurrence_id
           WHERE ordered_entry.block_ordinal BETWEEN target.block_ordinal - ?
             AND target.block_ordinal + ?
           ORDER BY ordered_entry.block_ordinal
@@ -1524,12 +1539,28 @@ export class ProjectDatabase {
         block_ordinal: row_number(row, "block_ordinal"),
         fallback_source: row_text(row, "fallback_source"),
         representative_item_id: row_number(row, "representative_item_id"),
-        item:
-          row["item_data"] === null || row["item_data"] === undefined
-            ? null
-            : json_parse(row["item_data"]),
+        item: this.project_fate_extra_context_item(row, compact_enabled),
       })),
     };
+  }
+
+  private project_fate_extra_context_item(
+    row: DatabaseRow,
+    compact_enabled: boolean,
+  ): DatabaseJsonValue {
+    if (row["item_data"] === null || row["item_data"] === undefined) {
+      return null;
+    }
+    const item = this.value_record(json_parse(row["item_data"]));
+    if (compact_enabled) {
+      item["dst"] = resolve_fate_extra_compact_machine_translation({
+        representativeTranslation: row_text(item, "dst"),
+        originalMachineTranslation: row_text(row, "original_machine_translation"),
+        representativeTranslationAuthoritative:
+          row_number(row, "representative_translation_authoritative") === 1,
+      });
+    }
+    return item as DatabaseJsonValue;
   }
 
   private fate_extra_definite_corruption_reason(source: string): string {
@@ -1761,6 +1792,7 @@ export class ProjectDatabase {
         compact_source.source_hash,
         compact_source.source,
         compact_source.excluded_reason,
+        compact_source.representative_translation_authoritative,
         compact_item.data AS compact_item_data,
         occurrence_override.translation AS override_translation
       FROM fate_extra_compact_occurrence AS occurrence
@@ -1794,6 +1826,8 @@ export class ProjectDatabase {
       source_hash: row_text(row, "source_hash"),
       source: row_text(row, "source"),
       excluded_reason: row_text(row, "excluded_reason"),
+      representative_translation_authoritative:
+        row_number(row, "representative_translation_authoritative") === 1,
       compact_item:
         row["compact_item_data"] === null || row["compact_item_data"] === undefined
           ? null
@@ -2259,6 +2293,33 @@ export class ProjectDatabase {
           diagnostic_context: { reason: "translation_patch_item_not_found", item_id },
         });
       }
+    }
+  }
+
+  /**
+   * 标记已经通过合法初翻写入口修改的精简代表组。普通和未物化 FE 没有匹配行，
+   * 因而自然保持无副作用。
+   */
+  private mark_fate_extra_compact_representative_translations(
+    project_path: string,
+    item_ids: number[],
+  ): void {
+    const normalized_ids = [
+      ...new Set(
+        item_ids
+          .map((item_id) => Number(item_id))
+          .filter((item_id) => Number.isInteger(item_id) && item_id > 0),
+      ),
+    ];
+    const db = this.open_project(project_path);
+    for (let index = 0; index < normalized_ids.length; index += 500) {
+      const chunk = normalized_ids.slice(index, index + 500);
+      const placeholders = chunk.map(() => "?").join(",");
+      db.prepare(`
+        UPDATE fate_extra_compact_source
+        SET representative_translation_authoritative = 1
+        WHERE compact_item_id IN (${placeholders})
+      `).run(...chunk);
     }
   }
 
