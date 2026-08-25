@@ -68,6 +68,12 @@ describe("ProjectSchemaMigration", () => {
     expect(read_meta_number(db, "schema_version")).toBe(PROJECT_DATABASE_SCHEMA_VERSION);
     expect(
       db
+        .prepare("PRAGMA table_info(fate_extra_compact_source)")
+        .all()
+        .find((row) => row["name"] === "representative_translation_authoritative"),
+    ).toMatchObject({ notnull: 1, dflt_value: "0" });
+    expect(
+      db
         .prepare(
           "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'table' AND name IN ('fate_extra_text_unit', 'fate_extra_text_occurrence')",
         )
@@ -79,7 +85,7 @@ describe("ProjectSchemaMigration", () => {
     { kind: "plain" as const, label: "普通" },
     { kind: "fate-extra" as const, label: "FE" },
     { kind: "compact" as const, label: "FE 精简" },
-  ])("schema 8 打开旧 $label 项目时只创建空派生索引结构", ({ kind }) => {
+  ])("schema 9 打开旧 $label 项目时只创建空派生索引结构", ({ kind }) => {
     const db = open_database(`legacy-schema-6-${kind}.lg`);
     create_schema_6_fixture(db, kind);
     const facts_before = read_project_facts(db);

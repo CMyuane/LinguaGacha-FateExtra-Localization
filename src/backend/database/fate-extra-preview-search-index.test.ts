@@ -7,12 +7,28 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { ProjectDatabase } from "./database-operations";
 import {
+  advance_fate_extra_preview_navigation_revision,
+  FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY,
+  FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION,
+  read_fate_extra_preview_navigation_state,
+} from "./fate-extra-preview-navigation-index";
+import {
   activate_fate_extra_preview_search_generation,
+  advance_fate_extra_preview_index_revision,
   cleanup_fate_extra_inactive_preview_search_generations,
+  read_fate_extra_index_state,
   read_fate_extra_preview_search_index_state,
   refresh_fate_extra_preview_search_documents,
   run_fate_extra_index_maintenance,
 } from "./fate-extra-preview-search-index";
+
+type TestItem = {
+  id: number;
+  src: string;
+  dst: string;
+  file_path: string;
+  status?: string;
+};
 
 let temp_directory = "";
 
@@ -164,6 +180,313 @@ describe("fate-extra preview search generation", () => {
     db.close();
   });
 
+  it("标准 FE 冷建从物理、唯一、文件和搜索映射排除 EXCLUDED", () => {
+    const project_path = create_project("excluded-standard", [
+      { id: 1, src: "重复原文", dst: "旧代表", file_path: "route-a.txt", status: "EXCLUDED" },
+      { id: 2, src: "重复原文", dst: "新代表", file_path: "route-a.txt" },
+      { id: 3, src: "仅排除", dst: "隐藏", file_path: "route-b.txt", status: "EXCLUDED" },
+      { id: 4, src: "保留", dst: "可见", file_path: "route-b.txt", status: "PROCESSED" },
+    ]);
+    build_and_activate(project_path, 0);
+
+    const db = new DatabaseSync(project_path, { readOnly: true });
+    expect(
+      db
+        .prepare(`
+          SELECT position, item_id, occurrence_count
+          FROM fate_extra_preview_navigation_unit
+          WHERE generation = 1
+          ORDER BY position
+        `)
+        .all(),
+    ).toEqual([
+      { position: 0, item_id: 2, occurrence_count: 1 },
+      { position: 1, item_id: 4, occurrence_count: 1 },
+    ]);
+    expect(
+      db
+        .prepare(`
+          SELECT occurrence_id, item_id, global_position
+          FROM fate_extra_preview_navigation_occurrence
+          WHERE generation = 1
+          ORDER BY global_position
+        `)
+        .all(),
+    ).toEqual([
+      { occurrence_id: 2, item_id: 2, global_position: 0 },
+      { occurrence_id: 4, item_id: 4, global_position: 1 },
+    ]);
+    expect(
+      db
+        .prepare(`
+          SELECT file_path, occurrence_count, unique_count
+          FROM fate_extra_preview_navigation_file_summary
+          WHERE generation = 1
+          ORDER BY file_path
+        `)
+        .all(),
+    ).toEqual([
+      { file_path: "route-a.txt", occurrence_count: 1, unique_count: 1 },
+      { file_path: "route-b.txt", occurrence_count: 1, unique_count: 1 },
+    ]);
+    expect(
+      db
+        .prepare(`
+          SELECT DISTINCT item_id
+          FROM fate_extra_preview_search_mapping
+          WHERE generation = 1
+          ORDER BY item_id
+        `)
+        .all(),
+    ).toEqual([{ item_id: 2 }, { item_id: 4 }]);
+    expect(read_fate_extra_preview_navigation_state(db)).toMatchObject({
+      ready: true,
+      unique_count: 2,
+      occurrence_count: 2,
+      file_count: 2,
+    });
+    db.close();
+  });
+
+  it("精简 FE 代表项 EXCLUDED 会隐藏整组物理位置及搜索映射", () => {
+    const project_path = create_project("excluded-compact", [
+      { id: 1, src: "隐藏组", dst: "隐藏", file_path: "compact.txt", status: "EXCLUDED" },
+      { id: 2, src: "可见组", dst: "可见", file_path: "compact.txt" },
+    ]);
+    const fixture = new DatabaseSync(project_path);
+    fixture
+      .prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('fate_extra.compact.v1', ?)")
+      .run(JSON.stringify({ enabled: true, schema_version: 2 }));
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES
+        ('hidden-hash', '隐藏组', 10, 1, 2, ''),
+        ('visible-hash', '可见组', 30, 2, 2, '');
+      INSERT INTO fate_extra_compact_occurrence (
+        original_item_id, source_hash, file_path, row_number, resource_path,
+        char_offset, original_prefix, source_line_numbers, pass_through
+      ) VALUES
+        (10, 'hidden-hash', 'route-a.txt', 0, 'route-a.bin', 16, '', '[1]', '[]'),
+        (20, 'hidden-hash', 'route-b.txt', 0, 'route-b.bin', 24, '', '[1]', '[]'),
+        (30, 'visible-hash', 'route-a.txt', 1, 'route-a.bin', 32, '', '[2]', '[]'),
+        (40, 'visible-hash', 'route-b.txt', 1, 'route-b.bin', 40, '', '[2]', '[]');
+    `);
+    fixture.close();
+    build_and_activate(project_path, 0);
+
+    const db = new DatabaseSync(project_path, { readOnly: true });
+    expect(
+      db
+        .prepare(`
+          SELECT position, item_id, occurrence_count
+          FROM fate_extra_preview_navigation_unit
+          WHERE generation = 1
+        `)
+        .all(),
+    ).toEqual([{ position: 0, item_id: 2, occurrence_count: 2 }]);
+    expect(
+      db
+        .prepare(`
+          SELECT occurrence_id, item_id, global_position
+          FROM fate_extra_preview_navigation_occurrence
+          WHERE generation = 1
+          ORDER BY global_position
+        `)
+        .all(),
+    ).toEqual([
+      { occurrence_id: 30, item_id: 2, global_position: 0 },
+      { occurrence_id: 40, item_id: 2, global_position: 1 },
+    ]);
+    expect(
+      db
+        .prepare(`
+          SELECT file_path, occurrence_count, unique_count
+          FROM fate_extra_preview_navigation_file_summary
+          WHERE generation = 1
+          ORDER BY file_path
+        `)
+        .all(),
+    ).toEqual([
+      { file_path: "route-a.txt", occurrence_count: 1, unique_count: 1 },
+      { file_path: "route-b.txt", occurrence_count: 1, unique_count: 1 },
+    ]);
+    expect(
+      db
+        .prepare(`
+          SELECT DISTINCT item_id
+          FROM fate_extra_preview_search_mapping
+          WHERE generation = 1
+          ORDER BY item_id
+        `)
+        .all(),
+    ).toEqual([{ item_id: 2 }]);
+    expect(read_fate_extra_preview_navigation_state(db)).toMatchObject({
+      ready: true,
+      unique_count: 1,
+      occurrence_count: 2,
+      file_count: 2,
+    });
+    db.close();
+  });
+
+  it("增量标记 EXCLUDED 会删除搜索映射并让导航 generation 等待重建", () => {
+    const project_path = create_project("excluded-incremental");
+    build_and_activate(project_path, 0);
+
+    const db = new DatabaseSync(project_path);
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("UPDATE items SET data = json_set(data, '$.status', 'EXCLUDED') WHERE id = 1").run();
+    write_items_revision(db, 1);
+    expect(refresh_fate_extra_preview_search_documents(db, [1])).toBe(false);
+    db.exec("COMMIT");
+
+    expect(
+      db
+        .prepare(`
+          SELECT COUNT(*) AS count
+          FROM fate_extra_preview_search_mapping
+          WHERE generation = 1 AND item_id = 1
+        `)
+        .get()?.["count"],
+    ).toBe(0);
+    expect(
+      db
+        .prepare(`
+          SELECT items_revision
+          FROM fate_extra_preview_search_generation
+          WHERE generation = 1
+        `)
+        .get()?.["items_revision"],
+    ).toBe(0);
+    expect(
+      db
+        .prepare(`
+          SELECT items_revision
+          FROM fate_extra_preview_navigation_generation
+          WHERE generation = 1
+        `)
+        .get()?.["items_revision"],
+    ).toBe(0);
+    expect(read_fate_extra_preview_search_index_state(db).ready).toBe(false);
+    expect(read_fate_extra_preview_navigation_state(db).ready).toBe(false);
+    db.close();
+  });
+
+  it("仅改显示类型时轻量推进索引身份且不刷新搜索文档", () => {
+    const project_path = create_project("display-only-revision");
+    build_and_activate(project_path, 0);
+
+    const db = new DatabaseSync(project_path);
+    const source_adapter_value = read_meta_value(db, "fate_extra.adapter.v1")!;
+    expect(JSON.parse(read_meta_value(db, "fate_extra.preview-search.adapter")!)).toEqual({
+      format_version: 1,
+      adapter_value: source_adapter_value,
+    });
+    const documents_before = db
+      .prepare(`
+        SELECT document_id, field, search_text
+        FROM fate_extra_preview_search_document
+        WHERE generation = 1
+        ORDER BY document_id
+      `)
+      .all();
+    const mappings_before = db
+      .prepare(`
+        SELECT item_id, occurrence_id, field, document_id
+        FROM fate_extra_preview_search_mapping
+        WHERE generation = 1
+        ORDER BY item_id, occurrence_id, field, document_id
+      `)
+      .all();
+
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare(`
+      UPDATE items
+      SET data = json_set(
+        data,
+        '$.extra_field.__linguagacha_fe_v1.display_mode',
+        'poem'
+      )
+      WHERE id = 1
+    `).run();
+    write_items_revision(db, 1);
+    expect(advance_fate_extra_preview_index_revision(db, 0, 1)).toBe(true);
+    db.exec("COMMIT");
+
+    expect(read_fate_extra_index_state(db)).toMatchObject({
+      ready: true,
+      search_items_revision: 1,
+      navigation_items_revision: 1,
+      text_unit_items_revision: 1,
+    });
+    expect(
+      db
+        .prepare(`
+          SELECT document_id, field, search_text
+          FROM fate_extra_preview_search_document
+          WHERE generation = 1
+          ORDER BY document_id
+        `)
+        .all(),
+    ).toEqual(documents_before);
+    expect(
+      db
+        .prepare(`
+          SELECT item_id, occurrence_id, field, document_id
+          FROM fate_extra_preview_search_mapping
+          WHERE generation = 1
+          ORDER BY item_id, occurrence_id, field, document_id
+        `)
+        .all(),
+    ).toEqual(mappings_before);
+    db.close();
+  });
+
+  it("无格式身份的旧 generation 不能被激活或增量写入认证", () => {
+    const project_path = create_project("legacy-format");
+    build_and_activate(project_path, 0);
+
+    const db = new DatabaseSync(project_path);
+    const adapter_value = read_meta_value(db, "fate_extra.adapter.v1")!;
+    db.prepare(
+      "UPDATE fate_extra_preview_search_generation SET adapter_value = ? WHERE generation = 1",
+    ).run(adapter_value);
+    db.prepare(
+      "UPDATE fate_extra_preview_navigation_generation SET adapter_value = ? WHERE generation = 1",
+    ).run(adapter_value);
+    db.prepare("DELETE FROM meta WHERE key = ?").run(FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY);
+
+    expect(read_fate_extra_preview_search_index_state(db).ready).toBe(false);
+    expect(read_fate_extra_preview_navigation_state(db).ready).toBe(false);
+    expect(() => activate_fate_extra_preview_search_generation(db, 1, 0, adapter_value)).toThrow(
+      /activation_identity_changed/,
+    );
+    expect(read_meta_value(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY)).toBeUndefined();
+
+    db.exec("BEGIN IMMEDIATE");
+    db.prepare("UPDATE items SET data = json_set(data, '$.dst', '新译文') WHERE id = 1").run();
+    write_items_revision(db, 1);
+    expect(refresh_fate_extra_preview_search_documents(db, [1])).toBe(false);
+    expect(advance_fate_extra_preview_index_revision(db, 0, 1)).toBe(false);
+    expect(advance_fate_extra_preview_navigation_revision(db, 1, 0, 1)).toBe(false);
+    db.exec("COMMIT");
+
+    expect(read_meta_value(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY)).toBeUndefined();
+    expect(
+      db
+        .prepare(`
+          SELECT adapter_value, items_revision
+          FROM fate_extra_preview_navigation_generation
+          WHERE generation = 1
+        `)
+        .get(),
+    ).toEqual({ adapter_value, items_revision: 0 });
+    expect(FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION).toBe(1);
+    db.close();
+  });
+
   it("硬终止遗留的已索引文档由清理任务定点移除且不破坏 active FTS", () => {
     const project_path = create_project("residual-cleanup");
     build_and_activate(project_path, 0);
@@ -247,7 +570,13 @@ function build_and_activate(project_path: string, items_revision: number): void 
   db.close();
 }
 
-function create_project(name: string): string {
+function create_project(
+  name: string,
+  items: readonly TestItem[] = [
+    { id: 1, src: "月海原学园", dst: "校园", file_path: "route-a.txt" },
+    { id: 3, src: "教会", dst: "Church", file_path: "route-b.txt" },
+  ],
+): string {
   temp_directory = fs.mkdtempSync(path.join(os.tmpdir(), `linguagacha-fe-${name}-`));
   const project_path = path.join(temp_directory, `${name}.lg`);
   const database = new ProjectDatabase();
@@ -264,12 +593,9 @@ function create_project(name: string): string {
     name: "setItems",
     args: {
       projectPath: project_path,
-      items: [
-        { id: 1, src: "月海原学园", dst: "校园", file_path: "route-a.txt" },
-        { id: 3, src: "教会", dst: "Church", file_path: "route-b.txt" },
-      ].map((item) => ({
+      items: items.map((item) => ({
         ...item,
-        status: "NONE",
+        status: item.status ?? "NONE",
         extra_field: {
           __linguagacha_fe_v1: {
             proofread_translation: "",

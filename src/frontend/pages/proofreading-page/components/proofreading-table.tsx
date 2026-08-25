@@ -512,11 +512,16 @@ export function ProofreadingTable(props: ProofreadingTableProps): JSX.Element {
                           key={status}
                           disabled={props.readonly}
                           onSelect={() => {
-                            props.on_request_set_translation_status_row_ids(
-                              target_row_ids,
-                              status,
-                              payload.row_id,
-                            );
+                            const scheduled_target_row_ids = [...target_row_ids];
+                            const scheduled_status = status;
+                            const scheduled_preferred_row_id = payload.row_id;
+                            run_after_context_menu_close(() => {
+                              props.on_request_set_translation_status_row_ids(
+                                scheduled_target_row_ids,
+                                scheduled_status,
+                                scheduled_preferred_row_id,
+                              );
+                            });
                           }}
                         >
                           {t(PROOFREADING_STATUS_LABEL_KEY_BY_CODE[status])}

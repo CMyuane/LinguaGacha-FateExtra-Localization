@@ -37,7 +37,15 @@ export type NavigationGroup = {
 
 export type BottomActionId = "theme" | "language" | "logs";
 
-export type AppearanceMenuActionId = "theme-mode" | "font-family";
+export const THEME_PREFERENCES = ["system", "light", "dark"] as const;
+
+export type ThemePreference = (typeof THEME_PREFERENCES)[number];
+
+export type AppearanceMenuActionId = "font-family";
+
+export function is_theme_preference(value: unknown): value is ThemePreference {
+  return THEME_PREFERENCES.includes(value as ThemePreference);
+}
 
 export type BottomAction = {
   id: BottomActionId;

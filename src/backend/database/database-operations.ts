@@ -12,8 +12,10 @@ import type { DatabaseJsonValue, DatabaseOperation } from "./database-types";
 import * as AppErrors from "../../shared/error";
 import { NativeFs, default_native_fs } from "../../native/native-fs";
 import { normalize_project_item_field_patch } from "../../shared/project/project-item-field-patch";
+import { resolve_fate_extra_compact_machine_translation } from "../../shared/fate-extra/fate-extra-types";
 import {
   activate_fate_extra_preview_search_generation,
+  advance_fate_extra_preview_index_revision,
   read_fate_extra_index_state,
   refresh_fate_extra_preview_search_documents,
 } from "./fate-extra-preview-search-index";
@@ -294,6 +296,12 @@ export class ProjectDatabase {
           this.optional_number_array(args, "itemIds"),
           this.optional_number(args, "unitId"),
         );
+      case "advanceFateExtraPreviewRevisionIdentity":
+        return this.advance_fate_extra_preview_revision_identity(
+          this.require_string(args, "projectPath"),
+          this.require_number(args, "previousItemsRevision"),
+          this.require_number(args, "itemsRevision"),
+        );
       case "createFateExtraCompactProject":
         return this.create_fate_extra_compact_project(
           this.require_string(args, "projectPath"),
@@ -331,7 +339,15 @@ export class ProjectDatabase {
           this.require_string(args, "projectPath"),
           this.require_number(args, "unitId"),
           this.require_number(args, "itemId"),
+          this.require_number(args, "occurrenceId"),
           this.require_string(args, "proofreadTranslation"),
+          this.require_string(args, "displayMode"),
+        );
+      case "patchFateExtraDisplayMode":
+        return this.patch_fate_extra_display_mode(
+          this.require_string(args, "projectPath"),
+          this.require_number(args, "itemId"),
+          this.require_number(args, "occurrenceId"),
           this.require_string(args, "displayMode"),
         );
       case "getItemCount":
@@ -382,6 +398,12 @@ export class ProjectDatabase {
         this.patch_item_translation_fields(
           this.require_string(args, "projectPath"),
           this.require_array(args, "patches"),
+        );
+        return null;
+      case "markFateExtraCompactRepresentativeTranslations":
+        this.mark_fate_extra_compact_representative_translations(
+          this.require_string(args, "projectPath"),
+          this.require_number_array(args, "itemIds"),
         );
         return null;
       case "getRules":
@@ -1158,6 +1180,19 @@ export class ProjectDatabase {
     return refreshed;
   }
 
+  /** 仅推进 active 派生索引身份；不匹配的旧 generation 保持 stale 等待维护任务。 */
+  private advance_fate_extra_preview_revision_identity(
+    project_path: string,
+    previous_items_revision: number,
+    items_revision: number,
+  ): boolean {
+    return advance_fate_extra_preview_index_revision(
+      this.open_project(project_path),
+      Math.trunc(previous_items_revision),
+      Math.trunc(items_revision),
+    );
+  }
+
   /**
    * 从完整 FE 工程生成独立精简工程。源工程只读；普通 items 只保留可翻译的
    * 精确源文组，全部物理位置进入专用映射表，供最终导出时无损展开。
@@ -1445,11 +1480,17 @@ export class ProjectDatabase {
               occurrence.char_offset,
               MIN(source.compact_item_id) AS representative_item_id,
               MIN(source.source) AS fallback_source,
+              MIN(occurrence.original_item_id) AS context_occurrence_id,
+              MIN(source.representative_translation_authoritative)
+                AS representative_translation_authoritative,
               COUNT(DISTINCT source.source) AS source_count
             FROM fate_extra_compact_occurrence AS occurrence
             JOIN fate_extra_compact_source AS source
               ON source.source_hash = occurrence.source_hash
+            JOIN items AS representative_item ON representative_item.id = source.compact_item_id
             WHERE occurrence.resource_path = ?
+              AND source.excluded_reason = ''
+              AND COALESCE(json_extract(representative_item.data, '$.status'), '') <> 'EXCLUDED'
             GROUP BY occurrence.resource_path, occurrence.char_offset
           ), ordered_entry AS (
             SELECT
@@ -1457,16 +1498,21 @@ export class ProjectDatabase {
               char_offset,
               representative_item_id,
               fallback_source,
+              context_occurrence_id,
+              representative_translation_authoritative,
               ROW_NUMBER() OVER (ORDER BY char_offset) - 1 AS block_ordinal,
               COUNT(*) OVER () AS block_count
             FROM exact_entry WHERE source_count = 1
           ), target AS (
             SELECT block_ordinal FROM ordered_entry WHERE char_offset = ?
           )
-          SELECT ordered_entry.*, item.data AS item_data
+          SELECT ordered_entry.*, item.data AS item_data,
+            context_occurrence.original_machine_translation
           FROM ordered_entry
           CROSS JOIN target
           LEFT JOIN items AS item ON item.id = ordered_entry.representative_item_id
+          LEFT JOIN fate_extra_compact_occurrence AS context_occurrence
+            ON context_occurrence.original_item_id = ordered_entry.context_occurrence_id
           WHERE ordered_entry.block_ordinal BETWEEN target.block_ordinal - ?
             AND target.block_ordinal + ?
           ORDER BY ordered_entry.block_ordinal
@@ -1488,6 +1534,7 @@ export class ProjectDatabase {
             WHERE COALESCE(json_extract(
               data, '$.extra_field.__linguagacha_fe_v1.path'
             ), '') = ?
+              AND COALESCE(json_extract(data, '$.status'), '') <> 'EXCLUDED'
             GROUP BY resource_path, char_offset
           ), ordered_entry AS (
             SELECT
@@ -1524,12 +1571,28 @@ export class ProjectDatabase {
         block_ordinal: row_number(row, "block_ordinal"),
         fallback_source: row_text(row, "fallback_source"),
         representative_item_id: row_number(row, "representative_item_id"),
-        item:
-          row["item_data"] === null || row["item_data"] === undefined
-            ? null
-            : json_parse(row["item_data"]),
+        item: this.project_fate_extra_context_item(row, compact_enabled),
       })),
     };
+  }
+
+  private project_fate_extra_context_item(
+    row: DatabaseRow,
+    compact_enabled: boolean,
+  ): DatabaseJsonValue {
+    if (row["item_data"] === null || row["item_data"] === undefined) {
+      return null;
+    }
+    const item = this.value_record(json_parse(row["item_data"]));
+    if (compact_enabled) {
+      item["dst"] = resolve_fate_extra_compact_machine_translation({
+        representativeTranslation: row_text(item, "dst"),
+        originalMachineTranslation: row_text(row, "original_machine_translation"),
+        representativeTranslationAuthoritative:
+          row_number(row, "representative_translation_authoritative") === 1,
+      });
+    }
+    return item as DatabaseJsonValue;
   }
 
   private fate_extra_definite_corruption_reason(source: string): string {
@@ -1761,6 +1824,7 @@ export class ProjectDatabase {
         compact_source.source_hash,
         compact_source.source,
         compact_source.excluded_reason,
+        compact_source.representative_translation_authoritative,
         compact_item.data AS compact_item_data,
         occurrence_override.translation AS override_translation
       FROM fate_extra_compact_occurrence AS occurrence
@@ -1794,6 +1858,8 @@ export class ProjectDatabase {
       source_hash: row_text(row, "source_hash"),
       source: row_text(row, "source"),
       excluded_reason: row_text(row, "excluded_reason"),
+      representative_translation_authoritative:
+        row_number(row, "representative_translation_authoritative") === 1,
       compact_item:
         row["compact_item_data"] === null || row["compact_item_data"] === undefined
           ? null
@@ -1847,12 +1913,14 @@ export class ProjectDatabase {
     project_path: string,
     unit_id: number,
     item_id: number,
+    occurrence_id: number,
     proofread_translation: string,
     display_mode: string,
   ): number {
     const db = this.open_project(project_path);
     const normalized_unit_id = Math.trunc(unit_id);
     const normalized_item_id = Math.trunc(item_id);
+    const normalized_occurrence_id = Math.trunc(occurrence_id);
     const membership = db
       .prepare(`
         SELECT 1
@@ -1887,20 +1955,105 @@ export class ProjectDatabase {
         )
       `)
       .run(proofread_translation, normalized_unit_id);
-    db.prepare(`
-      UPDATE items
-      SET data = json_set(
-        data,
-        '$.extra_field.__linguagacha_fe_v1.display_mode', ?
-      )
-      WHERE id = ?
-        AND id IN (
-          SELECT item_id
-          FROM fate_extra_text_occurrence
-          WHERE unit_id = ?
-        )
-    `).run(display_mode, normalized_item_id, normalized_unit_id);
+    this.patch_fate_extra_display_mode_in_db(
+      db,
+      normalized_item_id,
+      normalized_occurrence_id,
+      display_mode,
+    );
     return Number(result.changes ?? 0);
+  }
+
+  /**
+   * 显示类型是 PSP 物理位置事实；精简工程写 occurrence，普通 FE 仍写 item metadata。
+   */
+  private patch_fate_extra_display_mode(
+    project_path: string,
+    item_id: number,
+    occurrence_id: number,
+    display_mode: string,
+  ): number {
+    return this.patch_fate_extra_display_mode_in_db(
+      this.open_project(project_path),
+      Math.trunc(item_id),
+      Math.trunc(occurrence_id),
+      display_mode,
+    );
+  }
+
+  private patch_fate_extra_display_mode_in_db(
+    db: DatabaseSync,
+    item_id: number,
+    occurrence_id: number,
+    display_mode: string,
+  ): number {
+    if (
+      !Number.isInteger(item_id) ||
+      item_id <= 0 ||
+      !Number.isInteger(occurrence_id) ||
+      occurrence_id <= 0 ||
+      !["auto", "dialogue", "fullscreen", "poem"].includes(display_mode)
+    ) {
+      throw new AppErrors.RequestValidationError({
+        diagnostic_context: { reason: "invalid_fate_extra_display_mode_target" },
+      });
+    }
+    const compact_meta = db
+      .prepare("SELECT value FROM meta WHERE key = 'fate_extra.compact.v1'")
+      .get()?.["value"];
+    const compact_enabled =
+      typeof compact_meta === "string" &&
+      this.value_record(json_parse(compact_meta))["enabled"] === true;
+    if (compact_enabled) {
+      const membership = db
+        .prepare(`
+          SELECT 1
+          FROM fate_extra_compact_occurrence AS occurrence
+          JOIN fate_extra_compact_source AS source
+            ON source.source_hash = occurrence.source_hash
+          WHERE occurrence.original_item_id = ? AND source.compact_item_id = ?
+        `)
+        .get(occurrence_id, item_id);
+      if (membership === undefined) {
+        throw new AppErrors.RequestValidationError({
+          public_details: { reason: "FE 显示类型目标与物理位置不匹配，请刷新预览后重试。" },
+          diagnostic_context: {
+            reason: "fate_extra_compact_occurrence_item_mismatch",
+            item_id,
+            occurrence_id,
+          },
+        });
+      }
+      return Number(
+        db
+          .prepare(
+            "UPDATE fate_extra_compact_occurrence SET display_mode = ? WHERE original_item_id = ?",
+          )
+          .run(display_mode, occurrence_id).changes ?? 0,
+      );
+    }
+    if (occurrence_id !== item_id) {
+      throw new AppErrors.RequestValidationError({
+        public_details: { reason: "FE 显示类型目标与条目不匹配，请刷新预览后重试。" },
+        diagnostic_context: {
+          reason: "fate_extra_occurrence_item_mismatch",
+          item_id,
+          occurrence_id,
+        },
+      });
+    }
+    return Number(
+      db
+        .prepare(`
+          UPDATE items
+          SET data = json_set(
+            data,
+            '$.extra_field.__linguagacha_fe_v1.display_mode', ?
+          )
+          WHERE id = ?
+        `)
+        .run(display_mode, item_id).changes ?? 0,
+    );
   }
 
   /**
@@ -2259,6 +2412,33 @@ export class ProjectDatabase {
           diagnostic_context: { reason: "translation_patch_item_not_found", item_id },
         });
       }
+    }
+  }
+
+  /**
+   * 标记已经通过合法初翻写入口修改的精简代表组。普通和未物化 FE 没有匹配行，
+   * 因而自然保持无副作用。
+   */
+  private mark_fate_extra_compact_representative_translations(
+    project_path: string,
+    item_ids: number[],
+  ): void {
+    const normalized_ids = [
+      ...new Set(
+        item_ids
+          .map((item_id) => Number(item_id))
+          .filter((item_id) => Number.isInteger(item_id) && item_id > 0),
+      ),
+    ];
+    const db = this.open_project(project_path);
+    for (let index = 0; index < normalized_ids.length; index += 500) {
+      const chunk = normalized_ids.slice(index, index + 500);
+      const placeholders = chunk.map(() => "?").join(",");
+      db.prepare(`
+        UPDATE fate_extra_compact_source
+        SET representative_translation_authoritative = 1
+        WHERE compact_item_id IN (${placeholders})
+      `).run(...chunk);
     }
   }
 

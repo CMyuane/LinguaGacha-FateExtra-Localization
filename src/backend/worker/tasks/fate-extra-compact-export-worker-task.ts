@@ -26,6 +26,7 @@ import {
   merge_fate_extra_item_metadata,
   read_fate_extra_display_mode,
   read_fate_extra_item_metadata,
+  resolve_fate_extra_compact_machine_translation,
   resolve_fate_extra_effective_translation,
   type FateExtraFileFormat,
   type FateExtraItemMetadata,
@@ -579,11 +580,12 @@ function prepare_export_row(
         ? stored_display_mode
         : (representative_metadata?.display_mode ?? "auto"),
   };
-  const occurrence_machine_translation = String(row["original_machine_translation"] ?? "");
-  const machine_translation =
-    occurrence_machine_translation === ""
-      ? String(compact_item["dst"] ?? "")
-      : occurrence_machine_translation;
+  const machine_translation = resolve_fate_extra_compact_machine_translation({
+    representativeTranslation: String(compact_item["dst"] ?? ""),
+    originalMachineTranslation: String(row["original_machine_translation"] ?? ""),
+    representativeTranslationAuthoritative:
+      row["representative_translation_authoritative"] === true,
+  });
   const override_translation = String(row["override_translation"] ?? "");
   const translation =
     String(row["excluded_reason"] ?? "") !== ""

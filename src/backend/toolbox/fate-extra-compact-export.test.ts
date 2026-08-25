@@ -91,6 +91,30 @@ describe("Fate/Extra compact export", () => {
     expect(database.close).toHaveBeenCalledOnce();
   });
 
+  it("精简导出仅在代表组权威后替换保留的物理初翻", async () => {
+    const staging_directory = path.join(temp_directory, "worker-authoritative-translation");
+    fs.mkdirSync(staging_directory, { recursive: true });
+    const rows = build_rows();
+    rows[0]!["original_machine_translation"] = "物理旧译甲";
+    rows[0]!["representative_translation_authoritative"] = false;
+    rows[1]!["original_machine_translation"] = "物理旧译乙";
+    rows[1]!["representative_translation_authoritative"] = true;
+    (rows[1]!["compact_item"] as ExportRow)["dst"] = "工作台新译文";
+    const database = create_worker_database(rows, []);
+
+    await run_fate_extra_export_worker_task(
+      build_worker_input(staging_directory, rows.length),
+      undefined,
+      new NativeFs(),
+      database as unknown as ProjectDatabase,
+      test_font_sync,
+    );
+
+    expect(fs.readFileSync(path.join(staging_directory, "route.txt"), "utf-8")).toBe(
+      "\uFEFF物理旧译甲\r\n工作台新译文\r\n译文乙\r\n",
+    );
+  });
+
   it("专用 worker writer 中途失败时关闭全部句柄", async () => {
     const staging_directory = path.join(temp_directory, "worker-write-failure");
     fs.mkdirSync(staging_directory, { recursive: true });

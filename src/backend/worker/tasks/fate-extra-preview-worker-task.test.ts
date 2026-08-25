@@ -559,6 +559,83 @@ describe("fate-extra preview worker task", () => {
     expect(warning_items("FE_MIGRATION_REVIEW")).toEqual([4]);
   });
 
+  it("warning 与普通唯一筛选使用未排除代表项和可见 occurrence 数量", () => {
+    temp_directory = fs.mkdtempSync(path.join(os.tmpdir(), "linguagacha-fe-excluded-preview-"));
+    const project_path = path.join(temp_directory, "excluded-preview.lg");
+    const database = new ProjectDatabase();
+    database.execute({
+      name: "createProject",
+      args: { projectPath: project_path, name: "excluded-preview" },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 3 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          { id: 1, src: "重复原文", status: "EXCLUDED" },
+          { id: 2, src: "重复原文", status: "NONE" },
+          { id: 3, src: "仅排除", status: "EXCLUDED" },
+        ].map((item) => ({
+          ...item,
+          dst: "短文",
+          file_path: "route.txt",
+          row: item.id,
+          extra_field: warning_metadata({
+            path: "route.bin",
+            char_offset: item.id,
+            migration_review: true,
+          }),
+        })),
+      },
+    });
+    database.close();
+    build_and_activate(project_path);
+
+    const query = (args: {
+      warning?: string;
+      search?: string;
+      viewMode: "unique" | "occurrence";
+    }) =>
+      run_fate_extra_preview_search_worker_task({
+        projectPath: project_path,
+        search: args.search ?? "",
+        filePath: "",
+        category: "",
+        warning: args.warning ?? "",
+        position: 0,
+        limit: 20,
+        includeFiles: false,
+        includeTotal: true,
+        viewMode: args.viewMode,
+        expectedGeneration: 1,
+        expectedItemsRevision: 0,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 0,
+      }) as Record<string, unknown>;
+    expect(query({ warning: "FE_MIGRATION_REVIEW", viewMode: "occurrence" })).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 2 })],
+    });
+    expect(query({ warning: "FE_MIGRATION_REVIEW", viewMode: "unique" })).toMatchObject({
+      total: 1,
+      items: [
+        expect.objectContaining({ id: 2, fe_occurrence_count: 1, fe_warning_occurrence_id: 2 }),
+      ],
+    });
+    expect(query({ search: "重复原文", viewMode: "unique" })).toMatchObject({
+      total: 1,
+      items: [expect.objectContaining({ id: 2, fe_occurrence_count: 1 })],
+    });
+  });
+
   it("compact warning 按物理 occurrence 计算并在 unique 视图聚合", () => {
     temp_directory = fs.mkdtempSync(path.join(os.tmpdir(), "linguagacha-fe-warning-compact-"));
     const source_path = path.join(temp_directory, "source.lg");
@@ -599,7 +676,7 @@ describe("fate-extra preview worker task", () => {
     database.close();
     build_and_activate(compact_path);
 
-    const query = (viewMode: "unique" | "occurrence") =>
+    const query = (viewMode: "unique" | "occurrence", generation = 1, items_revision = 0) =>
       run_fate_extra_preview_search_worker_task({
         projectPath: compact_path,
         search: "",
@@ -611,10 +688,10 @@ describe("fate-extra preview worker task", () => {
         includeFiles: false,
         includeTotal: true,
         viewMode,
-        expectedGeneration: 1,
-        expectedItemsRevision: 0,
-        expectedNavigationGeneration: 1,
-        expectedNavigationRevision: 0,
+        expectedGeneration: generation,
+        expectedItemsRevision: items_revision,
+        expectedNavigationGeneration: generation,
+        expectedNavigationRevision: items_revision,
       }) as Record<string, unknown>;
     expect(query("occurrence")).toMatchObject({
       total: 1,
@@ -624,5 +701,17 @@ describe("fate-extra preview worker task", () => {
       total: 1,
       items: [expect.objectContaining({ fe_warning_codes: ["FE_STORAGE_CAPACITY"] })],
     });
+
+    const writer = new DatabaseSync(compact_path);
+    writer.prepare("UPDATE items SET data = json_set(data, '$.status', 'EXCLUDED')").run();
+    writer
+      .prepare(
+        "INSERT OR REPLACE INTO meta (key, value) VALUES ('project_runtime_revision.items', '1')",
+      )
+      .run();
+    writer.close();
+    build_and_activate(compact_path, 1);
+    expect(query("occurrence", 2, 1)).toMatchObject({ total: 0, items: [] });
+    expect(query("unique", 2, 1)).toMatchObject({ total: 0, items: [] });
   });
 });

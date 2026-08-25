@@ -71,12 +71,31 @@ const desktop_state_mock = vi.hoisted(() => {
   };
 });
 
+const next_theme_mock = vi.hoisted(() => ({
+  theme: "system" as string | undefined,
+  resolved_theme: "light" as string | undefined,
+  set_theme: vi.fn(),
+  provider_props: [] as Array<Record<string, unknown>>,
+}));
+
+const app_sidebar_mock = vi.hoisted(() => ({
+  render_props: [] as Array<Record<string, unknown>>,
+}));
+
+const title_bar_theme_mock = vi.hoisted(() => ({
+  set_title_bar_theme: vi.fn(),
+}));
+
 vi.mock("next-themes", () => {
   return {
-    ThemeProvider: (props: { children: ReactNode }) => <>{props.children}</>,
+    ThemeProvider: (props: Record<string, unknown> & { children: ReactNode }) => {
+      next_theme_mock.provider_props.push(props);
+      return <>{props.children}</>;
+    },
     useTheme: () => ({
-      resolvedTheme: "light",
-      setTheme: vi.fn(),
+      theme: next_theme_mock.theme,
+      resolvedTheme: next_theme_mock.resolved_theme,
+      setTheme: next_theme_mock.set_theme,
     }),
   };
 });
@@ -211,17 +230,33 @@ vi.mock("@frontend/shadcn/tooltip", () => {
 
 vi.mock("@frontend/app/shell/app-sidebar", () => {
   return {
-    AppSidebar: (props: { on_select_app_language: (language: AppLanguage) => void }) => (
-      <button
-        type="button"
-        data-testid="select-de-language"
-        onClick={() => {
-          props.on_select_app_language("DE");
-        }}
-      >
-        Deutsch
-      </button>
-    ),
+    AppSidebar: (props: {
+      theme_preference: string;
+      on_select_theme_preference: (preference: "system" | "light" | "dark") => void;
+      on_select_app_language: (language: AppLanguage) => void;
+    }) => {
+      app_sidebar_mock.render_props.push(props as unknown as Record<string, unknown>);
+      return (
+        <>
+          <button
+            type="button"
+            data-testid="select-de-language"
+            onClick={() => {
+              props.on_select_app_language("DE");
+            }}
+          >
+            Deutsch
+          </button>
+          <button
+            type="button"
+            data-testid="select-system-theme"
+            onClick={() => props.on_select_theme_preference("system")}
+          >
+            system
+          </button>
+        </>
+      );
+    },
   };
 });
 
@@ -283,9 +318,15 @@ describe("App 窗口根行为", () => {
     desktop_api_mock.get_backend_metadata.mockResolvedValue({ version: "9.8.7" });
     desktop_api_mock.open_external_url.mockResolvedValue(undefined);
     desktop_api_mock.report_renderer_error.mockResolvedValue(undefined);
+    next_theme_mock.theme = "system";
+    next_theme_mock.resolved_theme = "light";
+    next_theme_mock.provider_props = [];
+    app_sidebar_mock.render_props = [];
     Object.defineProperty(window, "desktopApp", {
       configurable: true,
-      value: create_desktop_bridge_api_mock(),
+      value: create_desktop_bridge_api_mock({
+        methods: { setTitleBarTheme: title_bar_theme_mock.set_title_bar_theme },
+      }),
     });
   });
 
@@ -310,9 +351,13 @@ describe("App 窗口根行为", () => {
   /**
    * 挂载当前测试组件并等待渲染完成。
    */
-  async function mount_app_at(url: string): Promise<void> {
+  async function mount_app_at(url: string, stored_theme: string | null = "light"): Promise<void> {
     window.history.replaceState(null, "", url);
-    window.localStorage.setItem("lg-theme-mode", "light");
+    if (stored_theme === null) {
+      window.localStorage.removeItem("lg-theme-mode");
+    } else {
+      window.localStorage.setItem("lg-theme-mode", stored_theme);
+    }
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -321,6 +366,56 @@ describe("App 窗口根行为", () => {
       root?.render(<App />);
     });
   }
+
+  it("无历史主题时主窗口与日志窗口都默认跟随系统", async () => {
+    await mount_app_at("/?window=logs", null);
+
+    expect(next_theme_mock.provider_props.at(-1)).toMatchObject({
+      attribute: "class",
+      defaultTheme: "system",
+      enableSystem: true,
+      disableTransitionOnChange: true,
+      storageKey: "lg-theme-mode",
+      themes: ["light", "dark"],
+    });
+  });
+
+  it("非法主题存储值回到跟随系统且旧明暗值保持兼容", async () => {
+    await mount_app_at("/?window=logs", "unsupported");
+    expect(next_theme_mock.provider_props.at(-1)).toMatchObject({ defaultTheme: "system" });
+    expect(window.localStorage.getItem("lg-theme-mode")).toBeNull();
+
+    await act(async () => root?.unmount());
+    root = null;
+    container?.remove();
+    container = null;
+    await mount_app_at("/?window=logs", "dark");
+    expect(next_theme_mock.provider_props.at(-1)).toMatchObject({ defaultTheme: "dark" });
+  });
+
+  it("解析后的系统明暗变化会重新同步原生标题栏", async () => {
+    next_theme_mock.theme = "system";
+    next_theme_mock.resolved_theme = "dark";
+    await mount_app_at("/", null);
+    expect(title_bar_theme_mock.set_title_bar_theme).toHaveBeenLastCalledWith("dark");
+
+    next_theme_mock.resolved_theme = "light";
+    await act(async () => root?.render(<App />));
+    expect(title_bar_theme_mock.set_title_bar_theme).toHaveBeenLastCalledWith("light");
+  });
+
+  it("侧栏主题偏好使用 theme 并通过 setTheme 明确切换", async () => {
+    next_theme_mock.theme = "dark";
+    next_theme_mock.resolved_theme = "dark";
+    await mount_app_at("/", "dark");
+
+    expect(app_sidebar_mock.render_props.at(-1)).toMatchObject({ theme_preference: "dark" });
+    const button = container?.querySelector<HTMLButtonElement>(
+      '[data-testid="select-system-theme"]',
+    );
+    await act(async () => button?.click());
+    expect(next_theme_mock.set_theme).toHaveBeenCalledWith("system");
+  });
 
   /**
    * 刷新 App 根组件内连续触发的异步 effect。

@@ -41,6 +41,7 @@ import {
   read_fate_extra_display_mode,
   read_fate_extra_item_metadata,
   read_fate_extra_proofread_translation,
+  resolve_fate_extra_project_mode,
   type FateExtraDisplayMode,
   type FateExtraItemMetadata,
 } from "../../shared/fate-extra/fate-extra-types";
@@ -985,6 +986,14 @@ export class FateExtraService {
     if (!Number.isInteger(item_id) || item_id <= 0) {
       this.throw_validation_error("无效的 FE 文本条目编号。");
     }
+    const occurrence_id = Math.trunc(Number(body["occurrence_id"] ?? 0));
+    if (!Number.isInteger(occurrence_id) || occurrence_id <= 0) {
+      this.throw_validation_error("无效的 FE 物理位置编号。");
+    }
+    const project_mode = resolve_fate_extra_project_mode(
+      this.read_record_operation("getAllMeta", project_path),
+    );
+    const compact = project_mode === "fate-extra-compact";
     const rows = this.database.execute({
       name: "getItemsByIds",
       args: { projectPath: project_path, itemIds: [item_id] },
@@ -1002,24 +1011,19 @@ export class FateExtraService {
     const review_scope = String(body["review_scope"] ?? "occurrence");
     const unit_id = Math.trunc(Number(body["text_unit_id"] ?? 0));
     const proofread_translation = String(body["proofread_translation"] ?? "");
+    if (proofread_translation === read_fate_extra_proofread_translation(metadata)) {
+      return (await this.write_store.apply_fate_extra_display_mode({
+        projectPath: project_path,
+        expectedSectionRevisions: body["expected_section_revisions"],
+        itemId: item_id,
+        occurrenceId: occurrence_id,
+        displayMode: display_mode,
+        compact,
+      })) as unknown as JsonRecord;
+    }
     if (review_scope === "unit") {
       if (!Number.isInteger(unit_id) || unit_id <= 0) {
         this.throw_validation_error("无效的 FE 严格重复组编号。");
-      }
-      if (proofread_translation === read_fate_extra_proofread_translation(metadata)) {
-        const display_only_metadata: FateExtraItemMetadata = {
-          ...metadata,
-          display_mode,
-        };
-        return (await this.write_store.apply_fate_extra_item_metadata({
-          projectPath: project_path,
-          expectedSectionRevisions: body["expected_section_revisions"],
-          itemId: item_id,
-          extraField: merge_fate_extra_item_metadata(
-            item["extra_field"] as Parameters<typeof merge_fate_extra_item_metadata>[0],
-            display_only_metadata,
-          ) as ApiJsonValue,
-        })) as unknown as JsonRecord;
       }
       this.assert_duplicate_index_ready(project_path);
       return (await this.write_store.apply_fate_extra_text_unit_review({
@@ -1027,6 +1031,7 @@ export class FateExtraService {
         expectedSectionRevisions: body["expected_section_revisions"],
         unitId: unit_id,
         itemId: item_id,
+        occurrenceId: occurrence_id,
         proofreadTranslation: proofread_translation,
         displayMode: display_mode,
       })) as unknown as JsonRecord;
@@ -1034,7 +1039,7 @@ export class FateExtraService {
     const next_metadata: FateExtraItemMetadata = {
       ...metadata,
       proofread_translation,
-      display_mode,
+      ...(compact ? {} : { display_mode }),
     };
     const result = await this.write_store.apply_fate_extra_item_metadata({
       projectPath: project_path,
@@ -1044,6 +1049,14 @@ export class FateExtraService {
         item["extra_field"] as Parameters<typeof merge_fate_extra_item_metadata>[0],
         next_metadata,
       ) as ApiJsonValue,
+      ...(compact
+        ? {
+            occurrenceDisplay: {
+              occurrenceId: occurrence_id,
+              displayMode: display_mode,
+            },
+          }
+        : {}),
     });
     return result as unknown as JsonRecord;
   }

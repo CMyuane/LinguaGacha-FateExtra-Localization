@@ -6,6 +6,15 @@ export const FATE_EXTRA_PREVIEW_NAVIGATION_GENERATION_META_KEY =
   "fate_extra.preview-navigation.generation";
 export const FATE_EXTRA_PREVIEW_NAVIGATION_ITEMS_REVISION_META_KEY =
   "fate_extra.preview-navigation.items-revision";
+export const FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY = "fate_extra.preview-index.format-version";
+export const FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION = 1;
+
+export function build_fate_extra_preview_index_identity(adapter_value: string): string {
+  return JsonTool.stringifyStrict({
+    format_version: FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION,
+    adapter_value,
+  });
+}
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -34,13 +43,16 @@ export function read_fate_extra_preview_navigation_state(
     `)
     .get(generation);
   const adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+  const format_version = read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY);
   const indexed_items_revision = row_number(row ?? {}, "items_revision");
   return {
     ready:
       generation > 0 &&
+      format_version === FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION &&
       row_number(row ?? {}, "complete") === 1 &&
       adapter_value !== null &&
-      adapter_value === row_text(row ?? {}, "adapter_value") &&
+      build_fate_extra_preview_index_identity(adapter_value) ===
+        row_text(row ?? {}, "adapter_value") &&
       items_revision === indexed_items_revision,
     generation,
     items_revision,
@@ -72,16 +84,6 @@ export function build_fate_extra_preview_navigation_generation(
       unique_count, occurrence_count, file_count, complete
     ) VALUES (?, ?, ?, ?, 0, 0, 0, 0)
   `).run(args.generation, args.adapter_value, args.items_revision, args.item_count);
-
-  db.prepare(`
-    INSERT INTO fate_extra_preview_navigation_unit (
-      generation, position, unit_id, item_id, occurrence_count
-    )
-    SELECT ?, ROW_NUMBER() OVER (ORDER BY representative_item_id) - 1,
-      unit_id, representative_item_id, occurrence_count
-    FROM fate_extra_text_unit
-    ORDER BY representative_item_id
-  `).run(args.generation);
 
   if (args.compact) {
     build_compact_navigation(db, args.generation);
@@ -128,6 +130,23 @@ export function build_fate_extra_preview_navigation_generation(
 
 function build_standard_navigation(db: DatabaseSync, generation: number): void {
   db.prepare(`
+    INSERT INTO fate_extra_preview_navigation_unit (
+      generation, position, unit_id, item_id, occurrence_count
+    )
+    WITH visible_unit AS (
+      SELECT text_occurrence.unit_id, MIN(item.id) AS representative_item_id,
+        COUNT(*) AS occurrence_count
+      FROM fate_extra_text_occurrence AS text_occurrence
+      JOIN items AS item ON item.id = text_occurrence.item_id
+      WHERE COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
+      GROUP BY text_occurrence.unit_id
+    )
+    SELECT ?, ROW_NUMBER() OVER (ORDER BY representative_item_id) - 1,
+      unit_id, representative_item_id, occurrence_count
+    FROM visible_unit
+    ORDER BY representative_item_id
+  `).run(generation);
+  db.prepare(`
     INSERT INTO fate_extra_preview_navigation_occurrence (
       generation, occurrence_id, item_id, unit_id, file_path,
       global_position, file_position
@@ -140,6 +159,7 @@ function build_standard_navigation(db: DatabaseSync, generation: number): void {
       ) - 1
     FROM items AS item
     JOIN fate_extra_text_occurrence AS text_occurrence ON text_occurrence.item_id = item.id
+    WHERE COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
     ORDER BY item.id
   `).run(generation);
   db.prepare(`
@@ -148,12 +168,12 @@ function build_standard_navigation(db: DatabaseSync, generation: number): void {
     )
     WITH first_in_file AS (
       SELECT COALESCE(json_extract(item.data, '$.file_path'), '') AS file_path,
-        text_occurrence.unit_id, unit.representative_item_id AS item_id,
+        text_occurrence.unit_id, MIN(item.id) AS item_id,
         MIN(item.id) AS occurrence_id
       FROM items AS item
       JOIN fate_extra_text_occurrence AS text_occurrence ON text_occurrence.item_id = item.id
-      JOIN fate_extra_text_unit AS unit ON unit.unit_id = text_occurrence.unit_id
-      GROUP BY file_path, text_occurrence.unit_id, unit.representative_item_id
+      WHERE COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
+      GROUP BY file_path, text_occurrence.unit_id
     )
     SELECT ?, file_path,
       ROW_NUMBER() OVER (PARTITION BY file_path ORDER BY item_id) - 1,
@@ -164,14 +184,36 @@ function build_standard_navigation(db: DatabaseSync, generation: number): void {
 }
 
 function build_compact_navigation(db: DatabaseSync, generation: number): void {
+  db.prepare(`
+    INSERT INTO fate_extra_preview_navigation_unit (
+      generation, position, unit_id, item_id, occurrence_count
+    )
+    WITH visible_unit AS (
+      SELECT text_occurrence.unit_id, compact_source.compact_item_id AS item_id,
+        compact_source.occurrence_count
+      FROM fate_extra_compact_source AS compact_source
+      JOIN items AS item ON item.id = compact_source.compact_item_id
+      JOIN fate_extra_text_occurrence AS text_occurrence
+        ON text_occurrence.item_id = compact_source.compact_item_id
+      WHERE compact_source.excluded_reason = ''
+        AND compact_source.compact_item_id IS NOT NULL
+        AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
+    )
+    SELECT ?, ROW_NUMBER() OVER (ORDER BY item_id) - 1,
+      unit_id, item_id, occurrence_count
+    FROM visible_unit
+    ORDER BY item_id
+  `).run(generation);
   const source = `
     FROM fate_extra_compact_occurrence AS occurrence
     JOIN fate_extra_compact_source AS compact_source
       ON compact_source.source_hash = occurrence.source_hash
+    JOIN items AS item ON item.id = compact_source.compact_item_id
     JOIN fate_extra_text_occurrence AS text_occurrence
       ON text_occurrence.item_id = compact_source.compact_item_id
     WHERE compact_source.excluded_reason = ''
       AND compact_source.compact_item_id IS NOT NULL
+      AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
   `;
   db.prepare(`
     INSERT INTO fate_extra_preview_navigation_occurrence (
@@ -216,6 +258,7 @@ export function activate_fate_extra_preview_navigation_generation(
   expected_items_revision: number,
   expected_adapter_value: string,
 ): FateExtraPreviewNavigationState {
+  const current_adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
   const row = db
     .prepare(`
       SELECT adapter_value, items_revision, complete
@@ -229,7 +272,8 @@ export function activate_fate_extra_preview_navigation_generation(
     row_number(row, "items_revision") !== expected_items_revision ||
     row_text(row, "adapter_value") !== expected_adapter_value ||
     read_json_number_meta(db, "project_runtime_revision.items") !== expected_items_revision ||
-    read_meta_text(db, "fate_extra.adapter.v1") !== expected_adapter_value
+    current_adapter_value === null ||
+    build_fate_extra_preview_index_identity(current_adapter_value) !== expected_adapter_value
   ) {
     throw new Error("fate_extra_preview_navigation_activation_identity_changed");
   }
@@ -247,13 +291,26 @@ export function advance_fate_extra_preview_navigation_revision(
   previous_items_revision: number,
   items_revision: number,
 ): boolean {
+  const adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+  if (
+    adapter_value === null ||
+    read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY) !==
+      FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION
+  ) {
+    return false;
+  }
   const changed = db
     .prepare(`
       UPDATE fate_extra_preview_navigation_generation
       SET items_revision = ?
-      WHERE generation = ? AND complete = 1 AND items_revision = ?
+      WHERE generation = ? AND complete = 1 AND items_revision = ? AND adapter_value = ?
     `)
-    .run(items_revision, generation, previous_items_revision).changes;
+    .run(
+      items_revision,
+      generation,
+      previous_items_revision,
+      build_fate_extra_preview_index_identity(adapter_value),
+    ).changes;
   if (changed !== 1) return false;
   write_navigation_identity(db, generation, items_revision);
   return true;
@@ -310,6 +367,10 @@ function write_navigation_identity(
   upsert.run(
     FATE_EXTRA_PREVIEW_NAVIGATION_ITEMS_REVISION_META_KEY,
     JsonTool.stringifyStrict(items_revision),
+  );
+  upsert.run(
+    FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY,
+    JsonTool.stringifyStrict(FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION),
   );
 }
 

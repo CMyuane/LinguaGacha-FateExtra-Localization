@@ -187,6 +187,7 @@ describe("ProjectDatabase", () => {
           projectPath: lg_path,
           unitId: Number(duplicate?.["fe_text_unit_id"] ?? 0),
           itemId: Number(duplicate?.["id"] ?? 0),
+          occurrenceId: Number(duplicate?.["id"] ?? 0),
           proofreadTranslation: "统一校对",
           displayMode: "dialogue",
         },
@@ -450,6 +451,46 @@ describe("ProjectDatabase", () => {
       ["乙", "乙译", 0, 1],
       ["甲", "甲", 1, 2],
       ["乙", "乙路线二", 2, 3],
+    ]);
+
+    const compact_representative = (compact_page["items"] as Array<Record<string, unknown>>).find(
+      (item) => item["src"] === "乙",
+    );
+    database.execute_transaction([
+      {
+        name: "patchFateExtraDisplayMode",
+        args: {
+          projectPath: compact_path,
+          itemId: Number(compact_representative?.["id"] ?? 0),
+          occurrenceId: 1,
+          displayMode: "poem",
+        },
+      },
+    ]);
+    const compact_unique_page = query_fate_extra_preview(database, compact_path, {
+      limit: 10,
+      viewMode: "unique",
+    });
+    const compact_unique_representative = (
+      compact_unique_page["items"] as Array<Record<string, unknown>>
+    ).find((item) => item["src"] === "乙");
+    expect(compact_unique_representative).toMatchObject({
+      fe_physical_occurrence_id: 1,
+      extra_field: {
+        __linguagacha_fe_v1: expect.objectContaining({ display_mode: "poem" }),
+      },
+    });
+    const compact_export_page = database.execute({
+      name: "getFateExtraCompactExportPage",
+      args: { projectPath: compact_path, afterOriginalItemId: 0, limit: 10 },
+    }) as Record<string, unknown>;
+    expect(
+      (compact_export_page["rows"] as Array<Record<string, unknown>>)
+        .filter((row) => row["original_item_id"] === 1 || row["original_item_id"] === 3)
+        .map((row) => [row["original_item_id"], row["display_mode"]]),
+    ).toEqual([
+      [1, "poem"],
+      [3, "auto"],
     ]);
 
     const supplement_page = query_fate_extra_preview(database, compact_path, {

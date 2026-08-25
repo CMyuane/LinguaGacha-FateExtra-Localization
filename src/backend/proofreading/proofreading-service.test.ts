@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectEventBus } from "../project/project-events";
 import { ProjectDatabase } from "../database/database-operations";
+import { run_fate_extra_index_maintenance } from "../database/fate-extra-preview-search-index";
 import type { ApiJsonValue } from "../api/api-types";
 import type { ProjectChangePublisher } from "../project/project-changes";
 import { ProjectWriteStore } from "../project/project-write-store";
@@ -620,6 +621,118 @@ describe("ProofreadingService", () => {
         proofreading: { payloadMode: "canonical-delta" },
       },
     });
+  });
+
+  it("FE 状态跨入和离开 EXCLUDED 时保持预览 updating 直至后台 generation 重建", async () => {
+    const { database, service, lg_path, publisher } = create_service();
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: lg_path,
+        items: [create_project_item({ dst: "保留译文", status: "NONE", retry_count: 4 })],
+      },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: lg_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 1 },
+      },
+    });
+    const initial_build = run_fate_extra_index_maintenance(lg_path, 0);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: lg_path,
+        generation: initial_build.generation,
+        expectedItemsRevision: initial_build.items_revision,
+        expectedAdapterValue: initial_build.adapter_value,
+      },
+    });
+    const transaction_spy = vi.spyOn(database, "execute_transaction");
+
+    await service.set_translation_status({
+      item_ids: [1],
+      status: "EXCLUDED",
+      expected_section_revisions: { items: 0, proofreading: 0 },
+    });
+
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({
+      ready: false,
+      search_ready: false,
+      navigation_ready: false,
+      items_revision: 1,
+      search_items_revision: 0,
+      navigation_items_revision: 0,
+    });
+    expect(database.execute({ name: "getAllItems", args: { projectPath: lg_path } })).toEqual([
+      create_project_item({ dst: "保留译文", status: "EXCLUDED", retry_count: 0 }),
+    ]);
+    expect(transaction_spy.mock.calls[0]?.[0].map((operation) => operation.name)).not.toContain(
+      "refreshFateExtraPreviewSearchDocuments",
+    );
+
+    await service.set_translation_status({
+      item_ids: [1],
+      status: "PROCESSED",
+      expected_section_revisions: { items: 1, proofreading: 1 },
+    });
+
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({
+      ready: false,
+      items_revision: 2,
+      search_items_revision: 0,
+      navigation_items_revision: 0,
+    });
+    const recovery_operation_names = transaction_spy.mock.calls[1]?.[0].map(
+      (operation) => operation.name,
+    );
+    expect(recovery_operation_names).not.toContain("refreshFateExtraPreviewSearchDocuments");
+    expect(recovery_operation_names).not.toContain("advanceFateExtraPreviewRevisionIdentity");
+    const recovery_build = run_fate_extra_index_maintenance(lg_path, 2);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: lg_path,
+        generation: recovery_build.generation,
+        expectedItemsRevision: recovery_build.items_revision,
+        expectedAdapterValue: recovery_build.adapter_value,
+      },
+    });
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: lg_path },
+      }),
+    ).toMatchObject({
+      ready: true,
+      search_ready: true,
+      navigation_ready: true,
+      items_revision: 2,
+      search_items_revision: 2,
+      navigation_items_revision: 2,
+    });
+    expect(publisher.publish_project_change).toHaveBeenCalledTimes(2);
+    expect(publisher.publish_project_change).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        source: "proofreading_save_items",
+        updatedSections: ["items", "proofreading"],
+        items: expect.objectContaining({
+          fieldPatch: { status: "PROCESSED", retry_count: 0 },
+        }),
+      }),
+    );
   });
 
   it("设置翻译状态拒绝菜单外的计算状态", async () => {

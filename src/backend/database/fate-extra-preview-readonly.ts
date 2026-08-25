@@ -1,7 +1,10 @@
 import { DatabaseSync } from "node:sqlite";
 
-import { FATE_EXTRA_SUPPLEMENT_FILE } from "../../shared/fate-extra/fate-extra-types";
-import { read_fate_extra_item_metadata } from "../../shared/fate-extra/fate-extra-types";
+import {
+  FATE_EXTRA_SUPPLEMENT_FILE,
+  read_fate_extra_item_metadata,
+  resolve_fate_extra_compact_machine_translation,
+} from "../../shared/fate-extra/fate-extra-types";
 import {
   has_fate_extra_preview_warning,
   is_fate_extra_preview_warning_code,
@@ -170,6 +173,8 @@ const WARNING_SCAN_BATCH_SIZE = 2_000;
 
 type WarningUnitMatch = {
   unit_id: number;
+  representative_item_id: number;
+  occurrence_count: number;
   physical_occurrence_id: number;
   order_id: number;
 };
@@ -206,7 +211,13 @@ function read_warning_filtered_page(
   const unique_scope = input.viewMode === "unique" && (!compact || input.filePath === "");
   const position = safe_position(input.position);
   const limit = safe_limit(input.limit);
-  const cache_key = build_warning_cache_key(input, search_generation, warning, compact);
+  const cache_key = build_warning_cache_key(
+    input,
+    search_generation,
+    navigation_generation,
+    warning,
+    compact,
+  );
   let index = warning_match_cache?.key === cache_key ? warning_match_cache.index : null;
   if (index === null) {
     index = unique_scope
@@ -214,6 +225,7 @@ function read_warning_filtered_page(
           db,
           input,
           search_generation,
+          navigation_generation,
           warning,
           compact,
           measure_encoded_bytes,
@@ -283,7 +295,7 @@ function scan_normal_occurrence_warning_ids(
   warning: FateExtraPreviewWarningCode,
   measure_encoded_bytes: (text: string) => number,
 ): number[] {
-  const conditions: string[] = [];
+  const conditions = ["COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'"];
   const parameters: QueryValue[] = [];
   append_occurrence_index_conditions(conditions, parameters, input, generation, "item.id");
   const ids: number[] = [];
@@ -319,7 +331,10 @@ function scan_compact_occurrence_warning_ids(
   warning: FateExtraPreviewWarningCode,
   measure_encoded_bytes: (text: string) => number,
 ): number[] {
-  const conditions = ["compact_source.excluded_reason = ''"];
+  const conditions = [
+    "compact_source.excluded_reason = ''",
+    "COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'",
+  ];
   const parameters: QueryValue[] = [];
   append_compact_index_conditions(conditions, parameters, input, generation);
   if (input.viewMode === "unique" && input.filePath === FATE_EXTRA_SUPPLEMENT_FILE) {
@@ -370,14 +385,15 @@ function scan_compact_occurrence_warning_ids(
 function scan_unique_warning_index(
   db: DatabaseSync,
   input: FateExtraPreviewReadonlyQuery,
-  generation: number,
+  search_generation: number,
+  navigation_generation: number,
   warning: FateExtraPreviewWarningCode,
   compact: boolean,
   measure_encoded_bytes: (text: string) => number,
 ): WarningMatchIndex {
   const unit_conditions: string[] = [];
   const unit_parameters: QueryValue[] = [];
-  append_unique_index_conditions(unit_conditions, unit_parameters, input, generation);
+  append_unique_index_conditions(unit_conditions, unit_parameters, input, search_generation);
   const candidate_unit_where =
     unit_conditions.length === 0 ? "" : ` AND ${unit_conditions.join(" AND ")}`;
   const first_match_by_unit = new Map<number, WarningUnitMatch>();
@@ -388,37 +404,57 @@ function scan_unique_warning_index(
           .prepare(`
             SELECT
               unit.unit_id AS candidate_unit_id,
-              unit.representative_item_id,
+              unit.item_id AS representative_item_id,
+              unit.occurrence_count,
+              unit.position AS unit_position,
               ${compact_occurrence_select_columns_sql()}
-            FROM fate_extra_compact_occurrence AS occurrence
+            FROM fate_extra_preview_navigation_occurrence AS visible_occurrence
+            JOIN fate_extra_compact_occurrence AS occurrence
+              ON occurrence.original_item_id = visible_occurrence.occurrence_id
             JOIN fate_extra_compact_source AS compact_source
               ON compact_source.source_hash = occurrence.source_hash
             JOIN items AS item ON item.id = compact_source.compact_item_id
             JOIN fate_extra_text_occurrence AS text_occurrence
               ON text_occurrence.item_id = item.id
-            JOIN fate_extra_text_unit AS unit ON unit.unit_id = text_occurrence.unit_id
-            WHERE compact_source.excluded_reason = ''
+            JOIN fate_extra_preview_navigation_unit AS unit
+              ON unit.generation = visible_occurrence.generation
+              AND unit.unit_id = text_occurrence.unit_id
+            WHERE visible_occurrence.generation = ?
               AND occurrence.original_item_id > ?${candidate_unit_where}
             ORDER BY occurrence.original_item_id
             LIMIT ?
           `)
-          .all(after_occurrence_id, ...unit_parameters, WARNING_SCAN_BATCH_SIZE)
+          .all(
+            navigation_generation,
+            after_occurrence_id,
+            ...unit_parameters,
+            WARNING_SCAN_BATCH_SIZE,
+          )
       : db
           .prepare(`
             SELECT
               unit.unit_id AS candidate_unit_id,
-              unit.representative_item_id,
+              unit.item_id AS representative_item_id,
               unit.occurrence_count,
+              unit.position AS unit_position,
               item.id,
               item.data
-            FROM items AS item
-            JOIN fate_extra_text_occurrence AS occurrence ON occurrence.item_id = item.id
-            JOIN fate_extra_text_unit AS unit ON unit.unit_id = occurrence.unit_id
-            WHERE item.id > ?${candidate_unit_where}
+            FROM fate_extra_preview_navigation_occurrence AS visible_occurrence
+            JOIN items AS item ON item.id = visible_occurrence.item_id
+            JOIN fate_extra_preview_navigation_unit AS unit
+              ON unit.generation = visible_occurrence.generation
+              AND unit.unit_id = visible_occurrence.unit_id
+            WHERE visible_occurrence.generation = ?
+              AND item.id > ?${candidate_unit_where}
             ORDER BY item.id
             LIMIT ?
           `)
-          .all(after_occurrence_id, ...unit_parameters, WARNING_SCAN_BATCH_SIZE);
+          .all(
+            navigation_generation,
+            after_occurrence_id,
+            ...unit_parameters,
+            WARNING_SCAN_BATCH_SIZE,
+          );
     if (rows.length === 0) break;
     for (const raw of rows) {
       const physical_id = compact ? row_number(raw, "original_item_id") : row_number(raw, "id");
@@ -431,8 +467,10 @@ function scan_unique_warning_index(
       if (!row_has_warning(row, warning, measure_encoded_bytes)) continue;
       first_match_by_unit.set(unit_id, {
         unit_id,
+        representative_item_id: row_number(raw, "representative_item_id"),
+        occurrence_count: row_number(raw, "occurrence_count"),
         physical_occurrence_id: physical_id,
-        order_id: row_number(raw, "representative_item_id"),
+        order_id: row_number(raw, "unit_position"),
       });
     }
   }
@@ -444,7 +482,8 @@ function scan_unique_warning_index(
 
 function build_warning_cache_key(
   input: FateExtraPreviewReadonlyQuery,
-  generation: number,
+  search_generation: number,
+  navigation_generation: number,
   warning: FateExtraPreviewWarningCode,
   compact: boolean,
 ): string {
@@ -452,7 +491,8 @@ function build_warning_cache_key(
     input.projectPath,
     input.projectEpoch ?? 0,
     input.expectedItemsRevision,
-    generation,
+    search_generation,
+    navigation_generation,
     compact,
     input.viewMode,
     input.search,
@@ -489,14 +529,9 @@ function hydrate_warning_page(
     });
   }
   if (index.kind === "normal-unique") {
-    const read = db.prepare(`
-      SELECT unit.unit_id, unit.occurrence_count, item.id, item.data
-      FROM fate_extra_text_unit AS unit
-      JOIN items AS item ON item.id = unit.representative_item_id
-      WHERE unit.unit_id = ?
-    `);
+    const read = db.prepare("SELECT id, data FROM items WHERE id = ?");
     return index.units.slice(offset, offset + limit).flatMap((match) => {
-      const raw = read.get(match.unit_id);
+      const raw = read.get(match.representative_item_id);
       return raw === undefined
         ? []
         : [
@@ -504,7 +539,7 @@ function hydrate_warning_page(
               ...as_record(parse_json(raw["data"])),
               id: row_number(raw, "id"),
               fe_text_unit_id: match.unit_id,
-              fe_occurrence_count: row_number(raw, "occurrence_count"),
+              fe_occurrence_count: match.occurrence_count,
               fe_warning_occurrence_id: match.physical_occurrence_id,
             },
           ];
@@ -675,6 +710,7 @@ function compact_occurrence_select_columns_sql(): string {
     compact_source.source,
     compact_source.occurrence_count,
     compact_source.compact_item_id,
+    compact_source.representative_translation_authoritative,
     text_occurrence.unit_id,
     item.data
   `;
@@ -762,6 +798,34 @@ function read_navigation_unit_page(
   limit: number,
 ): DatabaseRow[] {
   if (input.filePath === "") {
+    if (compact) {
+      return db
+        .prepare(`
+          SELECT ${compact_occurrence_select_columns_sql()}
+          FROM fate_extra_preview_navigation_unit AS navigation
+          JOIN fate_extra_preview_navigation_occurrence AS first_occurrence
+            ON first_occurrence.generation = navigation.generation
+            AND first_occurrence.unit_id = navigation.unit_id
+            AND first_occurrence.occurrence_id = (
+              SELECT MIN(candidate.occurrence_id)
+              FROM fate_extra_preview_navigation_occurrence AS candidate
+              WHERE candidate.generation = navigation.generation
+                AND candidate.unit_id = navigation.unit_id
+            )
+          JOIN fate_extra_compact_occurrence AS occurrence
+            ON occurrence.original_item_id = first_occurrence.occurrence_id
+          JOIN fate_extra_compact_source AS compact_source
+            ON compact_source.source_hash = occurrence.source_hash
+          JOIN items AS item ON item.id = compact_source.compact_item_id
+          LEFT JOIN fate_extra_text_occurrence AS text_occurrence
+            ON text_occurrence.item_id = item.id
+          WHERE navigation.generation = ? AND navigation.position >= ?
+          ORDER BY navigation.position
+          LIMIT ?
+        `)
+        .all(generation, position, limit)
+        .map(project_compact_row);
+    }
     return db
       .prepare(`
         SELECT navigation.unit_id, navigation.occurrence_count, item.id, item.data
@@ -978,17 +1042,24 @@ function scan_navigation_unit_matches(
       kind: "compact-unique",
       units: db
         .prepare(`
-          SELECT navigation.unit_id, navigation.occurrence_id AS physical_occurrence_id,
+          SELECT navigation.unit_id, unit.item_id AS representative_item_id,
+            unit.occurrence_count,
+            navigation.occurrence_id AS physical_occurrence_id,
             navigation.position AS order_id
           FROM fate_extra_preview_navigation_unit_file AS navigation
           JOIN fate_extra_compact_occurrence AS occurrence
             ON occurrence.original_item_id = navigation.occurrence_id
+          JOIN fate_extra_preview_navigation_unit AS unit
+            ON unit.generation = navigation.generation
+            AND unit.unit_id = navigation.unit_id
           WHERE ${conditions.join(" AND ")}
           ORDER BY navigation.position
         `)
         .all(...parameters)
         .map((row) => ({
           unit_id: row_number(row, "unit_id"),
+          representative_item_id: row_number(row, "representative_item_id"),
+          occurrence_count: row_number(row, "occurrence_count"),
           physical_occurrence_id: row_number(row, "physical_occurrence_id"),
           order_id: row_number(row, "order_id"),
         })),
@@ -1024,7 +1095,8 @@ function scan_navigation_unit_matches(
   }
   const rows = db
     .prepare(`
-      SELECT navigation.unit_id, navigation.item_id,
+      SELECT navigation.unit_id, navigation.item_id AS representative_item_id,
+        navigation.occurrence_count,
         (SELECT MIN(occurrence.occurrence_id)
          FROM fate_extra_preview_navigation_occurrence AS occurrence
          WHERE occurrence.generation = navigation.generation
@@ -1039,9 +1111,11 @@ function scan_navigation_unit_matches(
     kind: compact ? "compact-unique" : "normal-unique",
     units: rows.map((row) => ({
       unit_id: row_number(row, "unit_id"),
+      representative_item_id: row_number(row, "representative_item_id"),
+      occurrence_count: row_number(row, "occurrence_count"),
       physical_occurrence_id: compact
         ? row_number(row, "physical_occurrence_id")
-        : row_number(row, "item_id"),
+        : row_number(row, "representative_item_id"),
       order_id: row_number(row, "order_id"),
     })),
   };
@@ -1133,8 +1207,12 @@ function build_compact_search_filter(
 
 function project_compact_row(row: DatabaseRow): DatabaseRow {
   const item = as_record(parse_json(row["data"]));
-  const occurrence_translation = row_text(row, "original_machine_translation");
-  if (occurrence_translation !== "") item["dst"] = occurrence_translation;
+  item["dst"] = resolve_fate_extra_compact_machine_translation({
+    representativeTranslation: String(item["dst"] ?? ""),
+    originalMachineTranslation: row_text(row, "original_machine_translation"),
+    representativeTranslationAuthoritative:
+      row_number(row, "representative_translation_authoritative") === 1,
+  });
   const extra_field = as_record(item["extra_field"]);
   const metadata = as_record(extra_field["__linguagacha_fe_v1"]);
   const classification = as_record(metadata["classification"]);

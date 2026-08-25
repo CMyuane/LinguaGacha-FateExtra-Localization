@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -150,6 +151,121 @@ describe("ProjectWriteStore", () => {
     ).toMatchObject({ total: 1 });
   });
 
+  it("精简 FE 代表项初翻提交后统一覆盖物理预览与搜索文档", async () => {
+    const { database, project_path, store } = create_store("translation-compact-index");
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 1 },
+      },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.compact.v1",
+        value: { enabled: true, schema_version: 2, physical_item_count: 2 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          {
+            id: 1,
+            src: "同一原文",
+            dst: "旧译甲",
+            status: "NONE",
+            file_path: "route-a.txt",
+            row: 0,
+            extra_field: {
+              __linguagacha_fe_v1: {
+                schema_version: 1,
+                path: "route-a.bin",
+                char_offset: 16,
+                original_prefix: "",
+                source_hash: "same-source",
+                source_line_numbers: [1],
+                pass_through: [],
+                proofread_translation: "",
+                display_mode: "auto",
+                classification: { category: "ordinary_independent_slot" },
+              },
+            },
+          },
+        ],
+      },
+    });
+    const fixture = new DatabaseSync(project_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES ('same-source', '同一原文', 10, 1, 2, '');
+      INSERT INTO fate_extra_compact_occurrence (
+        original_item_id, source_hash, file_path, row_number, resource_path,
+        char_offset, original_prefix, source_line_numbers, pass_through,
+        original_machine_translation
+      ) VALUES
+        (10, 'same-source', 'route-a.txt', 0, 'route-a.bin', 16, '', '[1]', '[]', '旧译甲'),
+        (20, 'same-source', 'route-b.txt', 0, 'route-b.bin', 24, '', '[1]', '[]', '旧译乙');
+    `);
+    fixture.close();
+    const build = run_fate_extra_index_maintenance(project_path, 0);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: project_path,
+        generation: build.generation,
+        expectedItemsRevision: build.items_revision,
+        expectedAdapterValue: build.adapter_value,
+      },
+    });
+
+    await store.apply_translation_item_patches({
+      projectPath: project_path,
+      items: [{ item_id: 1, dst: "工作台新译文", status: "PROCESSED" }],
+      translationExtras: { processed_line: 1 },
+    });
+
+    const committed = new DatabaseSync(project_path, { readOnly: true });
+    expect(
+      committed
+        .prepare(
+          "SELECT representative_translation_authoritative AS authority FROM fate_extra_compact_source WHERE compact_item_id = 1",
+        )
+        .get(),
+    ).toEqual({ authority: 1 });
+    committed.close();
+    const query = (search: string) =>
+      run_fate_extra_preview_search_worker_task({
+        projectPath: project_path,
+        search,
+        filePath: "",
+        category: "",
+        position: 0,
+        limit: 20,
+        includeFiles: false,
+        includeTotal: true,
+        viewMode: "occurrence",
+        expectedGeneration: 1,
+        expectedItemsRevision: 1,
+        expectedNavigationGeneration: 1,
+        expectedNavigationRevision: 1,
+      }) as Record<string, unknown>;
+    expect(query("工作台新译文")).toMatchObject({
+      total: 2,
+      items: [
+        expect.objectContaining({ dst: "工作台新译文", fe_physical_occurrence_id: 10 }),
+        expect.objectContaining({ dst: "工作台新译文", fe_physical_occurrence_id: 20 }),
+      ],
+    });
+    expect(query("旧译乙")).toMatchObject({ total: 0, items: [] });
+  });
+
   it("校对字段 patch 会推进 proofreading revision 并更新翻译统计", async () => {
     const { database, project_path, store, published_changes } = create_store("proofreading");
     seed_items(database, project_path);
@@ -168,6 +284,7 @@ describe("ProjectWriteStore", () => {
         },
       },
     });
+    const transaction_spy = vi.spyOn(database, "execute_transaction");
 
     await store.apply_proofreading_item_patch({
       projectPath: project_path,
@@ -209,6 +326,190 @@ describe("ProjectWriteStore", () => {
         fieldPatch: { dst: "校对译文", status: "PROCESSED" },
       },
     });
+    expect(transaction_spy.mock.calls[0]?.[0].map((operation) => operation.name)).toContain(
+      "refreshFateExtraPreviewSearchDocuments",
+    );
+  });
+
+  it("仅修改状态时不会误设精简代表译文权威标记", async () => {
+    const { database, project_path, store } = create_store("compact-status-only");
+    seed_items(database, project_path);
+    const fixture = new DatabaseSync(project_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES ('status-only', '原文', 1, 1, 1, '');
+    `);
+    fixture.close();
+
+    await store.apply_proofreading_item_patch({
+      projectPath: project_path,
+      expectedSectionRevisions: { items: 0, proofreading: 0 },
+      changes: [
+        {
+          current: { id: 1, dst: "", status: "NONE", retry_count: 2 },
+          next: { id: 1, dst: "", status: "PROCESSED", retry_count: 2 },
+        },
+      ],
+      fieldPatch: { status: "PROCESSED" },
+      updateTranslationExtras: true,
+    });
+
+    const committed = new DatabaseSync(project_path, { readOnly: true });
+    expect(
+      committed
+        .prepare(
+          "SELECT representative_translation_authoritative AS authority FROM fate_extra_compact_source",
+        )
+        .get(),
+    ).toEqual({ authority: 0 });
+    committed.close();
+  });
+
+  it("校对字段 patch 跨入 EXCLUDED 时保留事务和事件但不认证旧预览 generation", async () => {
+    const { database, project_path, store, published_changes } = create_store(
+      "proofreading-excluded-field-patch",
+    );
+    seed_items(database, project_path);
+    const transaction_spy = vi.spyOn(database, "execute_transaction");
+
+    await store.apply_proofreading_item_patch({
+      projectPath: project_path,
+      expectedSectionRevisions: { items: 0, proofreading: 0 },
+      changes: [
+        {
+          current: { id: 1, dst: "", status: "NONE", retry_count: 2 },
+          next: { id: 1, dst: "", status: "EXCLUDED", retry_count: 0 },
+        },
+      ],
+      fieldPatch: { status: "EXCLUDED", retry_count: 0 },
+      updateTranslationExtras: true,
+    });
+
+    expect(read_items(database, project_path)[0]).toMatchObject({
+      id: 1,
+      status: "EXCLUDED",
+      retry_count: 0,
+    });
+    expect(read_meta(database, project_path)).toMatchObject({
+      "project_runtime_revision.items": 1,
+      "proofreading_revision.proofreading": 1,
+      translation_extras: expect.objectContaining({
+        total_line: 0,
+        processed_line: 0,
+        error_line: 0,
+      }),
+    });
+    const operation_names = transaction_spy.mock.calls[0]?.[0].map((operation) => operation.name);
+    expect(operation_names).not.toContain("refreshFateExtraPreviewSearchDocuments");
+    expect(operation_names).not.toContain("advanceFateExtraPreviewRevisionIdentity");
+    expect(published_changes).toEqual([
+      expect.objectContaining({
+        source: "proofreading_save_items",
+        updatedSections: ["items", "proofreading"],
+        items: {
+          payloadMode: "field-patch",
+          changedIds: [1],
+          fieldPatch: { status: "EXCLUDED", retry_count: 0 },
+        },
+      }),
+    ]);
+  });
+
+  it("校对批量 patch 含 EXCLUDED 可见性变化时不增量认证混合译文写入", async () => {
+    const { database, project_path, store, published_changes } = create_store(
+      "proofreading-excluded-bulk-patch",
+    );
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          { id: 1, src: "甲", dst: "", status: "NONE", retry_count: 0 },
+          { id: 2, src: "乙", dst: "旧译", status: "PROCESSED", retry_count: 3 },
+        ],
+      },
+    });
+    const transaction_spy = vi.spyOn(database, "execute_transaction");
+
+    await store.apply_proofreading_bulk_patch({
+      projectPath: project_path,
+      expectedSectionRevisions: { items: 0, proofreading: 0 },
+      changes: [
+        {
+          current: { id: 1, dst: "", status: "NONE", retry_count: 0 },
+          next: { id: 1, dst: "甲译", status: "PROCESSED", retry_count: 0 },
+        },
+        {
+          current: { id: 2, dst: "旧译", status: "PROCESSED", retry_count: 3 },
+          next: { id: 2, dst: "乙新译", status: "EXCLUDED", retry_count: 0 },
+        },
+      ],
+      itemsPayload: { payloadMode: "canonical-delta", changedIds: [1, 2] },
+      updateTranslationExtras: true,
+    });
+
+    expect(read_items(database, project_path)).toEqual([
+      expect.objectContaining({ id: 1, dst: "甲译", status: "PROCESSED", retry_count: 0 }),
+      expect.objectContaining({ id: 2, dst: "乙新译", status: "EXCLUDED", retry_count: 0 }),
+    ]);
+    expect(read_meta(database, project_path)).toMatchObject({
+      "project_runtime_revision.items": 1,
+      "proofreading_revision.proofreading": 1,
+    });
+    const operation_names = transaction_spy.mock.calls[0]?.[0].map((operation) => operation.name);
+    expect(operation_names).not.toContain("refreshFateExtraPreviewSearchDocuments");
+    expect(operation_names).not.toContain("advanceFateExtraPreviewRevisionIdentity");
+    expect(published_changes).toEqual([
+      expect.objectContaining({
+        source: "proofreading_save_items",
+        updatedSections: ["items", "proofreading"],
+        items: { payloadMode: "canonical-delta", changedIds: [1, 2] },
+      }),
+    ]);
+  });
+
+  it("精简代表标记写入失败时回滚 item、revision 且不发布事件", async () => {
+    const { database, project_path, store, published_changes } = create_store(
+      "compact-authority-rollback",
+    );
+    seed_items(database, project_path);
+    const fixture = new DatabaseSync(project_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES ('rollback', '原文', 1, 1, 1, '');
+      CREATE TRIGGER reject_compact_authority
+      BEFORE UPDATE OF representative_translation_authoritative
+      ON fate_extra_compact_source
+      BEGIN
+        SELECT RAISE(ABORT, 'injected compact authority failure');
+      END;
+    `);
+    fixture.close();
+
+    await expect(
+      store.apply_translation_item_patches({
+        projectPath: project_path,
+        items: [{ item_id: 1, dst: "不得残留", status: "PROCESSED" }],
+        translationExtras: { processed_line: 1 },
+      }),
+    ).rejects.toThrow("injected compact authority failure");
+
+    expect(read_items(database, project_path)[0]).toMatchObject({ dst: "", status: "NONE" });
+    expect(get_section_revision(read_meta(database, project_path), "items")).toBe(0);
+    const committed = new DatabaseSync(project_path, { readOnly: true });
+    expect(
+      committed
+        .prepare(
+          "SELECT representative_translation_authoritative AS authority FROM fate_extra_compact_source",
+        )
+        .get(),
+    ).toEqual({ authority: 0 });
+    committed.close();
+    expect(published_changes).toEqual([]);
   });
 
   it("FE unit 校对拒绝伪造或旧 generation 的 item/unit 组合并回滚 revision", async () => {
@@ -283,6 +584,7 @@ describe("ProjectWriteStore", () => {
         expectedSectionRevisions: { items: 0, proofreading: 0 },
         unitId: mismatched_unit_id,
         itemId: 3,
+        occurrenceId: 3,
         proofreadTranslation: "不得写入",
         displayMode: "dialogue",
       }),
@@ -300,6 +602,184 @@ describe("ProjectWriteStore", () => {
     expect(get_section_revision(meta, "items")).toBe(0);
     expect(get_section_revision(meta, "proofreading")).toBe(0);
     expect(published_changes).toEqual([]);
+  });
+
+  it("普通 FE 单独修改显示类型时保留状态并轻量推进索引身份", async () => {
+    const { database, project_path, store, published_changes } = create_store(
+      "fe-display-mode-standard",
+    );
+    seed_items(database, project_path);
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 1 },
+      },
+    });
+    const build = run_fate_extra_index_maintenance(project_path, 0);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: project_path,
+        generation: build.generation,
+        expectedItemsRevision: build.items_revision,
+        expectedAdapterValue: build.adapter_value,
+      },
+    });
+    const transaction_spy = vi.spyOn(database, "execute_transaction");
+
+    await store.apply_fate_extra_display_mode({
+      projectPath: project_path,
+      expectedSectionRevisions: { items: 0, proofreading: 0 },
+      itemId: 1,
+      occurrenceId: 1,
+      displayMode: "fullscreen",
+      compact: false,
+    });
+
+    expect(read_items(database, project_path)[0]).toMatchObject({
+      id: 1,
+      status: "NONE",
+      retry_count: 2,
+      extra_field: {
+        __linguagacha_fe_v1: expect.objectContaining({ display_mode: "fullscreen" }),
+      },
+    });
+    expect(read_meta(database, project_path)).toMatchObject({
+      "project_runtime_revision.items": 1,
+      "proofreading_revision.proofreading": 1,
+    });
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: project_path },
+      }),
+    ).toMatchObject({
+      search_ready: true,
+      search_items_revision: 1,
+      navigation_ready: true,
+      navigation_items_revision: 1,
+    });
+    const operation_names = transaction_spy.mock.calls[0]?.[0].map((operation) => operation.name);
+    expect(operation_names).toContain("advanceFateExtraPreviewRevisionIdentity");
+    expect(operation_names).not.toContain("refreshFateExtraPreviewSearchDocuments");
+    expect(published_changes).toEqual([
+      expect.objectContaining({
+        source: "fate_extra_display_mode_save",
+        updatedSections: ["items", "proofreading"],
+        items: { payloadMode: "section-invalidated" },
+      }),
+    ]);
+  });
+
+  it("精简 FE 单独修改显示类型时只提交目标 occurrence 和 proofreading", async () => {
+    const { database, project_path, store, published_changes } =
+      create_store("fe-display-mode-compact");
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.compact.v1",
+        value: { enabled: true, schema_version: 2, physical_item_count: 2 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          {
+            id: 1,
+            src: "共享原文",
+            dst: "共享译文",
+            status: "ERROR",
+            retry_count: 5,
+            extra_field: {
+              __linguagacha_fe_v1: {
+                proofread_translation: "最终校对",
+                display_mode: "auto",
+              },
+            },
+          },
+        ],
+      },
+    });
+    const fixture = new DatabaseSync(project_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason, representative_translation_authoritative
+      ) VALUES ('shared-source', '共享原文', 10, 1, 2, '', 1);
+      INSERT INTO fate_extra_compact_occurrence (
+        original_item_id, source_hash, file_path, row_number, resource_path,
+        char_offset, original_prefix, source_line_numbers, pass_through, display_mode
+      ) VALUES
+        (10, 'shared-source', 'a.txt', 0, 'a.bin', 10, '', '[1]', '[]', 'auto'),
+        (20, 'shared-source', 'b.txt', 0, 'b.bin', 20, '', '[1]', '[]', 'dialogue');
+    `);
+    fixture.close();
+    const before_item = read_items(database, project_path)[0];
+    const transaction_spy = vi.spyOn(database, "execute_transaction");
+
+    await store.apply_fate_extra_display_mode({
+      projectPath: project_path,
+      expectedSectionRevisions: { items: 0, proofreading: 0 },
+      itemId: 1,
+      occurrenceId: 20,
+      displayMode: "poem",
+      compact: true,
+    });
+
+    expect(read_items(database, project_path)[0]).toEqual(before_item);
+    const committed = new DatabaseSync(project_path, { readOnly: true });
+    expect(
+      committed
+        .prepare(
+          "SELECT original_item_id, display_mode FROM fate_extra_compact_occurrence ORDER BY original_item_id",
+        )
+        .all(),
+    ).toEqual([
+      { original_item_id: 10, display_mode: "auto" },
+      { original_item_id: 20, display_mode: "poem" },
+    ]);
+    expect(
+      committed
+        .prepare(
+          "SELECT representative_translation_authoritative AS authority FROM fate_extra_compact_source WHERE compact_item_id = 1",
+        )
+        .get(),
+    ).toEqual({ authority: 1 });
+    committed.close();
+    const committed_meta = read_meta(database, project_path);
+    expect(get_section_revision(committed_meta, "items")).toBe(0);
+    expect(get_section_revision(committed_meta, "proofreading")).toBe(1);
+    const operation_names = transaction_spy.mock.calls[0]?.[0].map((operation) => operation.name);
+    expect(operation_names).toEqual(["patchFateExtraDisplayMode", "setMeta"]);
+    expect(operation_names).not.toContain("refreshFateExtraPreviewSearchDocuments");
+    expect(operation_names).not.toContain("advanceFateExtraPreviewRevisionIdentity");
+    expect(published_changes).toEqual([
+      expect.objectContaining({
+        source: "fate_extra_display_mode_save",
+        updatedSections: ["proofreading"],
+      }),
+    ]);
+
+    await expect(
+      store.apply_fate_extra_display_mode({
+        projectPath: project_path,
+        expectedSectionRevisions: { proofreading: 1 },
+        itemId: 1,
+        occurrenceId: 999,
+        displayMode: "fullscreen",
+        compact: true,
+      }),
+    ).rejects.toMatchObject({
+      code: "request.validation_failed",
+      diagnostic_context: { reason: "fate_extra_compact_occurrence_item_mismatch" },
+    });
+    expect(get_section_revision(read_meta(database, project_path), "proofreading")).toBe(1);
+    expect(published_changes).toHaveLength(1);
   });
 
   it("提交工作台结构写入时替换事实并发布轻量失效信号", async () => {

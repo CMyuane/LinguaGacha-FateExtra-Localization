@@ -337,6 +337,9 @@ export class ProjectWriteStore {
       return this.empty_project_write_result();
     }
     const changed_item_ids = this.collect_changed_item_ids(request.changes);
+    const visibility_transition = this.has_fate_extra_preview_visibility_transition(
+      request.changes,
+    );
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
       expectedSectionRevisions: request.expectedSectionRevisions,
@@ -357,6 +360,14 @@ export class ProjectWriteStore {
             patch: request.fieldPatch as unknown as DatabaseJsonValue,
           }),
         ];
+        if (Object.prototype.hasOwnProperty.call(request.fieldPatch, "dst")) {
+          operations.push(
+            this.mark_fate_extra_compact_translation_operation(
+              request.projectPath,
+              changed_item_ids,
+            ),
+          );
+        }
         if (request.updateTranslationExtras) {
           operations.push(
             this.op("upsertMetaEntries", {
@@ -373,11 +384,15 @@ export class ProjectWriteStore {
         }
         operations.push(
           ...this.write_coordinator.build_section_revision_operations(revision_context),
-          this.op("refreshFateExtraPreviewSearchDocuments", {
-            projectPath: request.projectPath,
-            itemIds: changed_item_ids as unknown as DatabaseJsonValue,
-          }),
         );
+        if (!visibility_transition) {
+          operations.push(
+            this.op("refreshFateExtraPreviewSearchDocuments", {
+              projectPath: request.projectPath,
+              itemIds: changed_item_ids as unknown as DatabaseJsonValue,
+            }),
+          );
+        }
         return operations;
       },
     });
@@ -400,6 +415,12 @@ export class ProjectWriteStore {
       item_id: this.read_positive_item_id(change.next["id"], "proofreading_patch_item_id"),
       patch: this.build_translation_patch_from_items(change.current, change.next),
     }));
+    const authoritative_translation_item_ids = patches
+      .filter((patch) => patch.patch.dst !== undefined)
+      .map((patch) => patch.item_id);
+    const visibility_transition = this.has_fate_extra_preview_visibility_transition(
+      request.changes,
+    );
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
       expectedSectionRevisions: request.expectedSectionRevisions,
@@ -415,6 +436,14 @@ export class ProjectWriteStore {
             patches: this.to_database_translation_patches(patches),
           }),
         ];
+        if (authoritative_translation_item_ids.length > 0) {
+          operations.push(
+            this.mark_fate_extra_compact_translation_operation(
+              request.projectPath,
+              authoritative_translation_item_ids,
+            ),
+          );
+        }
         if (request.updateTranslationExtras) {
           operations.push(
             this.op("upsertMetaEntries", {
@@ -431,11 +460,15 @@ export class ProjectWriteStore {
         }
         operations.push(
           ...this.write_coordinator.build_section_revision_operations(revision_context),
-          this.op("refreshFateExtraPreviewSearchDocuments", {
-            projectPath: request.projectPath,
-            itemIds: patches.map((patch) => patch.item_id) as unknown as DatabaseJsonValue,
-          }),
         );
+        if (!visibility_transition) {
+          operations.push(
+            this.op("refreshFateExtraPreviewSearchDocuments", {
+              projectPath: request.projectPath,
+              itemIds: patches.map((patch) => patch.item_id) as unknown as DatabaseJsonValue,
+            }),
+          );
+        }
         return operations;
       },
     });
@@ -454,6 +487,7 @@ export class ProjectWriteStore {
     items?: MutableJsonRecord[];
     meta?: MutableJsonRecord;
     resetAnalysis?: boolean;
+    authoritativeTranslationItemIds?: number[];
     itemsPayload?: Pick<ProjectChangeItemsPayload, "payloadMode" | "changedIds" | "deleteIds">;
     filesPayload?: Pick<ProjectChangeFilesPayload, "payloadMode" | "changedPaths" | "deletePaths">;
     sections?: RuntimeCommitRequest["sections"];
@@ -491,6 +525,14 @@ export class ProjectWriteStore {
               projectPath: request.projectPath,
               items: request.items as unknown as DatabaseJsonValue,
             }),
+          );
+        }
+        if ((request.authoritativeTranslationItemIds?.length ?? 0) > 0) {
+          operations.push(
+            this.mark_fate_extra_compact_translation_operation(
+              request.projectPath,
+              request.authoritativeTranslationItemIds ?? [],
+            ),
           );
         }
         if (request.meta !== undefined && Object.keys(request.meta).length > 0) {
@@ -687,6 +729,10 @@ export class ProjectWriteStore {
     expectedSectionRevisions: ApiJsonValue | undefined;
     itemId: number;
     extraField: ApiJsonValue;
+    occurrenceDisplay?: {
+      occurrenceId: number;
+      displayMode: string;
+    };
   }): Promise<ProjectWriteResult> {
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
@@ -709,6 +755,16 @@ export class ProjectWriteStore {
             status: "PROCESSED",
           } as unknown as DatabaseJsonValue,
         }),
+        ...(request.occurrenceDisplay === undefined
+          ? []
+          : [
+              this.op("patchFateExtraDisplayMode", {
+                projectPath: request.projectPath,
+                itemId: request.itemId,
+                occurrenceId: request.occurrenceDisplay.occurrenceId,
+                displayMode: request.occurrenceDisplay.displayMode,
+              }),
+            ]),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
         this.op("refreshFateExtraPreviewSearchDocuments", {
           projectPath: request.projectPath,
@@ -726,6 +782,7 @@ export class ProjectWriteStore {
     expectedSectionRevisions: ApiJsonValue | undefined;
     unitId: number;
     itemId: number;
+    occurrenceId: number;
     proofreadTranslation: string;
     displayMode: string;
   }): Promise<ProjectWriteResult> {
@@ -742,6 +799,7 @@ export class ProjectWriteStore {
           projectPath: request.projectPath,
           unitId: request.unitId,
           itemId: request.itemId,
+          occurrenceId: request.occurrenceId,
           proofreadTranslation: request.proofreadTranslation,
           displayMode: request.displayMode,
         }),
@@ -755,6 +813,50 @@ export class ProjectWriteStore {
   }
 
   /**
+   * 显示类型单独保存不改变文本或状态。精简工程只推进物理校对事实；普通 FE
+   * 修改 item metadata，并在 active generation 仍匹配时轻量推进其 revision 身份。
+   */
+  public async apply_fate_extra_display_mode(request: {
+    projectPath: string;
+    expectedSectionRevisions: ApiJsonValue | undefined;
+    itemId: number;
+    occurrenceId: number;
+    displayMode: string;
+    compact: boolean;
+  }): Promise<ProjectWriteResult> {
+    const revision_sections: ProjectDataSection[] = request.compact
+      ? ["proofreading"]
+      : ["items", "proofreading"];
+    return await this.commit_runtime_change({
+      projectPath: request.projectPath,
+      expectedSectionRevisions: request.expectedSectionRevisions,
+      requireExpectedSectionRevisions: true,
+      revisionSections: revision_sections,
+      source: "fate_extra_display_mode_save",
+      updatedSections: revision_sections,
+      ...(request.compact ? {} : { items: { payloadMode: "section-invalidated" as const } }),
+      buildOperations: (revision_context) => [
+        this.op("patchFateExtraDisplayMode", {
+          projectPath: request.projectPath,
+          itemId: request.itemId,
+          occurrenceId: request.occurrenceId,
+          displayMode: request.displayMode,
+        }),
+        ...this.write_coordinator.build_section_revision_operations(revision_context),
+        ...(request.compact
+          ? []
+          : [
+              this.op("advanceFateExtraPreviewRevisionIdentity", {
+                projectPath: request.projectPath,
+                previousItemsRevision: get_section_revision(revision_context.meta, "items"),
+                itemsRevision: get_section_revision(revision_context.meta, "items") + 1,
+              }),
+            ]),
+      ],
+    });
+  }
+
+  /**
    * 翻译重置提交完整后端生成 item 集合，但提交管线仍统一。
    */
   public async reset_translation_state(request: {
@@ -762,6 +864,7 @@ export class ProjectWriteStore {
     expectedSectionRevisions: ApiJsonValue | undefined;
     items: MutableJsonRecord[];
     translationExtras: MutableJsonRecord;
+    authoritativeTranslationItemIds?: number[];
   }): Promise<ProjectWriteResult> {
     return await this.replace_workbench_items_and_files({
       projectPath: request.projectPath,
@@ -773,6 +876,7 @@ export class ProjectWriteStore {
       meta: {
         translation_extras: request.translationExtras as unknown as ApiJsonValue,
       },
+      authoritativeTranslationItemIds: request.authoritativeTranslationItemIds,
     });
   }
 
@@ -941,6 +1045,9 @@ export class ProjectWriteStore {
     const patches = this.normalize_translation_item_patches(request.items);
     this.assert_patch_targets_exist(request.projectPath, patches);
     const changed_item_ids = patches.map((patch) => patch.item_id);
+    const authoritative_translation_item_ids = patches
+      .filter((patch) => patch.patch.dst !== undefined)
+      .map((patch) => patch.item_id);
     await this.commit_runtime_change({
       projectPath: request.projectPath,
       requireExpectedSectionRevisions: false,
@@ -956,6 +1063,14 @@ export class ProjectWriteStore {
           projectPath: request.projectPath,
           patches: this.to_database_translation_patches(patches),
         }),
+        ...(authoritative_translation_item_ids.length === 0
+          ? []
+          : [
+              this.mark_fate_extra_compact_translation_operation(
+                request.projectPath,
+                authoritative_translation_item_ids,
+              ),
+            ]),
         this.op("upsertMetaEntries", {
           projectPath: request.projectPath,
           meta: {
@@ -1037,6 +1152,16 @@ export class ProjectWriteStore {
     return this.op("deleteAsset", {
       projectPath: project_path,
       path: write.path,
+    });
+  }
+
+  private mark_fate_extra_compact_translation_operation(
+    project_path: string,
+    item_ids: number[],
+  ): DatabaseOperation {
+    return this.op("markFateExtraCompactRepresentativeTranslations", {
+      projectPath: project_path,
+      itemIds: item_ids as unknown as DatabaseJsonValue,
     });
   }
 
@@ -1160,6 +1285,13 @@ export class ProjectWriteStore {
       item_ids.push(item_id);
     }
     return item_ids;
+  }
+
+  private has_fate_extra_preview_visibility_transition(changes: ProofreadingItemChange[]): boolean {
+    return changes.some(
+      (change) =>
+        (change.current["status"] === "EXCLUDED") !== (change.next["status"] === "EXCLUDED"),
+    );
   }
 
   private build_translation_extras_after_status_changes(

@@ -79,6 +79,7 @@ import {
 
 const ITEM = {
   item_id: 7,
+  occurrence_id: 101,
   text_unit_id: 3,
   occurrence_count: 2,
   file_path: "route.txt",
@@ -247,6 +248,7 @@ describe("FateExtraPreviewPage", () => {
 
     expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/review/save", {
       item_id: 7,
+      occurrence_id: 101,
       text_unit_id: 3,
       review_scope: "unit",
       proofread_translation: "新译文\n第二行",
@@ -277,6 +279,7 @@ describe("FateExtraPreviewPage", () => {
     });
     expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/review/save", {
       item_id: 7,
+      occurrence_id: 101,
       text_unit_id: 3,
       review_scope: "unit",
       proofread_translation: "",
@@ -884,6 +887,7 @@ describe("FateExtraPreviewPage", () => {
 
     expect(api_fetch_mock).toHaveBeenCalledWith("/api/toolbox/fate-extra/review/save", {
       item_id: 7,
+      occurrence_id: 101,
       text_unit_id: 3,
       review_scope: "unit",
       proofread_translation: "",
@@ -895,6 +899,65 @@ describe("FateExtraPreviewPage", () => {
       button.textContent?.includes("fate_extra_preview_page.next"),
     );
     expect(next_button?.disabled).toBe(false);
+  });
+
+  it("只乐观更新共享代表 item 的目标 occurrence 显示类型", async () => {
+    api_fetch_mock.mockImplementation((path: string, body?: Record<string, unknown>) => {
+      if (path === "/api/toolbox/fate-extra/items") {
+        return Promise.resolve({
+          query_id: body?.["query_id"],
+          total: 2,
+          items: [
+            ITEM,
+            {
+              ...ITEM,
+              occurrence_id: 202,
+              file_path: "route-2.txt",
+              row_number: 4,
+              display_mode: "dialogue",
+            },
+          ],
+          files: ["route.txt", "route-2.txt"],
+        });
+      }
+      if (path === "/api/session/project/manifest") {
+        return Promise.resolve({
+          sectionRevisions: { items: 4, proofreading: 5, quality: 6, prompts: 7 },
+        });
+      }
+      return Promise.resolve({ accepted: true, changes: [] });
+    });
+    await render_page();
+    const display_mode_select = [...container.querySelectorAll("select")].find((select) =>
+      [...select.options].some((option) => option.value === "fullscreen"),
+    );
+
+    await act(async () => {
+      const value_setter = Object.getOwnPropertyDescriptor(
+        HTMLSelectElement.prototype,
+        "value",
+      )?.set;
+      if (display_mode_select !== undefined) {
+        value_setter?.call(display_mode_select, "fullscreen");
+        display_mode_select.dispatchEvent(new Event("change", { bubbles: true }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const next_button = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("fate_extra_preview_page.next"),
+    );
+    await act(async () => {
+      next_button?.click();
+      await Promise.resolve();
+    });
+    expect(display_mode_select?.value).toBe("dialogue");
+    expect(api_fetch_mock).toHaveBeenCalledWith(
+      "/api/toolbox/fate-extra/review/save",
+      expect.objectContaining({ item_id: 7, occurrence_id: 101, display_mode: "fullscreen" }),
+    );
   });
 
   it("shows two master-order neighbours on each side of the current entry", async () => {

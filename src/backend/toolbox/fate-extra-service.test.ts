@@ -115,6 +115,7 @@ describe("FateExtraService", () => {
 
     await service.save_review({
       item_id: 7,
+      occurrence_id: 7,
       text_unit_id: 3,
       review_scope: "unit",
       proofread_translation: "",
@@ -122,7 +123,34 @@ describe("FateExtraService", () => {
       expected_section_revisions: { items: 1, proofreading: 2 },
     });
 
-    expect(write_store.apply_fate_extra_item_metadata).toHaveBeenCalledOnce();
+    expect(write_store.apply_fate_extra_display_mode).toHaveBeenCalledWith({
+      projectPath: PROJECT_PATH,
+      expectedSectionRevisions: { items: 1, proofreading: 2 },
+      itemId: 7,
+      occurrenceId: 7,
+      displayMode: "fullscreen",
+      compact: false,
+    });
+    expect(write_store.apply_fate_extra_item_metadata).not.toHaveBeenCalled();
+    expect(write_store.apply_fate_extra_text_unit_review).not.toHaveBeenCalled();
+  });
+
+  it("保存 FE 校对时要求显式物理位置编号", async () => {
+    const { service, write_store } = create_service({ meta: revision_meta({}), items: [] });
+
+    await expect(
+      service.save_review({
+        item_id: 7,
+        proofread_translation: "",
+        display_mode: "auto",
+        expected_section_revisions: { items: 0, proofreading: 0 },
+      }),
+    ).rejects.toMatchObject({
+      code: "request.validation_failed",
+      public_details: { reason: "无效的 FE 物理位置编号。" },
+    });
+    expect(write_store.apply_fate_extra_display_mode).not.toHaveBeenCalled();
+    expect(write_store.apply_fate_extra_item_metadata).not.toHaveBeenCalled();
     expect(write_store.apply_fate_extra_text_unit_review).not.toHaveBeenCalled();
   });
 
@@ -204,6 +232,7 @@ function create_service(args: {
   service: FateExtraService;
   database_execute: ReturnType<typeof vi.fn>;
   write_store: {
+    apply_fate_extra_display_mode: ReturnType<typeof vi.fn>;
     apply_fate_extra_item_metadata: ReturnType<typeof vi.fn>;
     apply_fate_extra_text_unit_review: ReturnType<typeof vi.fn>;
   };
@@ -224,6 +253,7 @@ function create_service(args: {
     exists: () => false,
   };
   const write_store = {
+    apply_fate_extra_display_mode: vi.fn(async () => ({ accepted: true, changes: [] })),
     apply_fate_extra_item_metadata: vi.fn(async () => ({ accepted: true, changes: [] })),
     apply_fate_extra_text_unit_review: vi.fn(async () => ({ accepted: true, changes: [] })),
   };

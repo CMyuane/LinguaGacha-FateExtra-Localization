@@ -612,6 +612,13 @@ describe("WorkbenchService", () => {
         .prepare("SELECT * FROM fate_extra_compact_override ORDER BY original_item_id")
         .all(),
     ).toEqual(override_before);
+    expect(
+      committed
+        .prepare(
+          "SELECT representative_translation_authoritative AS authority FROM fate_extra_compact_source WHERE compact_item_id = 41",
+        )
+        .get(),
+    ).toEqual({ authority: 1 });
     committed.close();
     database.close();
   });
@@ -656,6 +663,16 @@ describe("WorkbenchService", () => {
         ],
       },
     });
+    const compact_sources = new DatabaseSync(lg_path);
+    compact_sources.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES
+        ('failed-source', '失败原文', 41, 41, 1, ''),
+        ('processed-source', '成功原文', 42, 42, 1, '');
+    `);
+    compact_sources.close();
     const parse_asset = vi.spyOn(FileFormatService.prototype, "parse_asset");
 
     await expect(
@@ -682,6 +699,18 @@ describe("WorkbenchService", () => {
         status: "PROCESSED",
       }),
     ]);
+    const committed = new DatabaseSync(lg_path, { readOnly: true });
+    expect(
+      committed
+        .prepare(
+          "SELECT compact_item_id, representative_translation_authoritative AS authority FROM fate_extra_compact_source ORDER BY compact_item_id",
+        )
+        .all(),
+    ).toEqual([
+      { compact_item_id: 41, authority: 1 },
+      { compact_item_id: 42, authority: 0 },
+    ]);
+    committed.close();
     database.close();
   });
 
