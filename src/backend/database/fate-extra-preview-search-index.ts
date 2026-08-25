@@ -5,9 +5,14 @@ import { resolve_fate_extra_compact_machine_translation } from "../../shared/fat
 import {
   activate_fate_extra_preview_navigation_generation,
   advance_fate_extra_preview_navigation_revision,
+  build_fate_extra_preview_index_identity,
   build_fate_extra_preview_navigation_generation,
   cleanup_fate_extra_preview_navigation_generation,
   cleanup_inactive_fate_extra_preview_navigation_generations,
+  FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY,
+  FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION,
+  FATE_EXTRA_PREVIEW_NAVIGATION_GENERATION_META_KEY,
+  FATE_EXTRA_PREVIEW_NAVIGATION_ITEMS_REVISION_META_KEY,
   read_fate_extra_preview_navigation_state,
 } from "./fate-extra-preview-navigation-index";
 
@@ -74,6 +79,7 @@ export type FateExtraInactiveIndexBuild = {
 
 type FateExtraIndexSourceIdentity = {
   adapter_value: string;
+  index_identity: string;
   compact_value: string | null;
   compact_enabled: boolean;
   item_count: number;
@@ -104,13 +110,16 @@ export function read_fate_extra_preview_search_index_state(
   const indexed_item_count = row === undefined ? 0 : row_number(row, "item_count");
   const indexed_items_revision = row === undefined ? 0 : row_number(row, "items_revision");
   const adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+  const format_version = read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY);
   return {
     ready:
       generation > 0 &&
+      format_version === FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION &&
       row_number(row ?? {}, "complete") === 1 &&
       indexed_item_count > 0 &&
       adapter_value !== null &&
-      adapter_value === row_text(row ?? {}, "adapter_value") &&
+      build_fate_extra_preview_index_identity(adapter_value) ===
+        row_text(row ?? {}, "adapter_value") &&
       items_revision === indexed_items_revision,
     generation,
     item_count: indexed_item_count,
@@ -253,7 +262,7 @@ export function run_fate_extra_index_maintenance(
       assert_index_source_identity(db, identity);
       build_fate_extra_preview_navigation_generation(db, {
         generation: generation!,
-        adapter_value: identity.adapter_value,
+        adapter_value: identity.index_identity,
         items_revision: identity.items_revision,
         item_count: identity.item_count,
         compact: identity.compact_enabled,
@@ -264,7 +273,7 @@ export function run_fate_extra_index_maintenance(
     const counts = complete_inactive_search_generation(db, generation, identity);
     return {
       generation,
-      adapter_value: identity.adapter_value,
+      adapter_value: identity.index_identity,
       items_revision: identity.items_revision,
       item_count: identity.item_count,
       ...counts,
@@ -314,6 +323,7 @@ function read_index_source_identity(
   if (adapter_value === null) throw new Error("fate_extra_preview_index_adapter_missing");
   return {
     adapter_value,
+    index_identity: build_fate_extra_preview_index_identity(adapter_value),
     compact_value: read_meta_text(db, "fate_extra.compact.v1"),
     compact_enabled: read_compact_enabled(db),
     item_count: scalar_count(db, "SELECT COUNT(*) AS count FROM items"),
@@ -358,7 +368,7 @@ function create_inactive_search_generation(
         generation, adapter_value, items_revision, item_count,
         document_count, short_gram_count, complete
       ) VALUES (?, ?, ?, ?, 0, 0, 0)
-    `).run(generation, identity.adapter_value, identity.items_revision, identity.item_count);
+    `).run(generation, identity.index_identity, identity.items_revision, identity.item_count);
     return generation;
   });
 }
@@ -488,7 +498,7 @@ function complete_inactive_search_generation(
     if (
       generation_row === undefined ||
       row_number(generation_row, "complete") !== 0 ||
-      row_text(generation_row, "adapter_value") !== identity.adapter_value ||
+      row_text(generation_row, "adapter_value") !== identity.index_identity ||
       row_number(generation_row, "items_revision") !== identity.items_revision ||
       row_number(generation_row, "item_count") !== identity.item_count
     ) {
@@ -517,6 +527,10 @@ export function activate_fate_extra_preview_search_generation(
   return run_immediate_transaction(db, () => {
     const current_items_revision = read_json_number_meta(db, "project_runtime_revision.items");
     const current_adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+    const current_index_identity =
+      current_adapter_value === null
+        ? null
+        : build_fate_extra_preview_index_identity(current_adapter_value);
     const row = db
       .prepare(`
         SELECT adapter_value, items_revision, item_count, document_count, short_gram_count, complete
@@ -528,7 +542,7 @@ export function activate_fate_extra_preview_search_generation(
       row === undefined ||
       row_number(row, "complete") !== 1 ||
       current_items_revision !== Math.trunc(expected_items_revision) ||
-      current_adapter_value !== expected_adapter_value ||
+      current_index_identity !== expected_adapter_value ||
       row_number(row, "items_revision") !== Math.trunc(expected_items_revision) ||
       row_text(row, "adapter_value") !== expected_adapter_value
     ) {
@@ -581,6 +595,151 @@ function run_immediate_transaction<T>(db: DatabaseSync, work: () => T): T {
 }
 
 /**
+ * 仅用于不改变预览文档或导航成员关系的 items 写入。调用方必须持有外层写事务，
+ * 让事实 revision 与三组派生身份一起提交；意外更新失败会抛错以触发该事务回滚。
+ */
+export function advance_fate_extra_preview_index_revision(
+  db: DatabaseSync,
+  previous_items_revision: number,
+  items_revision: number,
+): boolean {
+  const previous_revision = Math.trunc(previous_items_revision);
+  const next_revision = Math.trunc(items_revision);
+  if (
+    !Number.isSafeInteger(previous_items_revision) ||
+    !Number.isSafeInteger(items_revision) ||
+    previous_revision < 0 ||
+    next_revision !== previous_revision + 1
+  ) {
+    return false;
+  }
+  const source_adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+  if (source_adapter_value === null) return false;
+  const index_identity = build_fate_extra_preview_index_identity(source_adapter_value);
+  const search_generation = read_json_number_meta(
+    db,
+    FATE_EXTRA_PREVIEW_SEARCH_GENERATION_META_KEY,
+  );
+  const navigation_generation = read_json_number_meta(
+    db,
+    FATE_EXTRA_PREVIEW_NAVIGATION_GENERATION_META_KEY,
+  );
+  if (
+    search_generation <= 0 ||
+    navigation_generation !== search_generation ||
+    read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY) !==
+      FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION ||
+    read_json_number_meta_or_null(db, "project_runtime_revision.items") !== next_revision ||
+    read_json_number_meta_or_null(db, "fate_extra.text-unit-index.items-revision") !==
+      previous_revision ||
+    read_meta_text(db, "fate_extra.text-unit-index.adapter") !== source_adapter_value ||
+    read_json_number_meta_or_null(db, FATE_EXTRA_PREVIEW_SEARCH_ITEMS_REVISION_META_KEY) !==
+      previous_revision ||
+    read_json_number_meta_or_null(db, FATE_EXTRA_PREVIEW_NAVIGATION_ITEMS_REVISION_META_KEY) !==
+      previous_revision ||
+    read_meta_text(db, FATE_EXTRA_PREVIEW_SEARCH_ADAPTER_META_KEY) !== index_identity
+  ) {
+    return false;
+  }
+  const search_row = db
+    .prepare(`
+      SELECT adapter_value, items_revision, item_count, document_count,
+        short_gram_count, complete
+      FROM fate_extra_preview_search_generation
+      WHERE generation = ?
+    `)
+    .get(search_generation);
+  const navigation_row = db
+    .prepare(`
+      SELECT adapter_value, items_revision, item_count, complete
+      FROM fate_extra_preview_navigation_generation
+      WHERE generation = ?
+    `)
+    .get(navigation_generation);
+  const item_count = row_number(search_row ?? {}, "item_count");
+  const document_count = row_number(search_row ?? {}, "document_count");
+  const short_gram_count = row_number(search_row ?? {}, "short_gram_count");
+  const text_unit_item_count = read_json_number_meta_or_null(
+    db,
+    FATE_EXTRA_TEXT_UNIT_ITEM_COUNT_META_KEY,
+  );
+  const text_unit_unit_count = read_json_number_meta_or_null(
+    db,
+    FATE_EXTRA_TEXT_UNIT_UNIT_COUNT_META_KEY,
+  );
+  const text_unit_file_count = read_json_number_meta_or_null(
+    db,
+    FATE_EXTRA_TEXT_UNIT_FILE_COUNT_META_KEY,
+  );
+  if (
+    row_number(search_row ?? {}, "complete") !== 1 ||
+    row_number(navigation_row ?? {}, "complete") !== 1 ||
+    row_text(search_row ?? {}, "adapter_value") !== index_identity ||
+    row_text(navigation_row ?? {}, "adapter_value") !== index_identity ||
+    row_number(search_row ?? {}, "items_revision") !== previous_revision ||
+    row_number(navigation_row ?? {}, "items_revision") !== previous_revision ||
+    item_count <= 0 ||
+    row_number(navigation_row ?? {}, "item_count") !== item_count ||
+    text_unit_item_count !== item_count ||
+    text_unit_unit_count === null ||
+    text_unit_unit_count <= 0 ||
+    text_unit_file_count === null ||
+    text_unit_file_count <= 0 ||
+    read_json_number_meta_or_null(db, FATE_EXTRA_PREVIEW_SEARCH_ITEM_COUNT_META_KEY) !==
+      item_count ||
+    read_json_number_meta_or_null(db, FATE_EXTRA_PREVIEW_SEARCH_DOCUMENT_COUNT_META_KEY) !==
+      document_count ||
+    read_json_number_meta_or_null(db, FATE_EXTRA_PREVIEW_SEARCH_SHORT_GRAM_COUNT_META_KEY) !==
+      short_gram_count
+  ) {
+    return false;
+  }
+  if (
+    !advance_fate_extra_preview_navigation_revision(
+      db,
+      navigation_generation,
+      previous_revision,
+      next_revision,
+    )
+  ) {
+    return false;
+  }
+  const search_changed = db
+    .prepare(`
+      UPDATE fate_extra_preview_search_generation
+      SET items_revision = ?
+      WHERE generation = ? AND complete = 1
+        AND adapter_value = ? AND items_revision = ?
+    `)
+    .run(next_revision, search_generation, index_identity, previous_revision).changes;
+  if (search_changed !== 1) {
+    throw new Error("fate_extra_preview_index_revision_advance_incomplete");
+  }
+  db.prepare(
+    "INSERT OR REPLACE INTO meta (key, value) VALUES ('fate_extra.text-unit-index.items-revision', ?)",
+  ).run(JsonTool.stringifyStrict(next_revision));
+  write_identity_meta(
+    db,
+    search_generation,
+    next_revision,
+    item_count,
+    document_count,
+    short_gram_count,
+    index_identity,
+  );
+  const state = read_fate_extra_index_state(db);
+  if (
+    !state.ready ||
+    state.search_items_revision !== next_revision ||
+    state.navigation_items_revision !== next_revision ||
+    state.text_unit_items_revision !== next_revision
+  ) {
+    throw new Error("fate_extra_preview_index_revision_advance_incomplete");
+  }
+  return true;
+}
+
+/**
  * 只改译文或校对稿时刷新 active generation；结构写入口不调用本函数，revision 不匹配会可靠标 dirty。
  */
 export function refresh_fate_extra_preview_search_documents(
@@ -595,7 +754,11 @@ export function refresh_fate_extra_preview_search_documents(
     ),
   ];
   if (normalized_ids.length === 0) return false;
-  const adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+  const source_adapter_value = read_meta_text(db, "fate_extra.adapter.v1");
+  const adapter_value =
+    source_adapter_value === null
+      ? null
+      : build_fate_extra_preview_index_identity(source_adapter_value);
   const items_revision = read_json_number_meta(db, "project_runtime_revision.items");
   const generation = read_json_number_meta(db, FATE_EXTRA_PREVIEW_SEARCH_GENERATION_META_KEY);
   const active_row = db
@@ -613,6 +776,8 @@ export function refresh_fate_extra_preview_search_documents(
   );
   if (
     generation <= 0 ||
+    read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY) !==
+      FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION ||
     indexed_item_count === 0 ||
     row_number(active_row ?? {}, "complete") !== 1 ||
     adapter_value === null ||
@@ -630,12 +795,24 @@ export function refresh_fate_extra_preview_search_documents(
     LEFT JOIN fate_extra_text_occurrence AS occurrence ON occurrence.item_id = item.id
     WHERE item.id = ?
   `);
-  const delete_mappings = db.prepare(
+  const delete_text_mappings = db.prepare(
     "DELETE FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ? AND field IN ('src', 'dst', 'proofread')",
   );
-  const read_old_documents = db.prepare(
+  const delete_all_mappings = db.prepare(
+    "DELETE FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ?",
+  );
+  const read_old_text_documents = db.prepare(
     "SELECT DISTINCT document_id FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ? AND field IN ('src', 'dst', 'proofread')",
   );
+  const read_old_documents = db.prepare(
+    "SELECT DISTINCT document_id FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ?",
+  );
+  const navigation_contains_item = db.prepare(`
+    SELECT 1
+    FROM fate_extra_preview_navigation_occurrence
+    WHERE generation = ? AND item_id = ?
+    LIMIT 1
+  `);
   const update_item = db.prepare(`
     UPDATE fate_extra_preview_search_item
     SET unit_id = ?, category = ?
@@ -648,6 +825,7 @@ export function refresh_fate_extra_preview_search_documents(
   `);
   const document_statements = prepare_document_statements(db);
   const affected_document_ids = new Set<number>();
+  let navigation_membership_changed = false;
   const read_compact_occurrences = !read_compact_enabled(db)
     ? null
     : db.prepare(`
@@ -667,16 +845,29 @@ export function refresh_fate_extra_preview_search_documents(
     if (row === undefined) return false;
     const item = parse_item(row["data"]);
     const metadata = item_metadata(item);
-    for (const document of read_old_documents.all(generation, item_id)) {
+    const excluded = item_text(item, "status") === "EXCLUDED";
+    const navigation_includes_item =
+      navigation_contains_item.get(generation, item_id) !== undefined;
+    const membership_changed = navigation_includes_item === excluded;
+    navigation_membership_changed ||= membership_changed;
+    const old_documents = excluded
+      ? read_old_documents.all(generation, item_id)
+      : read_old_text_documents.all(generation, item_id);
+    for (const document of old_documents) {
       affected_document_ids.add(row_number(document, "document_id"));
     }
-    delete_mappings.run(generation, item_id);
+    if (excluded) {
+      delete_all_mappings.run(generation, item_id);
+    } else {
+      delete_text_mappings.run(generation, item_id);
+    }
     update_item.run(
       row_number(row, "unit_id"),
       item_text(item_metadata_classification(metadata), "category"),
       generation,
       item_id,
     );
+    if (excluded || membership_changed) continue;
     const compact_occurrences = read_compact_occurrences?.all(item_id) ?? [];
     if (compact_occurrences.length === 0) {
       for (const [field, text] of read_search_fields(item, metadata).filter(
@@ -754,6 +945,7 @@ export function refresh_fate_extra_preview_search_documents(
     }
     delete_document.run(generation, document_id);
   }
+  if (navigation_membership_changed) return false;
   const document_count = count_generation_rows(
     db,
     "fate_extra_preview_search_document",
@@ -828,6 +1020,7 @@ function build_search_item_batch(
       SELECT ?, ?, fate_extra_preview_casefold(${value_sql})
       FROM items AS item
       WHERE item.id > ? AND item.id <= ?
+        AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
       GROUP BY fate_extra_preview_casefold(${value_sql})
     `).run(generation, field, after_item_id, last_item_id);
     db.prepare(`
@@ -840,6 +1033,7 @@ function build_search_item_batch(
         ON document.generation = ? AND document.field = ?
         AND document.search_text = fate_extra_preview_casefold(${value_sql})
       WHERE item.id > ? AND item.id <= ?
+        AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
     `).run(generation, field, generation, field, after_item_id, last_item_id);
   }
 
@@ -867,6 +1061,8 @@ function build_search_item_batch(
         JOIN fate_extra_compact_source AS source ON source.source_hash = occurrence.source_hash
         JOIN items AS item ON item.id = source.compact_item_id
         WHERE source.compact_item_id > ? AND source.compact_item_id <= ?
+          AND source.excluded_reason = ''
+          AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
         GROUP BY fate_extra_preview_casefold(${value_sql})
       `).run(generation, field, after_item_id, last_item_id);
       db.prepare(`
@@ -882,6 +1078,8 @@ function build_search_item_batch(
           ON document.generation = ? AND document.field = ?
           AND document.search_text = fate_extra_preview_casefold(${value_sql})
         WHERE source.compact_item_id > ? AND source.compact_item_id <= ?
+          AND source.excluded_reason = ''
+          AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
       `).run(generation, field, generation, field, after_item_id, last_item_id);
     }
     return;
@@ -892,6 +1090,7 @@ function build_search_item_batch(
     SELECT ?, 'file-exact', COALESCE(json_extract(item.data, '$.file_path'), '')
     FROM items AS item
     WHERE item.id > ? AND item.id <= ?
+      AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
     GROUP BY COALESCE(json_extract(item.data, '$.file_path'), '')
   `).run(generation, after_item_id, last_item_id);
   db.prepare(`
@@ -904,6 +1103,7 @@ function build_search_item_batch(
       ON document.generation = ? AND document.field = 'file-exact'
       AND document.search_text = COALESCE(json_extract(item.data, '$.file_path'), '')
     WHERE item.id > ? AND item.id <= ?
+      AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
   `).run(generation, generation, after_item_id, last_item_id);
 }
 
@@ -1231,6 +1431,10 @@ function write_identity_meta(
     JsonTool.stringifyStrict(short_gram_count),
   );
   upsert.run(FATE_EXTRA_PREVIEW_SEARCH_ADAPTER_META_KEY, adapter_value);
+  upsert.run(
+    FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY,
+    JsonTool.stringifyStrict(FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION),
+  );
 }
 
 function read_search_fields(

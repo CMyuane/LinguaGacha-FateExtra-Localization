@@ -337,6 +337,9 @@ export class ProjectWriteStore {
       return this.empty_project_write_result();
     }
     const changed_item_ids = this.collect_changed_item_ids(request.changes);
+    const visibility_transition = this.has_fate_extra_preview_visibility_transition(
+      request.changes,
+    );
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
       expectedSectionRevisions: request.expectedSectionRevisions,
@@ -381,11 +384,15 @@ export class ProjectWriteStore {
         }
         operations.push(
           ...this.write_coordinator.build_section_revision_operations(revision_context),
-          this.op("refreshFateExtraPreviewSearchDocuments", {
-            projectPath: request.projectPath,
-            itemIds: changed_item_ids as unknown as DatabaseJsonValue,
-          }),
         );
+        if (!visibility_transition) {
+          operations.push(
+            this.op("refreshFateExtraPreviewSearchDocuments", {
+              projectPath: request.projectPath,
+              itemIds: changed_item_ids as unknown as DatabaseJsonValue,
+            }),
+          );
+        }
         return operations;
       },
     });
@@ -411,6 +418,9 @@ export class ProjectWriteStore {
     const authoritative_translation_item_ids = patches
       .filter((patch) => patch.patch.dst !== undefined)
       .map((patch) => patch.item_id);
+    const visibility_transition = this.has_fate_extra_preview_visibility_transition(
+      request.changes,
+    );
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
       expectedSectionRevisions: request.expectedSectionRevisions,
@@ -450,11 +460,15 @@ export class ProjectWriteStore {
         }
         operations.push(
           ...this.write_coordinator.build_section_revision_operations(revision_context),
-          this.op("refreshFateExtraPreviewSearchDocuments", {
-            projectPath: request.projectPath,
-            itemIds: patches.map((patch) => patch.item_id) as unknown as DatabaseJsonValue,
-          }),
         );
+        if (!visibility_transition) {
+          operations.push(
+            this.op("refreshFateExtraPreviewSearchDocuments", {
+              projectPath: request.projectPath,
+              itemIds: patches.map((patch) => patch.item_id) as unknown as DatabaseJsonValue,
+            }),
+          );
+        }
         return operations;
       },
     });
@@ -1211,6 +1225,13 @@ export class ProjectWriteStore {
       item_ids.push(item_id);
     }
     return item_ids;
+  }
+
+  private has_fate_extra_preview_visibility_transition(changes: ProofreadingItemChange[]): boolean {
+    return changes.some(
+      (change) =>
+        (change.current["status"] === "EXCLUDED") !== (change.next["status"] === "EXCLUDED"),
+    );
   }
 
   private build_translation_extras_after_status_changes(

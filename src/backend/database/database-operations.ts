@@ -1459,7 +1459,10 @@ export class ProjectDatabase {
             FROM fate_extra_compact_occurrence AS occurrence
             JOIN fate_extra_compact_source AS source
               ON source.source_hash = occurrence.source_hash
+            JOIN items AS representative_item ON representative_item.id = source.compact_item_id
             WHERE occurrence.resource_path = ?
+              AND source.excluded_reason = ''
+              AND COALESCE(json_extract(representative_item.data, '$.status'), '') <> 'EXCLUDED'
             GROUP BY occurrence.resource_path, occurrence.char_offset
           ), ordered_entry AS (
             SELECT
@@ -1503,6 +1506,7 @@ export class ProjectDatabase {
             WHERE COALESCE(json_extract(
               data, '$.extra_field.__linguagacha_fe_v1.path'
             ), '') = ?
+              AND COALESCE(json_extract(data, '$.status'), '') <> 'EXCLUDED'
             GROUP BY resource_path, char_offset
           ), ordered_entry AS (
             SELECT
