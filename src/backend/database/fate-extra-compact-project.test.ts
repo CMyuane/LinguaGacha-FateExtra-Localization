@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -157,6 +158,107 @@ describe("Fate/Extra compact project", () => {
       expect.objectContaining({ char_offset: 20, block_ordinal: 0 }),
       expect.objectContaining({ char_offset: 30, block_ordinal: 1 }),
     ]);
+    database.close();
+  });
+
+  it("标准与精简上下文都跳过 EXCLUDED 条目", () => {
+    fs.mkdirSync(test_root, { recursive: true });
+    cleanup_paths.push(test_root);
+    const project_path = path.join(test_root, "excluded-context.lg");
+    const database = new ProjectDatabase();
+    database.execute({
+      name: "createProject",
+      args: { projectPath: project_path, name: "excluded-context" },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { schema_version: 1, enabled: true, logical_text_count: 3 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          { id: 1, src: "甲", status: "NONE", char_offset: 10 },
+          { id: 2, src: "乙", status: "EXCLUDED", char_offset: 20 },
+          { id: 3, src: "丙", status: "NONE", char_offset: 30 },
+        ].map((item) => ({
+          id: item.id,
+          src: item.src,
+          dst: "",
+          file_path: "route.txt",
+          row: item.id,
+          status: item.status,
+          extra_field: {
+            __linguagacha_fe_v1: {
+              schema_version: 1,
+              path: "route.bin",
+              char_offset: item.char_offset,
+              proofread_translation: "",
+              display_mode: "auto",
+              classification: { category: "ordinary_independent_slot" },
+            },
+          },
+        })),
+      },
+    });
+    const read_context = (char_offset: number) =>
+      database.execute({
+        name: "getFateExtraContext",
+        args: {
+          projectPath: project_path,
+          resourcePath: "route.bin",
+          charOffset: char_offset,
+          radius: 5,
+        },
+      }) as Record<string, unknown>;
+    expect(read_context(10)).toMatchObject({ found: true, block_count: 2 });
+    expect(
+      (read_context(10)["items"] as Array<Record<string, unknown>>).map(
+        (item) => item["char_offset"],
+      ),
+    ).toEqual([10, 30]);
+    expect(read_context(20)).toEqual({ found: false, items: [] });
+
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.compact.v1",
+        value: { enabled: true, schema_version: 2 },
+      },
+    });
+    const fixture = new DatabaseSync(project_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES
+        ('hash-a', '甲', 101, 1, 1, ''),
+        ('hash-b', '乙', 102, 2, 1, ''),
+        ('hash-c', '丙', 103, 3, 1, 'definite_corruption');
+      INSERT INTO fate_extra_compact_occurrence (
+        original_item_id, source_hash, file_path, row_number, resource_path,
+        char_offset, original_prefix, source_line_numbers, pass_through
+      ) VALUES
+        (101, 'hash-a', 'route.txt', 1, 'route.bin', 10, '', '[1]', '[]'),
+        (102, 'hash-b', 'route.txt', 2, 'route.bin', 20, '', '[2]', '[]'),
+        (103, 'hash-c', 'route.txt', 3, 'route.bin', 30, '', '[3]', '[]');
+    `);
+    fixture.close();
+
+    expect(read_context(10)).toMatchObject({ found: true, block_count: 1 });
+    expect(
+      (read_context(10)["items"] as Array<Record<string, unknown>>).map(
+        (item) => item["char_offset"],
+      ),
+    ).toEqual([10]);
+    expect(read_context(20)).toEqual({ found: false, items: [] });
+    expect(read_context(30)).toEqual({ found: false, items: [] });
     database.close();
   });
 });
