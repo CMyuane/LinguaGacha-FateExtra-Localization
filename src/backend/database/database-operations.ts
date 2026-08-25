@@ -15,6 +15,7 @@ import { normalize_project_item_field_patch } from "../../shared/project/project
 import { resolve_fate_extra_compact_machine_translation } from "../../shared/fate-extra/fate-extra-types";
 import {
   activate_fate_extra_preview_search_generation,
+  advance_fate_extra_preview_index_revision,
   read_fate_extra_index_state,
   refresh_fate_extra_preview_search_documents,
 } from "./fate-extra-preview-search-index";
@@ -295,6 +296,12 @@ export class ProjectDatabase {
           this.optional_number_array(args, "itemIds"),
           this.optional_number(args, "unitId"),
         );
+      case "advanceFateExtraPreviewRevisionIdentity":
+        return this.advance_fate_extra_preview_revision_identity(
+          this.require_string(args, "projectPath"),
+          this.require_number(args, "previousItemsRevision"),
+          this.require_number(args, "itemsRevision"),
+        );
       case "createFateExtraCompactProject":
         return this.create_fate_extra_compact_project(
           this.require_string(args, "projectPath"),
@@ -332,7 +339,15 @@ export class ProjectDatabase {
           this.require_string(args, "projectPath"),
           this.require_number(args, "unitId"),
           this.require_number(args, "itemId"),
+          this.require_number(args, "occurrenceId"),
           this.require_string(args, "proofreadTranslation"),
+          this.require_string(args, "displayMode"),
+        );
+      case "patchFateExtraDisplayMode":
+        return this.patch_fate_extra_display_mode(
+          this.require_string(args, "projectPath"),
+          this.require_number(args, "itemId"),
+          this.require_number(args, "occurrenceId"),
           this.require_string(args, "displayMode"),
         );
       case "getItemCount":
@@ -1165,6 +1180,19 @@ export class ProjectDatabase {
     return refreshed;
   }
 
+  /** 仅推进 active 派生索引身份；不匹配的旧 generation 保持 stale 等待维护任务。 */
+  private advance_fate_extra_preview_revision_identity(
+    project_path: string,
+    previous_items_revision: number,
+    items_revision: number,
+  ): boolean {
+    return advance_fate_extra_preview_index_revision(
+      this.open_project(project_path),
+      Math.trunc(previous_items_revision),
+      Math.trunc(items_revision),
+    );
+  }
+
   /**
    * 从完整 FE 工程生成独立精简工程。源工程只读；普通 items 只保留可翻译的
    * 精确源文组，全部物理位置进入专用映射表，供最终导出时无损展开。
@@ -1885,12 +1913,14 @@ export class ProjectDatabase {
     project_path: string,
     unit_id: number,
     item_id: number,
+    occurrence_id: number,
     proofread_translation: string,
     display_mode: string,
   ): number {
     const db = this.open_project(project_path);
     const normalized_unit_id = Math.trunc(unit_id);
     const normalized_item_id = Math.trunc(item_id);
+    const normalized_occurrence_id = Math.trunc(occurrence_id);
     const membership = db
       .prepare(`
         SELECT 1
@@ -1925,20 +1955,105 @@ export class ProjectDatabase {
         )
       `)
       .run(proofread_translation, normalized_unit_id);
-    db.prepare(`
-      UPDATE items
-      SET data = json_set(
-        data,
-        '$.extra_field.__linguagacha_fe_v1.display_mode', ?
-      )
-      WHERE id = ?
-        AND id IN (
-          SELECT item_id
-          FROM fate_extra_text_occurrence
-          WHERE unit_id = ?
-        )
-    `).run(display_mode, normalized_item_id, normalized_unit_id);
+    this.patch_fate_extra_display_mode_in_db(
+      db,
+      normalized_item_id,
+      normalized_occurrence_id,
+      display_mode,
+    );
     return Number(result.changes ?? 0);
+  }
+
+  /**
+   * 显示类型是 PSP 物理位置事实；精简工程写 occurrence，普通 FE 仍写 item metadata。
+   */
+  private patch_fate_extra_display_mode(
+    project_path: string,
+    item_id: number,
+    occurrence_id: number,
+    display_mode: string,
+  ): number {
+    return this.patch_fate_extra_display_mode_in_db(
+      this.open_project(project_path),
+      Math.trunc(item_id),
+      Math.trunc(occurrence_id),
+      display_mode,
+    );
+  }
+
+  private patch_fate_extra_display_mode_in_db(
+    db: DatabaseSync,
+    item_id: number,
+    occurrence_id: number,
+    display_mode: string,
+  ): number {
+    if (
+      !Number.isInteger(item_id) ||
+      item_id <= 0 ||
+      !Number.isInteger(occurrence_id) ||
+      occurrence_id <= 0 ||
+      !["auto", "dialogue", "fullscreen", "poem"].includes(display_mode)
+    ) {
+      throw new AppErrors.RequestValidationError({
+        diagnostic_context: { reason: "invalid_fate_extra_display_mode_target" },
+      });
+    }
+    const compact_meta = db
+      .prepare("SELECT value FROM meta WHERE key = 'fate_extra.compact.v1'")
+      .get()?.["value"];
+    const compact_enabled =
+      typeof compact_meta === "string" &&
+      this.value_record(json_parse(compact_meta))["enabled"] === true;
+    if (compact_enabled) {
+      const membership = db
+        .prepare(`
+          SELECT 1
+          FROM fate_extra_compact_occurrence AS occurrence
+          JOIN fate_extra_compact_source AS source
+            ON source.source_hash = occurrence.source_hash
+          WHERE occurrence.original_item_id = ? AND source.compact_item_id = ?
+        `)
+        .get(occurrence_id, item_id);
+      if (membership === undefined) {
+        throw new AppErrors.RequestValidationError({
+          public_details: { reason: "FE 显示类型目标与物理位置不匹配，请刷新预览后重试。" },
+          diagnostic_context: {
+            reason: "fate_extra_compact_occurrence_item_mismatch",
+            item_id,
+            occurrence_id,
+          },
+        });
+      }
+      return Number(
+        db
+          .prepare(
+            "UPDATE fate_extra_compact_occurrence SET display_mode = ? WHERE original_item_id = ?",
+          )
+          .run(display_mode, occurrence_id).changes ?? 0,
+      );
+    }
+    if (occurrence_id !== item_id) {
+      throw new AppErrors.RequestValidationError({
+        public_details: { reason: "FE 显示类型目标与条目不匹配，请刷新预览后重试。" },
+        diagnostic_context: {
+          reason: "fate_extra_occurrence_item_mismatch",
+          item_id,
+          occurrence_id,
+        },
+      });
+    }
+    return Number(
+      db
+        .prepare(`
+          UPDATE items
+          SET data = json_set(
+            data,
+            '$.extra_field.__linguagacha_fe_v1.display_mode', ?
+          )
+          WHERE id = ?
+        `)
+        .run(display_mode, item_id).changes ?? 0,
+    );
   }
 
   /**

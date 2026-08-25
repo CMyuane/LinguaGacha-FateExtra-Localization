@@ -825,6 +825,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   async function save_translation(): Promise<void> {
     if (current === null || !dirty || writing) return;
     const target_id = current.item_id;
+    const target_occurrence_id = current.occurrence_id;
     const next_proofread = draft_proofread;
     const next_display_mode = draft_display_mode;
     set_busy("save");
@@ -833,6 +834,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     try {
       await run_item_write("fate-extra.preview.save", "/api/toolbox/fate-extra/review/save", {
         item_id: target_id,
+        occurrence_id: target_occurrence_id,
         text_unit_id: current.text_unit_id,
         review_scope,
         proofread_translation: next_proofread,
@@ -840,7 +842,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       });
       set_items((previous) =>
         previous.map((item) =>
-          item.item_id === target_id
+          item.occurrence_id === target_occurrence_id
             ? {
                 ...item,
                 proofread_translation: next_proofread,
@@ -867,6 +869,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       return;
     }
     const target_id = current.item_id;
+    const target_occurrence_id = current.occurrence_id;
     const previous_display_mode = current.display_mode;
     set_draft_display_mode(next_display_mode);
     set_busy("display-mode");
@@ -878,6 +881,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         "/api/toolbox/fate-extra/review/save",
         {
           item_id: target_id,
+          occurrence_id: target_occurrence_id,
           text_unit_id: current.text_unit_id,
           review_scope,
           proofread_translation: current.proofread_translation,
@@ -886,7 +890,9 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       );
       set_items((previous) =>
         previous.map((item) =>
-          item.item_id === target_id ? { ...item, display_mode: next_display_mode } : item,
+          item.occurrence_id === target_occurrence_id
+            ? { ...item, display_mode: next_display_mode }
+            : item,
         ),
       );
       set_feedback(t("app.feedback.save_success"));
@@ -898,9 +904,10 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     }
   }
 
-  async function clear_translation(target_id: number): Promise<void> {
+  async function clear_translation(target_id: number, target_occurrence_id: number): Promise<void> {
     await run_item_write("fate-extra.preview.clear-review", "/api/toolbox/fate-extra/review/save", {
       item_id: target_id,
+      occurrence_id: target_occurrence_id,
       text_unit_id: current?.text_unit_id ?? 0,
       review_scope,
       proofread_translation: "",
@@ -908,7 +915,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     });
     set_items((previous) =>
       previous.map((item) =>
-        item.item_id === target_id
+        item.occurrence_id === target_occurrence_id
           ? { ...item, proofread_translation: "", effective_translation: item.machine_translation }
           : item,
       ),
@@ -946,7 +953,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     set_pending_confirmation({
       kind,
       target_row_ids: [String(current.item_id)],
-      preferred_row_id: String(current.item_id),
+      preferred_row_id: String(current.occurrence_id),
       submitting: false,
     });
   }
@@ -955,7 +962,13 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     const confirmation = pending_confirmation;
     if (confirmation === null || confirmation.submitting) return;
     const target_id = Number(confirmation.target_row_ids[0]);
-    if (!Number.isInteger(target_id)) {
+    const target_occurrence_id = Number(confirmation.preferred_row_id);
+    if (
+      !Number.isInteger(target_id) ||
+      target_id <= 0 ||
+      !Number.isInteger(target_occurrence_id) ||
+      target_occurrence_id <= 0
+    ) {
       set_pending_confirmation(null);
       return;
     }
@@ -965,7 +978,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     set_error("");
     try {
       if (confirmation.kind === "clear-translations") {
-        await clear_translation(target_id);
+        await clear_translation(target_id, target_occurrence_id);
         set_feedback(
           t("proofreading_page.feedback.clear_translation_success").replace("{COUNT}", "1"),
         );

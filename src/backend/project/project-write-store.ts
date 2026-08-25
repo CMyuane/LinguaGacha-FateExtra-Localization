@@ -729,6 +729,10 @@ export class ProjectWriteStore {
     expectedSectionRevisions: ApiJsonValue | undefined;
     itemId: number;
     extraField: ApiJsonValue;
+    occurrenceDisplay?: {
+      occurrenceId: number;
+      displayMode: string;
+    };
   }): Promise<ProjectWriteResult> {
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
@@ -751,6 +755,16 @@ export class ProjectWriteStore {
             status: "PROCESSED",
           } as unknown as DatabaseJsonValue,
         }),
+        ...(request.occurrenceDisplay === undefined
+          ? []
+          : [
+              this.op("patchFateExtraDisplayMode", {
+                projectPath: request.projectPath,
+                itemId: request.itemId,
+                occurrenceId: request.occurrenceDisplay.occurrenceId,
+                displayMode: request.occurrenceDisplay.displayMode,
+              }),
+            ]),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
         this.op("refreshFateExtraPreviewSearchDocuments", {
           projectPath: request.projectPath,
@@ -768,6 +782,7 @@ export class ProjectWriteStore {
     expectedSectionRevisions: ApiJsonValue | undefined;
     unitId: number;
     itemId: number;
+    occurrenceId: number;
     proofreadTranslation: string;
     displayMode: string;
   }): Promise<ProjectWriteResult> {
@@ -784,6 +799,7 @@ export class ProjectWriteStore {
           projectPath: request.projectPath,
           unitId: request.unitId,
           itemId: request.itemId,
+          occurrenceId: request.occurrenceId,
           proofreadTranslation: request.proofreadTranslation,
           displayMode: request.displayMode,
         }),
@@ -792,6 +808,50 @@ export class ProjectWriteStore {
           projectPath: request.projectPath,
           unitId: request.unitId,
         }),
+      ],
+    });
+  }
+
+  /**
+   * 显示类型单独保存不改变文本或状态。精简工程只推进物理校对事实；普通 FE
+   * 修改 item metadata，并在 active generation 仍匹配时轻量推进其 revision 身份。
+   */
+  public async apply_fate_extra_display_mode(request: {
+    projectPath: string;
+    expectedSectionRevisions: ApiJsonValue | undefined;
+    itemId: number;
+    occurrenceId: number;
+    displayMode: string;
+    compact: boolean;
+  }): Promise<ProjectWriteResult> {
+    const revision_sections: ProjectDataSection[] = request.compact
+      ? ["proofreading"]
+      : ["items", "proofreading"];
+    return await this.commit_runtime_change({
+      projectPath: request.projectPath,
+      expectedSectionRevisions: request.expectedSectionRevisions,
+      requireExpectedSectionRevisions: true,
+      revisionSections: revision_sections,
+      source: "fate_extra_display_mode_save",
+      updatedSections: revision_sections,
+      ...(request.compact ? {} : { items: { payloadMode: "section-invalidated" as const } }),
+      buildOperations: (revision_context) => [
+        this.op("patchFateExtraDisplayMode", {
+          projectPath: request.projectPath,
+          itemId: request.itemId,
+          occurrenceId: request.occurrenceId,
+          displayMode: request.displayMode,
+        }),
+        ...this.write_coordinator.build_section_revision_operations(revision_context),
+        ...(request.compact
+          ? []
+          : [
+              this.op("advanceFateExtraPreviewRevisionIdentity", {
+                projectPath: request.projectPath,
+                previousItemsRevision: get_section_revision(revision_context.meta, "items"),
+                itemsRevision: get_section_revision(revision_context.meta, "items") + 1,
+              }),
+            ]),
       ],
     });
   }

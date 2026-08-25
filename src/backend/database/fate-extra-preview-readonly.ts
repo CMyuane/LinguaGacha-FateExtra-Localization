@@ -798,6 +798,34 @@ function read_navigation_unit_page(
   limit: number,
 ): DatabaseRow[] {
   if (input.filePath === "") {
+    if (compact) {
+      return db
+        .prepare(`
+          SELECT ${compact_occurrence_select_columns_sql()}
+          FROM fate_extra_preview_navigation_unit AS navigation
+          JOIN fate_extra_preview_navigation_occurrence AS first_occurrence
+            ON first_occurrence.generation = navigation.generation
+            AND first_occurrence.unit_id = navigation.unit_id
+            AND first_occurrence.occurrence_id = (
+              SELECT MIN(candidate.occurrence_id)
+              FROM fate_extra_preview_navigation_occurrence AS candidate
+              WHERE candidate.generation = navigation.generation
+                AND candidate.unit_id = navigation.unit_id
+            )
+          JOIN fate_extra_compact_occurrence AS occurrence
+            ON occurrence.original_item_id = first_occurrence.occurrence_id
+          JOIN fate_extra_compact_source AS compact_source
+            ON compact_source.source_hash = occurrence.source_hash
+          JOIN items AS item ON item.id = compact_source.compact_item_id
+          LEFT JOIN fate_extra_text_occurrence AS text_occurrence
+            ON text_occurrence.item_id = item.id
+          WHERE navigation.generation = ? AND navigation.position >= ?
+          ORDER BY navigation.position
+          LIMIT ?
+        `)
+        .all(generation, position, limit)
+        .map(project_compact_row);
+    }
     return db
       .prepare(`
         SELECT navigation.unit_id, navigation.occurrence_count, item.id, item.data
