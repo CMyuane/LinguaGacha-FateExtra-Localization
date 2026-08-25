@@ -41,11 +41,11 @@ afterEach(() => {
 });
 
 describe("产品统一入口", () => {
-  it("发布态 app.exe 使用 --cli 后的命令参数并以可执行文件目录作为 appRoot", async () => {
+  it("发布态 GUI 主程序使用 --cli 后的命令参数并以可执行文件目录作为 appRoot", async () => {
     const app_root = fs.mkdtempSync(path.join(os.tmpdir(), "linguagacha-entry-"));
     const calls = mock_entry_modules();
     try {
-      const executable_path = path.join(app_root, "app.exe");
+      const executable_path = path.join(app_root, "LinguaGacha-FE.exe");
       fs.writeFileSync(path.join(app_root, "version.txt"), "1.2.3", "utf-8");
       set_process_args(executable_path, [executable_path, "--cli", "translate", "--help"]);
 
@@ -105,9 +105,9 @@ describe("产品统一入口", () => {
     expect(exit_codes).toEqual([]);
   });
 
-  it("普通 app 可执行文件进入 GUI 入口", async () => {
+  it("没有 --cli 的普通 GUI 可执行文件进入 GUI 入口", async () => {
     const calls = mock_entry_modules();
-    const executable_path = path.join(process.cwd(), "app.exe");
+    const executable_path = path.join(process.cwd(), "LinguaGacha-FE.exe");
     set_process_args(executable_path, [executable_path]);
 
     await import("./index");
@@ -156,7 +156,7 @@ function mock_entry_modules(): {
 }
 
 /**
- * 重写进程启动参数，模拟发布态 app.exe 和开发态 electron.exe。
+ * 重写进程启动参数，模拟发布态 GUI 主程序和开发态 electron.exe。
  */
 function set_process_args(executable_path: string, argv: string[]): void {
   Object.defineProperty(process, "execPath", {

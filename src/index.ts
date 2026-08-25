@@ -37,7 +37,7 @@ function should_run_cli(): boolean {
 }
 
 /**
- * 从 --cli 之后开始读取用户参数；Windows 轻量 cli.exe 也会先转发成 app.exe --cli。
+ * 从 --cli 之后开始读取用户参数；Windows 轻量 cli.exe 也会先转发给同目录 GUI 主程序。
  */
 function resolve_cli_argv(): string[] {
   const cli_marker_index = process.argv.indexOf("--cli");
