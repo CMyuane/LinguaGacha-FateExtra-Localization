@@ -71,6 +71,7 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
     },
   );
   const revisions = { files: 1, items: 1, quality: 1, proofreading: 0 };
+  const item_summary = build_item_summary(items, file_entries);
   const cache_port: CacheReadPort = {
     snapshot: () => {
       counters.snapshot += 1;
@@ -80,6 +81,7 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
         freshness: "fresh",
         sectionRevisions: revisions,
         itemCount: items.length,
+        itemMode: "fate-extra-compact",
       };
     },
     readSectionRevisions: () => {
@@ -89,9 +91,10 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
     items: {
       readItems: () => {
         counters.read_items += 1;
-        return [];
+        return items;
       },
       readItem: () => null,
+      readSummary: () => item_summary,
     },
     files: {
       readFileEntries: () => {
@@ -136,7 +139,6 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
   const cold_started = performance.now();
   const cold_sync = await cache.sync({});
   const cold_sync_ms = performance.now() - cold_started;
-  const counts_after_cold = clone_counters(counters);
   const filters = cold_sync.data.defaultFilters;
   const list_query = {
     filters,
@@ -147,6 +149,8 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
     window_start: 0,
     window_count: 0,
   };
+  const cold_row_count = (await cache.list(list_query)).data.row_count;
+  const counts_after_cold = clone_counters(counters);
 
   let current_view_id = "";
   for (let index = 0; index < options.warmups; index += 1) {
@@ -235,7 +239,7 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
       revisions,
     },
     methodology: {
-      cold_sync: `真实 ProofreadingCache 从模拟 compact 数据库端口取得 ${items.length.toLocaleString("en-US")} 个合成 item，调用生产 proofreading sync worker task，并交给真实 ProofreadingListReader 建立运行态。`,
+      cold_sync: `真实 ProofreadingCache 从模拟 compact 基础缓存端口取得 ${items.length.toLocaleString("en-US")} 个合成 item，调用生产 proofreading sync worker task，并交给真实 ProofreadingListReader 建立运行态；数据库端口只用于断言校对热机不再回退读取。`,
       worker_execution:
         "production proofreading worker task is invoked in-process so this benchmark isolates cache/main-heap behavior; worker dispatch latency and worker RSS are outside this gate",
       hot_cycle:
@@ -260,7 +264,8 @@ export async function run_proofreading_benchmark(options: BenchmarkOptions) {
     cold_sync: {
       wall_ms: round(cold_sync_ms),
       project_id: cold_sync.data.projectId,
-      item_count: items.length,
+      input_item_count: items.length,
+      synced_row_count: cold_row_count,
     },
     latency_ms: latency,
     heap: {
@@ -308,6 +313,28 @@ function create_synthetic_items(item_count: number): SyntheticItem[] {
       extra_field: "",
     };
   });
+}
+
+function build_item_summary(
+  items: SyntheticItem[],
+  file_entries: Array<{ rel_path: string; file_type: string; sort_index: number }>,
+) {
+  const status_counts: Record<string, number> = {};
+  const file_counts = new Map<string, number>();
+  for (const item of items) {
+    status_counts[item.status] = (status_counts[item.status] ?? 0) + 1;
+    file_counts.set(item.file_path, (file_counts.get(item.file_path) ?? 0) + 1);
+  }
+  return {
+    totalCount: items.length,
+    statusCounts: status_counts,
+    nonemptySourceStatusCounts: { ...status_counts },
+    fileEntries: file_entries.map((entry) => ({
+      rel_path: entry.rel_path,
+      file_type: entry.file_type,
+      item_count: file_counts.get(entry.rel_path) ?? 0,
+    })),
+  };
 }
 
 function create_counting_worker(counters: OperationCounters): BackendWorkerClient {

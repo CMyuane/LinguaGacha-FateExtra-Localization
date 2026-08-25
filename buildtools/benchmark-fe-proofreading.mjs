@@ -116,8 +116,19 @@ function verify_report_shape(report, expected) {
     }
   }
   if (report.accounting.cold.read_items !== 1) failures.push("cold.read_items");
-  if (report.accounting.cold.get_all_items !== 1) failures.push("cold.get_all_items");
+  if (report.accounting.cold.get_all_items !== 0) failures.push("cold.get_all_items");
   if (report.accounting.cold.worker_sync !== 1) failures.push("cold.worker_sync");
+  if (report.cold_sync.synced_row_count !== expected.item_count) {
+    failures.push("cold_sync.synced_row_count");
+  }
+  if (report.result_shape.list_row_count !== expected.item_count) {
+    failures.push("result_shape.list_row_count");
+  }
+  if (
+    report.result_shape.window_row_count !== Math.min(expected.window_count, expected.item_count)
+  ) {
+    failures.push("result_shape.window_row_count");
+  }
   for (const counter of ["read_items", "get_all_items", "worker_sync"]) {
     if (report.accounting.measured_hot_delta[counter] !== 0) {
       failures.push(`measured_hot_delta.${counter}`);
