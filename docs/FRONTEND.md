@@ -54,8 +54,8 @@
 - `api_fetch(path, body, { signal })` 是页面取消请求的统一入口。预览查询实行 latest-wins：新输入、筛选变化、项目切换和组件卸载都 abort 旧请求；renderer 只接收当前 `query_id`、items revision、搜索 generation 和导航 generation 相符的响应。预期取消不显示 toast、不进入 renderer 诊断，也不作为服务端 500。
 - 预览 Canvas 固定为 480×272；共享布局器提供 432 px、3 行、Ruby、颜色、变量、图标、字号、偏移和条件分支计算。renderer 只负责绘制与局部筛选。
 - Ruby 读音归属于当前正文行；Canvas 根据当前行是否含 Ruby 动态增加正文基线间距，禁止读音侵入上一行。Ruby 不参与正文可见字符换行计数。
-- PSP 预览默认使用严格去重的唯一文本视图，并显示物理出现次数；用户可切换到全部物理位置。`/api/toolbox/fate-extra/items` 只使用零基 `position`，页面单次最多读取 120 条；文件切换、普通分页和序号跳转立即请求，只有搜索文本本身保留 120ms 防抖。索引落后时页面显示明确的 `search_state` / `navigation_state: updating`，不得触发 renderer 或 Electron 主进程同步扫描 `items` JSON。索引完成后按新 generation 重新请求当前 query。重复组保存默认同步所有完全相同原文，也可改为仅保存当前位置以保留语境差异。
-- 精简工程选择分支文件后，页面按 `fate_extra_compact_occurrence.row_number + original_item_id` 读取该分支全部物理位置，不使用去重代表项的文件名或 `unit_id` 代替路线顺序；当前位置仍绑定共享 `compact_item_id`，相同原文继续共用译文。
+- PSP 预览默认使用严格去重的唯一文本视图，并显示过滤后的物理出现次数；用户可切换到全部物理位置。精确状态 `EXCLUDED` 不出现在唯一、物理、文件、搜索、warning 或上下文结果中，恢复为其他状态后由新 generation 重新可见。`/api/toolbox/fate-extra/items` 只使用零基 `position`，页面单次最多读取 120 条；文件切换、普通分页和序号跳转立即请求，只有搜索文本本身保留 120ms 防抖。索引落后时页面显示明确的 `search_state` / `navigation_state: updating`，不得触发 renderer 或 Electron 主进程同步扫描 `items` JSON。索引完成后按新 generation 重新请求当前 query。重复组保存默认同步所有完全相同原文，也可改为仅保存当前位置以保留语境差异。
+- 精简工程选择分支文件后，页面按 `fate_extra_compact_occurrence.row_number + original_item_id` 读取该分支全部物理位置，不使用去重代表项的文件名或 `unit_id` 代替路线顺序；当前位置仍绑定共享 `compact_item_id`，相同原文继续共用译文。所有视图都返回真实 `occurrence_id` 和该位置的显示类型；保存、清空及即时显示类型写入必须回传该 ID，乐观状态也只更新匹配 occurrence，不能让同组其他位置闪变或被迟到查询回退。
 - `FE_PSP_OVERFLOW` 是后端/共享规则产生的校对状态，界面显示“溢出”。缺字和不可编码字符不属于校对状态；未同步字符以同尺寸 Noto Sans CJK 临时字形显示。
 - FE 适配页提供“生成精简工程”。用户通过系统保存对话框选择新的 `.lg`，路径不写死；当前工程已经精简时按钮禁用。
 - 精简工程的工作台和 PSP 唯一文本视图只加载有效去重条目，物理位置由后端映射分页提供，界面不复制完整映射。
