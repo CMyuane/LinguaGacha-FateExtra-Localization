@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { pathToFileURL } from "node:url";
+import { build } from "esbuild";
 
 import {
   BenchmarkWorker,
@@ -28,10 +30,15 @@ if (option_boolean(options, "help")) {
   npm run benchmark:fe:preview -- --synthetic-items 941489 [--synthetic-unique 28433]
 
 Options: --index-repetitions 1 --search-repetitions 20 --cancel-repetitions 20
-         --cancel-after-ms 25 --output <report.json> --self-check --allow-partial\n`);
+         --cancel-after-ms 25 --output <report.json> --self-check --allow-partial
+         --compact --high-repeat --baseline-cold-ms <v20 cold wall time>
+         --compact includes real HTTP save/cache benchmarks; build desktop bundles first\n`);
   process.exit(0);
 }
 const self_check = option_boolean(options, "self-check");
+const compact_profile = option_boolean(options, "compact");
+const high_repeat = option_boolean(options, "high-repeat");
+const baseline_cold_ms = option_integer(options, "baseline-cold-ms", 0, 0);
 const allow_partial = option_boolean(options, "allow-partial");
 const project_argument = option_text(options, "project");
 const output_path = option_text(options, "output");
@@ -54,7 +61,12 @@ const search_repetitions = option_integer(options, "search-repetitions", self_ch
 const cancel_repetitions = option_integer(options, "cancel-repetitions", self_check ? 1 : 20, 1);
 const cancel_after_ms = option_integer(options, "cancel-after-ms", 25, 0);
 const queries = option_texts(options, "query");
-if (queries.length === 0) queries.push("日", "日文", "日文测", "RUBY", "\u0001");
+if (queries.length === 0)
+  queries.push(
+    ...(compact_profile
+      ? ["精", "精简", "精简原", "ROUTE", "\u0001"]
+      : ["日", "日文", "日文测", "RUBY", "\u0001"]),
+  );
 if (project_argument !== "" && options["synthetic-items"] !== undefined) {
   throw new Error("--project 与 --synthetic-items 不能同时使用。");
 }
@@ -76,12 +88,15 @@ try {
     data_source = "external-project-copy";
   } else {
     const setup_result = await worker.call({
-      kind: "create-synthetic-preview",
+      kind: compact_profile ? "create-synthetic-compact" : "create-synthetic-preview",
       projectPath: base_project,
       itemCount: synthetic_item_count,
+      physicalCount: synthetic_item_count,
       uniqueCount: Math.min(synthetic_unique_count, synthetic_item_count),
+      highRepeat: high_repeat,
     });
     setup = setup_result.payload;
+    process.stderr.write("FE preview benchmark: fixture ready\n");
     data_source = "synthetic";
   }
 
@@ -99,6 +114,9 @@ try {
     const monitored = await monitor_operation(
       async () => await worker.call({ kind: "preview-index", projectPath: project_copy }),
       50,
+    );
+    process.stderr.write(
+      `FE preview benchmark: index completed in ${round(monitored.wall_ms)}ms\n`,
     );
     const state = await worker.call({ kind: "preview-state", projectPath: project_copy });
     index_runs.push({
@@ -196,6 +214,7 @@ try {
     });
   }
   for (const query of queries) {
+    process.stderr.write(`FE preview benchmark: search ${JSON.stringify(query)}\n`);
     for (let index = 0; index < search_warmups; index += 1) {
       await worker.call({
         kind: "preview-search",
@@ -251,6 +270,7 @@ try {
     });
   }
 
+  const save = compact_profile ? await run_save_probes(indexed_project, temporary_directory) : null;
   const cancellation = await run_cancellation_probes({
     worker_file,
     inspection_worker: worker,
@@ -266,17 +286,46 @@ try {
     cancellation,
     formal_profile_observed: index_runs.every(
       (run) =>
-        run.state.item_count === 941_489 &&
-        run.index_result.navigation_occurrence_count === 941_489 &&
+        run.state.item_count === (compact_profile ? 28_433 : 941_489) &&
+        (compact_profile
+          ? run.state.compact_physical_count === 941_489 &&
+            run.index_result.navigation_occurrence_count ===
+              run.state.compact_visible_physical_count
+          : run.index_result.navigation_occurrence_count === 941_489) &&
         run.index_result.unit_count === 28_433,
     ),
     require_complete_profile: !self_check && !allow_partial,
   });
+  if (save !== null) {
+    const save_failed = Object.entries(save.gates)
+      .filter(([, passed]) => !passed)
+      .map(([name]) => `save.${name}`);
+    gate_summary.failed_boolean_gates.push(...save_failed);
+    gate_summary.evaluated_boolean_gate_count += Object.keys(save.gates).length;
+    gate_summary.acceptance &&= save_failed.length === 0;
+  }
+  const cold_reduction =
+    baseline_cold_ms > 0
+      ? 1 - summarize_samples(index_runs.map((run) => run.wall_ms)).median_ms / baseline_cold_ms
+      : null;
+  if (cold_reduction !== null && cold_reduction < 0.5) {
+    gate_summary.failed_boolean_gates.push("cold-build-reduction-at-least-50-percent");
+    gate_summary.acceptance = false;
+  }
+  if (cold_reduction !== null) gate_summary.evaluated_boolean_gate_count += 1;
   const report = {
     benchmark: "FE generation index, indexed substring search, and worker cancellation",
     generated_at: new Date().toISOString(),
     machine: machine_snapshot(),
     data_source,
+    compact_profile,
+    high_repeat,
+    cold_build_comparison: {
+      baseline_cold_ms,
+      reduction: cold_reduction,
+      scope: "Only comparable with the same machine, data and sampling method.",
+    },
+    save,
     source_project,
     setup,
     methodology: {
@@ -560,5 +609,71 @@ function build_gate_summary({
 function assert_file(file_path, label) {
   if (!fs.statSync(file_path, { throwIfNoEntry: false })?.isFile()) {
     throw new Error(`${label} 不存在：${file_path}`);
+  }
+}
+
+async function run_save_probes(project_path, temporary_directory) {
+  const desktop_bundle_dir = path.resolve("build/dist-electron");
+  assert_file(
+    path.join(desktop_bundle_dir, "backend-worker-entry.js"),
+    "Desktop worker bundle; run npm run build first",
+  );
+  const runtime_directory = fs.mkdtempSync(path.resolve("build/.preview-save-benchmark-"));
+  const app_root = path.join(temporary_directory, "app");
+  fs.mkdirSync(app_root);
+  fs.symlinkSync(path.resolve("resource"), path.join(app_root, "resource"), "junction");
+  fs.copyFileSync("version.txt", path.join(app_root, "version.txt"));
+  try {
+    const entry = path.join(runtime_directory, "entry.mjs");
+    await build({
+      entryPoints: ["buildtools/lib/fe-preview-save-benchmark-entry.ts"],
+      outfile: entry,
+      bundle: true,
+      packages: "external",
+      platform: "node",
+      format: "esm",
+      target: "node22",
+      logLevel: "silent",
+    });
+    const { run_preview_save_benchmark } = await import(pathToFileURL(entry).href);
+    const measured = await monitor_operation(
+      () =>
+        run_preview_save_benchmark({
+          project_path,
+          app_root,
+          desktop_bundle_dir,
+          warmups: search_warmups,
+          repetitions: search_repetitions,
+        }),
+      50,
+    );
+    const result = measured.value;
+    const scenarios = result.scenarios.map((scenario) => ({
+      ...scenario,
+      latency_ms: summarize_samples(scenario.samples_ms),
+      refresh_latency_ms: summarize_samples(scenario.refresh_samples_ms),
+    }));
+    return {
+      ...result,
+      scenarios,
+      hot_open_latency_ms: summarize_samples(result.hot_open_samples_ms),
+      maximum_heartbeat_drift_ms: measured.maximum_heartbeat_drift_ms,
+      scope:
+        "Real HTTP Gateway, ProjectWriteStore, CacheManager and preview worker; UI interaction time is independently measured in Electron.",
+      gates: {
+        save_http_p95_at_most_300ms: scenarios.every(
+          (scenario) => scenario.latency_ms.p95_ms <= 300,
+        ),
+        hot_query_p95_at_most_200ms: scenarios.every(
+          (scenario) => scenario.refresh_latency_ms.p95_ms <= 200,
+        ),
+        hot_open_first_query_p95_at_most_200ms:
+          summarize_samples(result.hot_open_samples_ms).p95_ms <= 200,
+        incremental_events: scenarios.every((scenario) => scenario.changes_are_incremental),
+        no_full_items_read: (result.operation_counts.getAllItems ?? 0) === 0,
+      },
+    };
+  } finally {
+    cleanup_temporary_directory(runtime_directory);
   }
 }

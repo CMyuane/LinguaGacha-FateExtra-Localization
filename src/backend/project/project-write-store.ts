@@ -767,6 +767,7 @@ export class ProjectWriteStore {
             ]),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
         this.op("refreshFateExtraPreviewSearchDocuments", {
+          proofreadOnly: true,
           projectPath: request.projectPath,
           itemIds: [request.itemId] as unknown as DatabaseJsonValue,
         }),
@@ -785,6 +786,7 @@ export class ProjectWriteStore {
     occurrenceId: number;
     proofreadTranslation: string;
     displayMode: string;
+    compact: boolean;
   }): Promise<ProjectWriteResult> {
     return await this.commit_runtime_change({
       projectPath: request.projectPath,
@@ -793,7 +795,9 @@ export class ProjectWriteStore {
       revisionSections: ["items", "proofreading"],
       source: "fate_extra_text_unit_review_save",
       updatedSections: ["items", "proofreading"],
-      items: { payloadMode: "section-invalidated" },
+      items: request.compact
+        ? { payloadMode: "canonical-delta", changedIds: [request.itemId] }
+        : { payloadMode: "section-invalidated" },
       buildOperations: (revision_context) => [
         this.op("patchFateExtraReviewByUnitId", {
           projectPath: request.projectPath,
@@ -805,6 +809,7 @@ export class ProjectWriteStore {
         }),
         ...this.write_coordinator.build_section_revision_operations(revision_context),
         this.op("refreshFateExtraPreviewSearchDocuments", {
+          proofreadOnly: true,
           projectPath: request.projectPath,
           unitId: request.unitId,
         }),

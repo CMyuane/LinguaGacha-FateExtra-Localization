@@ -14,7 +14,7 @@ import {
 } from "../database/fate-extra-scan-apply-receipt";
 import { normalize_fate_extra_preview_search_text } from "../database/fate-extra-preview-search-index";
 import type { ProjectOperationGate } from "../project/project-gate";
-import { get_section_revision } from "../project/project-data";
+import { build_section_revisions_from_meta, get_section_revision } from "../project/project-data";
 import type { ProjectEventBus } from "../project/project-events";
 import type { ProjectSessionState } from "../project/project-session";
 import type { ProjectWriteStore } from "../project/project-write-store";
@@ -495,6 +495,9 @@ export class FateExtraService {
   ): Promise<JsonRecord> {
     const project_path = this.require_loaded_project(body);
     const query_project_epoch = this.ensure_project_epoch(project_path);
+    const section_revisions = build_section_revisions_from_meta(
+      this.read_record_operation("getAllMeta", project_path) as JsonRecord,
+    );
     const requested_view_mode =
       String(body["view_mode"] ?? "unique") === "occurrence" ? "occurrence" : "unique";
     const index_state = read_record(
@@ -518,14 +521,13 @@ export class FateExtraService {
     const query_id = Math.trunc(Number(body["query_id"] ?? 0));
     const requires_search_index =
       search !== "" || category_filter !== "" || (warning_filter !== "" && file_filter !== "");
-    if (
-      index_state["navigation_ready"] !== true ||
-      (requires_search_index && index_state["search_ready"] !== true)
-    ) {
-      this.rebuild_duplicate_index({ project_path });
+    if (index_state["navigation_ready"] !== true || index_state["search_ready"] !== true) {
+      const index_job = this.rebuild_duplicate_index({ project_path });
       const cached = this.display_file_summary_cache.get(project_path);
       return {
         total: 0,
+        sectionRevisions: section_revisions,
+        index_job,
         position,
         items: [],
         files: cached?.files ?? [],
@@ -661,7 +663,19 @@ export class FateExtraService {
             view_mode,
             navigation_generation: expected_navigation_generation,
           } as const);
-    return this.assemble_preview_items_page(body, page_record, verified_index_state, file_summary);
+    const current_revisions = build_section_revisions_from_meta(
+      this.read_record_operation("getAllMeta", project_path) as JsonRecord,
+    );
+    if (
+      current_revisions.items !== section_revisions.items ||
+      current_revisions.proofreading !== section_revisions.proofreading
+    ) {
+      this.throw_validation_error("FE 预览内容已更新，已丢弃旧查询。");
+    }
+    return {
+      ...this.assemble_preview_items_page(body, page_record, verified_index_state, file_summary),
+      sectionRevisions: current_revisions,
+    };
   }
 
   private assemble_preview_items_page(
@@ -838,6 +852,7 @@ export class FateExtraService {
           }
           // assert epoch/revision 与同步短事务之间没有 await；同路径 close/reopen
           // 事件无法插入并把旧 epoch 的 inactive generation 激活。
+          report_progress({ phase: "publishing", completed: 0, total: null });
           const activated = read_record(
             this.database.execute({
               name: "activateFateExtraPreviewSearchGeneration",
@@ -849,12 +864,20 @@ export class FateExtraService {
               },
             }),
           );
+          // 发布已提交；后续取消不能把 durable generation 报告为未提交。
+          await workers.index.run(
+            {
+              type: "fate_extra_preview_index_cleanup",
+              input: { projectPath: project_path },
+            },
+            new AbortController().signal,
+          );
           this.duplicate_index_ready.add(project_path);
-          return {
+          return new FateExtraCommittedJobOutcome({
             ...activated,
             built_generation,
             built_items_revision: items_revision,
-          } as unknown as ApiJsonValue;
+          } as unknown as ApiJsonValue);
         } catch (error) {
           try {
             await workers.index.run(
@@ -974,9 +997,30 @@ export class FateExtraService {
   }
 
   public async save_review(body: JsonRecord): Promise<JsonRecord> {
-    return await this.operation_gate.run_exclusive_project_write(
-      async () => await this.save_review_with_write_lease(body),
-    );
+    return await this.operation_gate.run_exclusive_project_write(async () => {
+      const result = await this.save_review_with_write_lease(body);
+      const project_path = this.require_loaded_project(body);
+      const row = this.database.execute({
+        name: "getFateExtraPreviewOccurrence",
+        args: {
+          projectPath: project_path,
+          occurrenceId: Number(body["occurrence_id"]),
+        },
+      });
+      const page = this.assemble_preview_items_page(
+        body,
+        { items: row === null ? [] : [row] },
+        {},
+        { files: [], file_counts: {}, total: 1 },
+      );
+      return {
+        ...result,
+        item: Array.isArray(page["items"]) ? (page["items"][0] ?? null) : null,
+        sectionRevisions: build_section_revisions_from_meta(
+          this.read_record_operation("getAllMeta", project_path) as JsonRecord,
+        ),
+      };
+    });
   }
 
   /** FE 校对读取、revision 校验与提交共享同一项目写租约。 */
@@ -1030,6 +1074,7 @@ export class FateExtraService {
         projectPath: project_path,
         expectedSectionRevisions: body["expected_section_revisions"],
         unitId: unit_id,
+        compact,
         itemId: item_id,
         occurrenceId: occurrence_id,
         proofreadTranslation: proofread_translation,

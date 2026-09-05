@@ -108,8 +108,9 @@ export async function run_worker_task<TTask extends BackendWorkerTask>(
         report_progress,
       )) as BackendWorkerTaskResult<TTask>;
     case "fate_extra_preview_index":
-      return run_fate_extra_preview_index_worker_task(task.input, (completed, total) =>
-        report_progress({ phase: "build-preview-index", completed, total }),
+      return run_fate_extra_preview_index_worker_task(
+        task.input,
+        report_progress,
       ) as BackendWorkerTaskResult<TTask>;
     case "fate_extra_preview_index_cleanup":
       return run_fate_extra_preview_index_cleanup_worker_task(

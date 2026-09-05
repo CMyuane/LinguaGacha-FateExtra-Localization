@@ -1,4 +1,5 @@
 import { DatabaseSync, type StatementSync } from "node:sqlite";
+import type { FateExtraIndexProgressReporter } from "../../shared/fate-extra/fate-extra-index-progress";
 
 import { JsonTool } from "../../shared/utils/json-tool";
 import { resolve_fate_extra_compact_machine_translation } from "../../shared/fate-extra/fate-extra-types";
@@ -30,9 +31,24 @@ const FATE_EXTRA_TEXT_UNIT_UNIT_COUNT_META_KEY = "fate_extra.text-unit-index.uni
 const FATE_EXTRA_TEXT_UNIT_FILE_COUNT_META_KEY = "fate_extra.text-unit-index.file-count";
 
 const SEARCH_BUILD_BATCH_SIZE = 5_000;
-const SEARCH_COMPACT_BUILD_BATCH_SIZE = 250;
+const SEARCH_COMPACT_BUILD_BATCH_SIZE = 1_000;
 const SEARCH_DOCUMENT_BATCH_SIZE = 1_000;
-const SEARCH_CLEANUP_BATCH_SIZE = 500;
+const SEARCH_CLEANUP_BATCH_SIZE = 5_000;
+const INDEX_CACHE_KIB = 64 * 1024;
+const OUTDATED_INDEX_TABLES = [
+  "fate_extra_preview_search_shared_mapping",
+  "fate_extra_preview_search_mapping",
+  "fate_extra_preview_search_file_summary",
+  "fate_extra_preview_search_short_gram",
+  "fate_extra_preview_search_item",
+  "fate_extra_preview_search_document",
+  "fate_extra_preview_search_generation",
+  "fate_extra_preview_navigation_unit_file",
+  "fate_extra_preview_navigation_file_summary",
+  "fate_extra_preview_navigation_occurrence",
+  "fate_extra_preview_navigation_unit",
+  "fate_extra_preview_navigation_generation",
+] as const;
 
 type DatabaseRow = Record<string, unknown>;
 
@@ -233,22 +249,34 @@ function rebuild_fate_extra_text_unit_index(db: DatabaseSync, items_revision: nu
 export function run_fate_extra_index_maintenance(
   project_path: string,
   expected_items_revision: number,
-  report_progress: (completed: number, total: number) => void = () => undefined,
+  report_progress: FateExtraIndexProgressReporter = () => undefined,
 ): FateExtraInactiveIndexBuild {
   const db = new DatabaseSync(project_path);
   let generation: number | null = null;
   try {
-    db.exec("PRAGMA busy_timeout=5000");
-    db.function("fate_extra_preview_casefold", { deterministic: true }, (value: unknown) =>
-      normalize_fate_extra_preview_search_text(
-        typeof value === "string" ? value : String(value ?? ""),
-      ),
+    // 派生批次沿用工程 WAL/NORMAL 提交策略；独立连接限制页缓存，避免默认小缓存反复读写索引页。
+    db.exec(
+      `PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-${INDEX_CACHE_KIB}`,
     );
+    const normalization_cache = new Map<string, string>();
+    db.function("fate_extra_preview_casefold", { deterministic: true }, (value: unknown) => {
+      const text = typeof value === "string" ? value : String(value ?? "");
+      const cached = normalization_cache.get(text);
+      if (cached !== undefined) return cached;
+      const normalized = normalize_fate_extra_preview_search_text(text);
+      if (normalization_cache.size >= SEARCH_BUILD_BATCH_SIZE) normalization_cache.clear();
+      normalization_cache.set(text, normalized);
+      return normalized;
+    });
+    report_progress({ phase: "checking", completed: 0, total: null });
     const identity = read_index_source_identity(db, expected_items_revision);
     const reserved_generation = next_search_generation(db);
+    report_progress({ phase: "cleanup", completed: 0, total: null });
+    cleanup_outdated_preview_index(db, identity, report_progress);
     cleanup_inactive_search_generations(db);
     cleanup_inactive_fate_extra_preview_navigation_generations(db);
 
+    report_progress({ phase: "text-units", completed: 0, total: identity.item_count });
     // 文本单元仍是现有公开接口的派生事实。它保留一次有界的集合 SQL 事务，
     // 但不再把后续逐页搜索 generation 构建包含在同一个写租约内。
     run_immediate_transaction(db, () => {
@@ -257,6 +285,12 @@ export function run_fate_extra_index_maintenance(
       assert_index_source_identity(db, identity);
     });
 
+    report_progress({
+      phase: "text-units",
+      completed: identity.item_count,
+      total: identity.item_count,
+    });
+    report_progress({ phase: "navigation", completed: 0, total: null });
     generation = create_inactive_search_generation(db, identity, reserved_generation);
     run_immediate_transaction(db, () => {
       assert_index_source_identity(db, identity);
@@ -266,10 +300,12 @@ export function run_fate_extra_index_maintenance(
         items_revision: identity.items_revision,
         item_count: identity.item_count,
         compact: identity.compact_enabled,
+        report_progress,
       });
       assert_index_source_identity(db, identity);
     });
     build_inactive_search_generation(db, generation, identity, report_progress);
+    report_progress({ phase: "publishing", completed: 0, total: null });
     const counts = complete_inactive_search_generation(db, generation, identity);
     return {
       generation,
@@ -302,10 +338,24 @@ export function cleanup_fate_extra_inactive_preview_search_generations(
 ): number {
   const db = new DatabaseSync(project_path);
   try {
-    db.exec("PRAGMA busy_timeout=5000");
+    // 派生批次沿用工程 WAL/NORMAL 提交策略；独立连接限制页缓存，避免默认小缓存反复读写索引页。
+    db.exec(
+      `PRAGMA busy_timeout=5000; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-${INDEX_CACHE_KIB}`,
+    );
+    let outdated_generation_count = 0;
+    if (
+      read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY) !==
+      FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION
+    ) {
+      const identity = read_index_source_identity(
+        db,
+        read_json_number_meta(db, "project_runtime_revision.items"),
+      );
+      outdated_generation_count = cleanup_outdated_preview_index(db, identity, () => undefined);
+    }
     const search_generations = cleanup_inactive_search_generations(db);
     const navigation_generations = cleanup_inactive_fate_extra_preview_navigation_generations(db);
-    return Math.max(search_generations, navigation_generations);
+    return outdated_generation_count + Math.max(search_generations, navigation_generations);
   } finally {
     db.close();
   }
@@ -338,8 +388,7 @@ function assert_index_source_identity(
   if (
     read_json_number_meta(db, "project_runtime_revision.items") !== expected.items_revision ||
     read_meta_text(db, "fate_extra.adapter.v1") !== expected.adapter_value ||
-    read_meta_text(db, "fate_extra.compact.v1") !== expected.compact_value ||
-    scalar_count(db, "SELECT COUNT(*) AS count FROM items") !== expected.item_count
+    read_meta_text(db, "fate_extra.compact.v1") !== expected.compact_value
   ) {
     throw new Error("fate_extra_preview_index_identity_changed");
   }
@@ -374,8 +423,11 @@ function create_inactive_search_generation(
 }
 
 function next_search_generation(db: DatabaseSync): number {
+  // 升级清理可先删除 generation 表；持久化的已发布身份仍须阻止重用，拒绝迟到的旧查询。
   return Math.max(
     1,
+    read_json_number_meta(db, FATE_EXTRA_PREVIEW_SEARCH_GENERATION_META_KEY) + 1,
+    read_json_number_meta(db, FATE_EXTRA_PREVIEW_NAVIGATION_GENERATION_META_KEY) + 1,
     row_number(
       db
         .prepare(
@@ -391,15 +443,26 @@ function build_inactive_search_generation(
   db: DatabaseSync,
   generation: number,
   identity: FateExtraIndexSourceIdentity,
-  report_progress: (completed: number, total: number) => void,
+  report_progress: FateExtraIndexProgressReporter,
 ): void {
   const compact_project = identity.compact_enabled;
   const item_batch_size = compact_project
     ? SEARCH_COMPACT_BUILD_BATCH_SIZE
     : SEARCH_BUILD_BATCH_SIZE;
+  const physical_count = compact_project
+    ? row_number(
+        db
+          .prepare(
+            "SELECT occurrence_count FROM fate_extra_preview_navigation_generation WHERE generation = ?",
+          )
+          .get(generation) ?? {},
+        "occurrence_count",
+      )
+    : 0;
+  const mapping_total = identity.item_count + physical_count;
   let after_item_id = 0;
   let completed_items = 0;
-  report_progress(0, identity.item_count);
+  report_progress({ phase: "search-mappings", completed: 0, total: mapping_total });
   while (true) {
     const batch = run_immediate_transaction(db, () => {
       assert_index_source_identity(db, identity);
@@ -416,7 +479,6 @@ function build_inactive_search_generation(
       );
       if (last_item_id <= after_item_id) return { count: 0, last_item_id };
       build_search_item_batch(db, generation, after_item_id, last_item_id, compact_project);
-      update_search_document_summary_batch(db, generation, after_item_id, last_item_id);
       const count = row_number(
         db
           .prepare("SELECT COUNT(*) AS count FROM items WHERE id > ? AND id <= ?")
@@ -429,10 +491,26 @@ function build_inactive_search_generation(
     if (batch.last_item_id <= after_item_id) break;
     after_item_id = batch.last_item_id;
     completed_items += batch.count;
-    report_progress(completed_items, identity.item_count);
+    report_progress({ phase: "search-mappings", completed: completed_items, total: mapping_total });
   }
 
+  if (compact_project)
+    build_compact_physical_search_mappings(
+      db,
+      generation,
+      identity,
+      report_progress,
+      mapping_total,
+    );
+
+  const document_total = count_generation_rows(
+    db,
+    "fate_extra_preview_search_document",
+    generation,
+  );
+  let completed_documents = 0;
   let after_document_id = 0;
+  report_progress({ phase: "search-documents", completed: 0, total: document_total });
   while (true) {
     const last_document_id = run_immediate_transaction(db, () => {
       assert_index_source_identity(db, identity);
@@ -452,15 +530,24 @@ function build_inactive_search_generation(
         "document_id",
       );
       if (next_document_id > after_document_id) {
-        build_search_document_batch(db, generation, after_document_id, next_document_id);
+        completed_documents += build_search_document_batch(
+          db,
+          generation,
+          after_document_id,
+          next_document_id,
+        );
       }
       assert_index_source_identity(db, identity);
       return next_document_id;
     });
     if (last_document_id <= after_document_id) break;
     after_document_id = last_document_id;
+    report_progress({
+      phase: "search-documents",
+      completed: completed_documents,
+      total: document_total,
+    });
   }
-  report_progress(identity.item_count, identity.item_count);
 }
 
 function complete_inactive_search_generation(
@@ -742,9 +829,12 @@ export function advance_fate_extra_preview_index_revision(
 /**
  * 只改译文或校对稿时刷新 active generation；结构写入口不调用本函数，revision 不匹配会可靠标 dirty。
  */
+export type FateExtraSearchTextField = "src" | "dst" | "proofread";
+
 export function refresh_fate_extra_preview_search_documents(
   db: DatabaseSync,
   item_ids: readonly number[],
+  changed_fields?: readonly FateExtraSearchTextField[],
 ): boolean {
   const normalized_ids = [
     ...new Set(
@@ -763,7 +853,7 @@ export function refresh_fate_extra_preview_search_documents(
   const generation = read_json_number_meta(db, FATE_EXTRA_PREVIEW_SEARCH_GENERATION_META_KEY);
   const active_row = db
     .prepare(
-      `SELECT adapter_value, items_revision, complete, item_count
+      `SELECT adapter_value, items_revision, complete, item_count, document_count, short_gram_count
        FROM fate_extra_preview_search_generation
        WHERE generation = ?`,
     )
@@ -789,77 +879,64 @@ export function refresh_fate_extra_preview_search_documents(
     return false;
   }
 
+  const fields = changed_fields ?? ["src", "dst", "proofread"];
+  const compact = read_compact_enabled(db);
   const read_item = db.prepare(`
     SELECT item.data, COALESCE(occurrence.unit_id, 0) AS unit_id
-    FROM items AS item
-    LEFT JOIN fate_extra_text_occurrence AS occurrence ON occurrence.item_id = item.id
+    FROM items AS item LEFT JOIN fate_extra_text_occurrence AS occurrence ON occurrence.item_id = item.id
     WHERE item.id = ?
   `);
-  const delete_text_mappings = db.prepare(
-    "DELETE FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ? AND field IN ('src', 'dst', 'proofread')",
-  );
-  const delete_all_mappings = db.prepare(
-    "DELETE FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ?",
-  );
-  const read_old_text_documents = db.prepare(
-    "SELECT DISTINCT document_id FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ? AND field IN ('src', 'dst', 'proofread')",
-  );
-  const read_old_documents = db.prepare(
-    "SELECT DISTINCT document_id FROM fate_extra_preview_search_mapping WHERE generation = ? AND item_id = ?",
-  );
   const navigation_contains_item = db.prepare(`
-    SELECT 1
-    FROM fate_extra_preview_navigation_occurrence
-    WHERE generation = ? AND item_id = ?
-    LIMIT 1
+    SELECT 1 FROM fate_extra_preview_navigation_occurrence
+    WHERE generation = ? AND item_id = ? LIMIT 1
   `);
   const update_item = db.prepare(`
-    UPDATE fate_extra_preview_search_item
-    SET unit_id = ?, category = ?
+    UPDATE fate_extra_preview_search_item SET unit_id = ?, category = ?
     WHERE generation = ? AND item_id = ?
   `);
   const insert_mapping = db.prepare(`
-    INSERT OR IGNORE INTO fate_extra_preview_search_mapping (
-      generation, item_id, occurrence_id, field, document_id
-    ) VALUES (?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO fate_extra_preview_search_mapping
+      (generation, item_id, occurrence_id, field, document_id) VALUES (?, ?, ?, ?, ?)
+  `);
+  const insert_shared = db.prepare(`
+    INSERT OR REPLACE INTO fate_extra_preview_search_shared_mapping
+      (generation, item_id, field, document_id) VALUES (?, ?, ?, ?)
+  `);
+  const read_source = db.prepare(`
+    SELECT source, source_hash, representative_translation_authoritative
+    FROM fate_extra_compact_source WHERE compact_item_id = ?
+  `);
+  const read_occurrences = db.prepare(`
+    SELECT original_item_id, original_machine_translation FROM fate_extra_compact_occurrence
+    WHERE source_hash = ? AND original_item_id > ? ORDER BY original_item_id LIMIT ?
   `);
   const document_statements = prepare_document_statements(db);
   const affected_document_ids = new Set<number>();
   let navigation_membership_changed = false;
-  const read_compact_occurrences = !read_compact_enabled(db)
-    ? null
-    : db.prepare(`
-          SELECT
-            occurrence.original_item_id,
-            occurrence.original_machine_translation,
-            source.source,
-            source.representative_translation_authoritative
-          FROM fate_extra_compact_source AS source
-          JOIN fate_extra_compact_occurrence AS occurrence
-            ON occurrence.source_hash = source.source_hash
-          WHERE source.compact_item_id = ?
-          ORDER BY occurrence.original_item_id
-        `);
   for (const item_id of normalized_ids) {
     const row = read_item.get(item_id);
     if (row === undefined) return false;
     const item = parse_item(row["data"]);
     const metadata = item_metadata(item);
     const excluded = item_text(item, "status") === "EXCLUDED";
-    const navigation_includes_item =
-      navigation_contains_item.get(generation, item_id) !== undefined;
-    const membership_changed = navigation_includes_item === excluded;
+    const membership_changed =
+      (navigation_contains_item.get(generation, item_id) !== undefined) === excluded;
     navigation_membership_changed ||= membership_changed;
-    const old_documents = excluded
-      ? read_old_documents.all(generation, item_id)
-      : read_old_text_documents.all(generation, item_id);
-    for (const document of old_documents) {
-      affected_document_ids.add(row_number(document, "document_id"));
-    }
-    if (excluded) {
-      delete_all_mappings.run(generation, item_id);
-    } else {
-      delete_text_mappings.run(generation, item_id);
+    for (const table of [
+      "fate_extra_preview_search_mapping",
+      "fate_extra_preview_search_shared_mapping",
+    ]) {
+      const condition = excluded ? "" : ` AND field IN (${fields.map(() => "?").join(",")})`;
+      const parameters = excluded ? [generation, item_id] : [generation, item_id, ...fields];
+      const old_documents = db
+        .prepare(`SELECT DISTINCT document_id FROM ${table}
+        WHERE generation = ? AND item_id = ?${condition}`)
+        .all(...parameters);
+      for (const document of old_documents)
+        affected_document_ids.add(row_number(document, "document_id"));
+      db.prepare(`DELETE FROM ${table} WHERE generation = ? AND item_id = ?${condition}`).run(
+        ...parameters,
+      );
     }
     update_item.run(
       row_number(row, "unit_id"),
@@ -868,94 +945,95 @@ export function refresh_fate_extra_preview_search_documents(
       item_id,
     );
     if (excluded || membership_changed) continue;
-    const compact_occurrences = read_compact_occurrences?.all(item_id) ?? [];
-    if (compact_occurrences.length === 0) {
-      for (const [field, text] of read_search_fields(item, metadata).filter(
-        ([field]) => field !== "file",
-      )) {
-        const document_id = ensure_document(generation, field, text, document_statements);
+    const source = compact ? read_source.get(item_id) : undefined;
+    for (const [field, text] of read_search_fields(item, metadata)) {
+      if (field === "file" || !fields.includes(field)) continue;
+      if (
+        source !== undefined &&
+        field === "dst" &&
+        row_number(source, "representative_translation_authoritative") !== 1
+      ) {
+        let after_id = 0;
+        while (true) {
+          const occurrences = read_occurrences.all(
+            row_text(source, "source_hash"),
+            after_id,
+            SEARCH_BUILD_BATCH_SIZE,
+          );
+          if (occurrences.length === 0) break;
+          for (const occurrence of occurrences) {
+            const value = resolve_fate_extra_compact_machine_translation({
+              representativeTranslation: text,
+              originalMachineTranslation: row_text(occurrence, "original_machine_translation"),
+              representativeTranslationAuthoritative: false,
+            });
+            const document_id = ensure_document(generation, field, value, document_statements);
+            affected_document_ids.add(document_id);
+            insert_mapping.run(
+              generation,
+              item_id,
+              row_number(occurrence, "original_item_id"),
+              field,
+              document_id,
+            );
+          }
+          after_id = row_number(occurrences[occurrences.length - 1]!, "original_item_id");
+        }
+      } else {
+        const document_id = ensure_document(
+          generation,
+          field,
+          source !== undefined && field === "src" ? row_text(source, "source") : text,
+          document_statements,
+        );
         affected_document_ids.add(document_id);
-        insert_mapping.run(generation, item_id, item_id, field, document_id);
-      }
-      continue;
-    }
-    for (const occurrence of compact_occurrences) {
-      const occurrence_id = row_number(occurrence, "original_item_id");
-      const machine_translation = resolve_fate_extra_compact_machine_translation({
-        representativeTranslation: item_text(item, "dst"),
-        originalMachineTranslation: row_text(occurrence, "original_machine_translation"),
-        representativeTranslationAuthoritative:
-          row_number(occurrence, "representative_translation_authoritative") === 1,
-      });
-      for (const [field, text] of [
-        ["src", row_text(occurrence, "source")],
-        ["dst", machine_translation],
-        ["proofread", item_text(metadata, "proofread_translation")],
-      ] as const) {
-        const document_id = ensure_document(generation, field, text, document_statements);
-        affected_document_ids.add(document_id);
-        insert_mapping.run(generation, item_id, occurrence_id, field, document_id);
+        if (source !== undefined) insert_shared.run(generation, item_id, field, document_id);
+        else insert_mapping.run(generation, item_id, item_id, field, document_id);
       }
     }
   }
-  const document_is_used = db.prepare(
-    "SELECT 1 FROM fate_extra_preview_search_mapping WHERE generation = ? AND document_id = ? LIMIT 1",
-  );
-  const delete_grams = db.prepare(
-    "DELETE FROM fate_extra_preview_search_short_gram WHERE generation = ? AND document_id = ?",
-  );
+  const document_is_used = db.prepare(`
+    SELECT 1 FROM fate_extra_preview_search_shared_mapping WHERE generation = ? AND document_id = ?
+    UNION ALL
+    SELECT 1 FROM fate_extra_preview_search_mapping WHERE generation = ? AND document_id = ? LIMIT 1
+  `);
+  const read_document = db.prepare(`
+    SELECT field, search_text FROM fate_extra_preview_search_document WHERE generation = ? AND document_id = ?
+  `);
+  const delete_gram = db.prepare(`
+    DELETE FROM fate_extra_preview_search_short_gram WHERE generation = ? AND gram = ? AND document_id = ?
+  `);
   const delete_document = db.prepare(
     "DELETE FROM fate_extra_preview_search_document WHERE generation = ? AND document_id = ?",
   );
-  const delete_document_summary = db.prepare(
-    "DELETE FROM fate_extra_preview_search_file_summary WHERE generation = ? AND document_id = ?",
+  const delete_fts = db.prepare(
+    `INSERT INTO fate_extra_preview_search_fts(fate_extra_preview_search_fts, rowid, search_text) VALUES ('delete', ?, ?)`,
   );
-  const upsert_document_summary = db.prepare(`
-    INSERT INTO fate_extra_preview_search_file_summary (
-      generation, document_id, occurrence_count, first_item_id
-    )
-    SELECT generation, document_id, COUNT(*), MIN(item_id)
-    FROM fate_extra_preview_search_mapping
-    WHERE generation = ? AND document_id = ?
-    GROUP BY generation, document_id
-    ON CONFLICT(generation, document_id) DO UPDATE SET
-      occurrence_count = excluded.occurrence_count,
-      first_item_id = excluded.first_item_id
-  `);
-  const read_document = db.prepare(`
-    SELECT field, search_text
-    FROM fate_extra_preview_search_document
-    WHERE generation = ? AND document_id = ?
-  `);
-  const delete_fts = db.prepare(`
-    INSERT INTO fate_extra_preview_search_fts(
-      fate_extra_preview_search_fts, rowid, search_text
-    ) VALUES ('delete', ?, ?)
-  `);
+  let removed_documents = 0;
+  let removed_grams = 0;
   for (const document_id of affected_document_ids) {
-    if (document_is_used.get(generation, document_id) !== undefined) {
-      upsert_document_summary.run(generation, document_id);
+    if (document_is_used.get(generation, document_id, generation, document_id) !== undefined)
       continue;
-    }
-    delete_document_summary.run(generation, document_id);
     const document = read_document.get(generation, document_id);
-    delete_grams.run(generation, document_id);
-    if (document !== undefined && row_text(document, "field") !== "file-exact") {
-      delete_fts.run(document_id, row_text(document, "search_text"));
+    if (document === undefined) continue;
+    if (row_text(document, "field") !== "file-exact") {
+      const text = row_text(document, "search_text");
+      for (const gram of search_document_grams(text)) {
+        removed_grams += Number(delete_gram.run(generation, gram, document_id).changes);
+      }
+      delete_fts.run(document_id, text);
     }
-    delete_document.run(generation, document_id);
+    removed_documents += Number(delete_document.run(generation, document_id).changes);
   }
   if (navigation_membership_changed) return false;
-  const document_count = count_generation_rows(
-    db,
-    "fate_extra_preview_search_document",
-    generation,
-  );
-  const short_gram_count = count_generation_rows(
-    db,
-    "fate_extra_preview_search_short_gram",
-    generation,
-  );
+  const document_count =
+    row_number(active_row ?? {}, "document_count") +
+    document_statements.inserted_documents -
+    removed_documents;
+  const short_gram_count =
+    row_number(active_row ?? {}, "short_gram_count") +
+    document_statements.inserted_grams -
+    removed_grams;
   if (
     !advance_fate_extra_preview_navigation_revision(
       db,
@@ -1037,49 +1115,25 @@ function build_search_item_batch(
     `).run(generation, field, generation, field, after_item_id, last_item_id);
   }
 
-  // 精简项目同一可编辑 item 可映射多条物理路径；路径仍以独立文档和整数映射保存。
   if (compact_project) {
-    const compact_field_sql = [
-      ["src", "source.source"],
-      [
-        "dst",
-        "CASE WHEN source.representative_translation_authoritative = 1 THEN COALESCE(json_extract(item.data, '$.dst'), '') WHEN occurrence.original_machine_translation <> '' THEN occurrence.original_machine_translation ELSE COALESCE(json_extract(item.data, '$.dst'), '') END",
-      ],
-      [
-        "proofread",
-        "COALESCE(json_extract(item.data, '$.extra_field.__linguagacha_fe_v1.proofread_translation'), '')",
-      ],
-      ["file", "occurrence.file_path"],
-    ] as const;
-    for (const [field, value_sql] of compact_field_sql) {
-      db.prepare(`
-        INSERT OR IGNORE INTO fate_extra_preview_search_document (
-          generation, field, search_text
-        )
-        SELECT ?, ?, fate_extra_preview_casefold(${value_sql})
-        FROM fate_extra_compact_occurrence AS occurrence
-        JOIN fate_extra_compact_source AS source ON source.source_hash = occurrence.source_hash
-        JOIN items AS item ON item.id = source.compact_item_id
-        WHERE source.compact_item_id > ? AND source.compact_item_id <= ?
-          AND source.excluded_reason = ''
+    for (const [field, item_value_sql] of field_sql.filter(([field]) => field !== "file")) {
+      const value_sql = field === "src" ? "source.source" : item_value_sql;
+      const source = `FROM items AS item
+        JOIN fate_extra_compact_source AS source ON source.compact_item_id = item.id
+        WHERE item.id > ? AND item.id <= ? AND source.excluded_reason = ''
           AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
+          ${field === "dst" ? "AND source.representative_translation_authoritative = 1" : ""}`;
+      db.prepare(`
+        INSERT OR IGNORE INTO fate_extra_preview_search_document (generation, field, search_text)
+        SELECT ?, ?, fate_extra_preview_casefold(${value_sql}) ${source}
         GROUP BY fate_extra_preview_casefold(${value_sql})
       `).run(generation, field, after_item_id, last_item_id);
       db.prepare(`
-        INSERT OR IGNORE INTO fate_extra_preview_search_mapping (
-          generation, item_id, occurrence_id, field, document_id
-        )
-        SELECT
-          ?, source.compact_item_id, occurrence.original_item_id, ?, document.document_id
-        FROM fate_extra_compact_occurrence AS occurrence
-        JOIN fate_extra_compact_source AS source ON source.source_hash = occurrence.source_hash
-        JOIN items AS item ON item.id = source.compact_item_id
-        JOIN fate_extra_preview_search_document AS document
-          ON document.generation = ? AND document.field = ?
-          AND document.search_text = fate_extra_preview_casefold(${value_sql})
-        WHERE source.compact_item_id > ? AND source.compact_item_id <= ?
-          AND source.excluded_reason = ''
-          AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
+        INSERT INTO fate_extra_preview_search_shared_mapping (generation, item_id, field, document_id)
+        SELECT ?, item.id, ?, (
+          SELECT document_id FROM fate_extra_preview_search_document
+          WHERE generation = ? AND field = ? AND search_text = fate_extra_preview_casefold(${value_sql})
+        ) ${source}
       `).run(generation, field, generation, field, after_item_id, last_item_id);
     }
     return;
@@ -1107,31 +1161,74 @@ function build_search_item_batch(
   `).run(generation, generation, after_item_id, last_item_id);
 }
 
-/** 历史表名保留 file_summary；schema 7 中它缓存每个去重搜索文档的物理映射计数。 */
-function update_search_document_summary_batch(
+function build_compact_physical_search_mappings(
   db: DatabaseSync,
   generation: number,
-  after_item_id: number,
-  last_item_id: number,
+  identity: FateExtraIndexSourceIdentity,
+  report_progress: FateExtraIndexProgressReporter,
+  total: number,
 ): void {
-  db.prepare(`
-    INSERT INTO fate_extra_preview_search_file_summary (
-      generation, document_id, occurrence_count, first_item_id
+  db.exec(`CREATE TEMP TABLE IF NOT EXISTS preview_mapping_batch (
+    item_id INTEGER, occurrence_id INTEGER, field TEXT, search_text TEXT
+  )`);
+  const read_last = db.prepare(`
+    SELECT MAX(occurrence_id) AS id FROM (
+      SELECT occurrence_id FROM fate_extra_preview_navigation_occurrence
+      WHERE generation = ? AND occurrence_id > ? ORDER BY occurrence_id LIMIT ?
     )
-    SELECT mapping.generation, mapping.document_id, COUNT(*), MIN(mapping.item_id)
-    FROM fate_extra_preview_search_mapping AS mapping
-    WHERE mapping.generation = ?
-      AND mapping.item_id > ?
-      AND mapping.item_id <= ?
-    GROUP BY mapping.generation, mapping.document_id
-    ON CONFLICT(generation, document_id) DO UPDATE SET
-      occurrence_count =
-        fate_extra_preview_search_file_summary.occurrence_count + excluded.occurrence_count,
-      first_item_id = MIN(
-        fate_extra_preview_search_file_summary.first_item_id,
-        excluded.first_item_id
-      )
-  `).run(generation, after_item_id, last_item_id);
+  `);
+  const fill_batch = db.prepare(`
+    INSERT INTO preview_mapping_batch
+    SELECT navigation.item_id, occurrence.original_item_id, 'file', fate_extra_preview_casefold(occurrence.file_path)
+    FROM fate_extra_preview_navigation_occurrence AS navigation
+    JOIN fate_extra_compact_occurrence AS occurrence ON occurrence.original_item_id = navigation.occurrence_id
+    WHERE navigation.generation = ? AND navigation.occurrence_id > ? AND navigation.occurrence_id <= ?
+    UNION ALL
+    SELECT navigation.item_id, occurrence.original_item_id, 'dst', fate_extra_preview_casefold(
+      CASE WHEN occurrence.original_machine_translation <> '' THEN occurrence.original_machine_translation
+        ELSE COALESCE(json_extract(item.data, '$.dst'), '') END)
+    FROM fate_extra_preview_navigation_occurrence AS navigation
+    JOIN fate_extra_compact_occurrence AS occurrence ON occurrence.original_item_id = navigation.occurrence_id
+    JOIN fate_extra_compact_source AS source ON source.source_hash = occurrence.source_hash
+    JOIN items AS item ON item.id = navigation.item_id
+    WHERE navigation.generation = ? AND navigation.occurrence_id > ? AND navigation.occurrence_id <= ?
+      AND source.representative_translation_authoritative <> 1
+  `);
+  const insert_documents = db.prepare(`
+    INSERT OR IGNORE INTO fate_extra_preview_search_document(generation, field, search_text)
+    SELECT ?, field, search_text FROM preview_mapping_batch GROUP BY field, search_text
+  `);
+  const insert_mappings = db.prepare(`
+    INSERT INTO fate_extra_preview_search_mapping(generation, item_id, occurrence_id, field, document_id)
+    SELECT ?, batch.item_id, batch.occurrence_id, batch.field, document.document_id
+    FROM preview_mapping_batch AS batch
+    JOIN fate_extra_preview_search_document AS document
+      ON document.generation = ? AND document.field = batch.field AND document.search_text = batch.search_text
+  `);
+  const read_count = db.prepare(
+    "SELECT COUNT(*) AS count FROM preview_mapping_batch WHERE field = 'file'",
+  );
+  let after_id = 0;
+  let completed = identity.item_count;
+  while (true) {
+    const last_id = row_number(
+      read_last.get(generation, after_id, SEARCH_BUILD_BATCH_SIZE) ?? {},
+      "id",
+    );
+    if (last_id <= after_id) break;
+    run_immediate_transaction(db, () => {
+      assert_index_source_identity(db, identity);
+      db.exec("DELETE FROM preview_mapping_batch");
+      fill_batch.run(generation, after_id, last_id, generation, after_id, last_id);
+      insert_documents.run(generation);
+      insert_mappings.run(generation, generation);
+      completed += row_number(read_count.get() ?? {}, "count");
+      assert_index_source_identity(db, identity);
+    });
+    after_id = last_id;
+    report_progress({ phase: "search-mappings", completed, total });
+  }
+  db.exec("DROP TABLE preview_mapping_batch");
 }
 
 function build_search_document_batch(
@@ -1139,42 +1236,57 @@ function build_search_document_batch(
   generation: number,
   after_document_id: number,
   last_document_id: number,
-): void {
-  db.prepare(`
-    WITH RECURSIVE short_gram_source(
-      document_id, search_text, position, text_length
-    ) AS (
-      SELECT document_id, search_text, 1, LENGTH(search_text)
-      FROM fate_extra_preview_search_document
-      WHERE generation = ?
-        AND document_id > ?
-        AND document_id <= ?
-        AND field <> 'file-exact'
-        AND search_text <> ''
-      UNION ALL
-      SELECT document_id, search_text, position + 1, text_length
-      FROM short_gram_source
-      WHERE position < text_length
-    )
-    INSERT OR IGNORE INTO fate_extra_preview_search_short_gram (
-      generation, gram, document_id
-    )
-    SELECT ?, SUBSTR(search_text, position, 1), document_id
-    FROM short_gram_source
-    UNION ALL
-    SELECT ?, SUBSTR(search_text, position, 2), document_id
-    FROM short_gram_source
-    WHERE position < text_length
-  `).run(generation, after_document_id, last_document_id, generation, generation);
-  db.prepare(`
-    INSERT INTO fate_extra_preview_search_fts(rowid, search_text)
-    SELECT document_id, search_text
-    FROM fate_extra_preview_search_document
-    WHERE generation = ?
-      AND document_id > ?
-      AND document_id <= ?
-      AND field <> 'file-exact'
-  `).run(generation, after_document_id, last_document_id);
+): number {
+  const documents = db
+    .prepare(`
+    SELECT document_id, field, search_text FROM fate_extra_preview_search_document
+    WHERE generation = ? AND document_id > ? AND document_id <= ? ORDER BY document_id
+  `)
+    .all(generation, after_document_id, last_document_id);
+  const statements = prepare_document_statements(db);
+  for (const document of documents) {
+    if (row_text(document, "field") === "file-exact") continue;
+    const document_id = row_number(document, "document_id");
+    const search_text = row_text(document, "search_text");
+    insert_search_document_grams(generation, document_id, search_text, statements.insert_gram);
+    statements.insert_fts.run(document_id, search_text);
+  }
+  return documents.length;
+}
+
+function cleanup_outdated_preview_index(
+  db: DatabaseSync,
+  identity: FateExtraIndexSourceIdentity,
+  report_progress: FateExtraIndexProgressReporter,
+): number {
+  if (
+    read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY) ===
+    FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION
+  )
+    return 0;
+  const generation_count = Math.max(
+    scalar_count(db, "SELECT COUNT(*) AS count FROM fate_extra_preview_search_generation"),
+    scalar_count(db, "SELECT COUNT(*) AS count FROM fate_extra_preview_navigation_generation"),
+  );
+  // 旧格式已被查询拒绝，可逐表使用 SQLite truncate 清空所有派生页，避免逐行维护百万映射的二级索引。
+  // format 保持旧值直到最终发布；取消或崩溃后重试可从任意已清空表继续，不能将半成品认证为 ready。
+  const steps = [
+    "INSERT INTO fate_extra_preview_search_fts(fate_extra_preview_search_fts) VALUES ('delete-all')",
+    ...OUTDATED_INDEX_TABLES.map((table) => `DELETE FROM ${table}`),
+  ];
+  for (const [index, sql] of steps.entries()) {
+    run_immediate_transaction(db, () => {
+      assert_index_source_identity(db, identity);
+      if (
+        read_json_number_meta(db, FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY) ===
+        FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION
+      )
+        throw new Error("fate_extra_preview_index_identity_changed");
+      db.exec(sql);
+    });
+    report_progress({ phase: "cleanup", completed: index + 1, total: steps.length });
+  }
+  return generation_count;
 }
 
 function cleanup_inactive_search_generations(db: DatabaseSync): number {
@@ -1198,6 +1310,21 @@ function cleanup_inactive_search_generations(db: DatabaseSync): number {
 function cleanup_search_generation(db: DatabaseSync, generation: number): void {
   if (generation <= 0 || is_active_search_generation(db, generation)) return;
 
+  while (
+    delete_generation_batch(
+      db,
+      generation,
+      `
+    DELETE FROM fate_extra_preview_search_shared_mapping
+    WHERE (generation, item_id, field) IN (
+      SELECT generation, item_id, field FROM fate_extra_preview_search_shared_mapping
+      WHERE generation = ? ORDER BY item_id, field LIMIT ?
+    )
+  `,
+    ) > 0
+  ) {
+    // 每批独立提交，终止后可继续清理。
+  }
   while (
     delete_generation_batch(
       db,
@@ -1344,10 +1471,14 @@ type DocumentStatements = {
   find: StatementSync;
   insert_gram: StatementSync;
   insert_fts: StatementSync;
+  inserted_documents: number;
+  inserted_grams: number;
 };
 
 function prepare_document_statements(db: DatabaseSync): DocumentStatements {
   return {
+    inserted_documents: 0,
+    inserted_grams: 0,
     insert: db.prepare(`
       INSERT OR IGNORE INTO fate_extra_preview_search_document (
         generation, field, search_text
@@ -1379,16 +1510,34 @@ function ensure_document(
   const search_text = normalize ? normalize_fate_extra_preview_search_text(value) : value;
   const existing = statements.find.get(generation, field, search_text);
   if (existing !== undefined) return row_number(existing, "document_id");
-  statements.insert.run(generation, field, search_text);
+  statements.inserted_documents += Number(
+    statements.insert.run(generation, field, search_text).changes,
+  );
   const document_id = row_number(
     statements.find.get(generation, field, search_text) ?? {},
     "document_id",
   );
   if (field !== "file-exact") {
-    insert_search_document_grams(generation, document_id, search_text, statements.insert_gram);
+    statements.inserted_grams += insert_search_document_grams(
+      generation,
+      document_id,
+      search_text,
+      statements.insert_gram,
+    );
     statements.insert_fts.run(document_id, search_text);
   }
   return document_id;
+}
+
+function search_document_grams(search_text: string): Set<string> {
+  const code_points = Array.from(search_text);
+  const grams = new Set<string>();
+  for (let index = 0; index < code_points.length; index += 1) {
+    grams.add(code_points[index]!);
+    if (index + 1 < code_points.length)
+      grams.add(`${code_points[index]!}${code_points[index + 1]!}`);
+  }
+  return grams;
 }
 
 function insert_search_document_grams(
@@ -1396,14 +1545,12 @@ function insert_search_document_grams(
   document_id: number,
   search_text: string,
   statement: StatementSync,
-): void {
-  const code_points = Array.from(search_text);
-  for (let index = 0; index < code_points.length; index += 1) {
-    statement.run(generation, code_points[index]!, document_id);
-    if (index + 1 < code_points.length) {
-      statement.run(generation, `${code_points[index]!}${code_points[index + 1]!}`, document_id);
-    }
+): number {
+  let count = 0;
+  for (const gram of search_document_grams(search_text)) {
+    count += Number(statement.run(generation, gram, document_id).changes);
   }
+  return count;
 }
 
 function write_identity_meta(

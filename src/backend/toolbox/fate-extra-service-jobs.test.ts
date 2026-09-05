@@ -653,11 +653,49 @@ describe("FateExtraService 后台任务", () => {
       scope: "items-full",
     });
 
-    await vi.waitFor(() => expect(fixture.index_run).toHaveBeenCalledOnce());
+    await vi.waitFor(() => expect(fixture.index_run).toHaveBeenCalledTimes(2));
     expect(fixture.index_run.mock.calls[0]?.[0]).toMatchObject({
       type: "fate_extra_preview_index",
       input: { projectPath: PROJECT_PATH, expectedItemsRevision: 1 },
     });
+    expect(fixture.index_run.mock.calls[1]?.[0]).toMatchObject({
+      type: "fate_extra_preview_index_cleanup",
+      input: { projectPath: PROJECT_PATH },
+    });
+  });
+
+  it("原子发布后清理旧 generation，清理期间取消仍返回已提交结果", async () => {
+    const fixture = create_job_service({ adapterEnabled: true, indexReady: false });
+    let finish_cleanup!: () => void;
+    fixture.index_run.mockImplementation((task: { type: string }) => {
+      if (task.type === "fate_extra_preview_index_cleanup") {
+        return new Promise((resolve) => {
+          finish_cleanup = () => resolve({ cleaned_generations: 1 });
+        });
+      }
+      return Promise.resolve({
+        built_items_revision: 1,
+        built_generation: 2,
+        built_adapter_value: "adapter-v1",
+      });
+    });
+    const job = fixture.service.rebuild_duplicate_index({ project_path: PROJECT_PATH });
+    await vi.waitFor(() => expect(fixture.index_run).toHaveBeenCalledTimes(2));
+    expect(
+      fixture.database_execute.mock.calls.some(
+        ([operation]) => operation.name === "activateFateExtraPreviewSearchGeneration",
+      ),
+    ).toBe(true);
+    fixture.service.jobs_cancel({ job_id: String(job["job_id"]) });
+    const cleanup_signal = fixture.index_run.mock.calls[1]![1] as AbortSignal;
+    expect(cleanup_signal.aborted).toBe(false);
+    finish_cleanup();
+    await vi.waitFor(() =>
+      expect(fixture.service.jobs_status({ job_id: String(job["job_id"]) })).toMatchObject({
+        status: "succeeded",
+        result: { built_generation: 2 },
+      }),
+    );
   });
 
   it("同路径 close/reopen 改变 epoch 后不激活迟到的 inactive generation", async () => {

@@ -3,9 +3,14 @@ import os from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ProjectDatabase } from "./database-operations";
+import { FATE_EXTRA_INDEX_PHASES } from "../../shared/fate-extra/fate-extra-index-progress";
+import {
+  query_fate_extra_preview_readonly,
+  build_fate_extra_preview_search_filter,
+} from "./fate-extra-preview-readonly";
 import {
   advance_fate_extra_preview_navigation_revision,
   FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY,
@@ -39,6 +44,210 @@ afterEach(() => {
 });
 
 describe("fate-extra preview search generation", () => {
+  it("精简共享文本不随物理位置展开，校对保存只更新一个共享映射并保留导航", () => {
+    const project_path = create_project("shared-save", [
+      { id: 1, src: "共享原文甲😀甲", dst: "代表初翻", file_path: "a.txt" },
+      { id: 2, src: "另一原文", dst: "另一初翻", file_path: "b.txt" },
+    ]);
+    const fixture = new DatabaseSync(project_path);
+    fixture
+      .prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('fate_extra.compact.v1',?)")
+      .run(JSON.stringify({ enabled: true }));
+    fixture.exec(`INSERT INTO fate_extra_compact_source(source_hash,source,representative_original_item_id,compact_item_id,occurrence_count,excluded_reason,machine_translation_count,proofread_translation_count,safety_category_count,representative_translation_authoritative)
+      VALUES('a','共享原文甲😀甲',1,1,1000,'',1,0,1,1),('b','另一原文',1001,2,1,'',1,0,1,0)`);
+    const insert = fixture.prepare(`INSERT INTO fate_extra_compact_occurrence(
+      original_item_id,source_hash,file_path,row_number,resource_path,char_offset,original_prefix,source_line_numbers,pass_through,display_mode,safety_category,slot_capacity,allow_overlength,original_machine_translation,original_proofread_translation,original_status)
+      VALUES(?,?,?,?,?,?,'','[]','[]','dialogue','ordinary_independent_slot',128,0,?,'','NONE')`);
+    fixture.exec("BEGIN");
+    for (let id = 1; id <= 1001; id++)
+      insert.run(
+        id,
+        id <= 1000 ? "a" : "b",
+        id % 2 === 0 ? "b.txt" : "a.txt",
+        id,
+        "field/001.dat",
+        id,
+        "位置初翻",
+      );
+    fixture.exec("COMMIT");
+    fixture.close();
+    const phases: string[] = [];
+    const build = run_fate_extra_index_maintenance(project_path, 0, (progress) =>
+      phases.push(progress.phase),
+    );
+    const db = new DatabaseSync(project_path);
+    try {
+      activate_fate_extra_preview_search_generation(db, build.generation, 0, build.adapter_value);
+      expect([...new Set(phases)]).toEqual([...FATE_EXTRA_INDEX_PHASES]);
+      const physical_before = db
+        .prepare("SELECT * FROM fate_extra_preview_search_mapping ORDER BY occurrence_id,field")
+        .all();
+      const shared_before = db
+        .prepare("SELECT * FROM fate_extra_preview_search_shared_mapping ORDER BY item_id,field")
+        .all();
+      expect(shared_before).toHaveLength(5);
+      expect(physical_before).toHaveLength(1002);
+      const filter = build_fate_extra_preview_search_filter(
+        "共享",
+        "navigation.occurrence_id",
+        1,
+        "search_mapping.occurrence_id",
+      );
+      const plan = db
+        .prepare(
+          `EXPLAIN QUERY PLAN SELECT navigation.occurrence_id FROM fate_extra_preview_navigation_occurrence AS navigation WHERE navigation.generation = ? AND ${filter.sql} ORDER BY navigation.global_position`,
+        )
+        .all(1, ...filter.parameters)
+        .map((row) => String(row["detail"]));
+      const shared_position = plan.findIndex((detail) =>
+        detail.includes("idx_fate_extra_preview_search_shared_document"),
+      );
+      expect(shared_position).toBeGreaterThan(0);
+      expect(plan[shared_position]).toContain("generation=? AND document_id=?");
+      expect(
+        plan
+          .slice(shared_position + 1)
+          .some(
+            (detail) =>
+              detail.includes("idx_fate_extra_preview_navigation_occurrence_item") &&
+              detail.includes("generation=? AND item_id=?"),
+          ),
+      ).toBe(true);
+      const prepare = vi.spyOn(db, "prepare");
+      db.exec("BEGIN IMMEDIATE");
+      db.prepare(
+        "UPDATE items SET data=json_set(data,'$.extra_field.__linguagacha_fe_v1.proofread_translation','新校对甲😀甲') WHERE id=1",
+      ).run();
+      write_items_revision(db, 1);
+      expect(refresh_fate_extra_preview_search_documents(db, [1], ["proofread"])).toBe(true);
+      db.prepare(
+        "UPDATE meta SET value='1' WHERE key='fate_extra.text-unit-index.items-revision'",
+      ).run();
+      db.exec("COMMIT");
+      const statements = prepare.mock.calls.map(([sql]) => sql);
+      prepare.mockRestore();
+      expect(statements.some((sql) => /COUNT\s*\(/i.test(sql))).toBe(false);
+      expect(
+        statements.some((sql) =>
+          /DELETE FROM fate_extra_preview_search_short_gram WHERE generation = \? AND gram = \? AND document_id = \?/.test(
+            sql,
+          ),
+        ),
+      ).toBe(true);
+      expect(
+        db
+          .prepare("SELECT * FROM fate_extra_preview_search_mapping ORDER BY occurrence_id,field")
+          .all(),
+      ).toEqual(physical_before);
+      expect(
+        db
+          .prepare(
+            "SELECT * FROM fate_extra_preview_search_shared_mapping WHERE field <> 'proofread' ORDER BY item_id,field",
+          )
+          .all(),
+      ).toEqual(shared_before.filter((row) => row["field"] !== "proofread"));
+      expect(read_fate_extra_index_state(db)).toMatchObject({
+        ready: true,
+        search_ready: true,
+        navigation_generation: 1,
+        items_revision: 1,
+      });
+      const state = read_fate_extra_preview_search_index_state(db);
+      expect(state.document_count).toBe(
+        db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM fate_extra_preview_search_document WHERE generation=1",
+          )
+          .get()?.["count"],
+      );
+      expect(state.short_gram_count).toBe(
+        db
+          .prepare(
+            "SELECT COUNT(*) AS count FROM fate_extra_preview_search_short_gram WHERE generation=1",
+          )
+          .get()?.["count"],
+      );
+      for (const [search, viewMode, total] of [
+        ["新校对", "occurrence", 1000],
+        ["新校对", "unique", 1],
+        ["位置初翻", "occurrence", 1],
+        ["😀甲", "occurrence", 1000],
+      ] as const) {
+        expect(
+          query_fate_extra_preview_readonly({
+            projectPath: project_path,
+            search,
+            viewMode,
+            filePath: "",
+            category: "",
+            position: 0,
+            limit: 20,
+            includeFiles: false,
+            includeTotal: true,
+            expectedGeneration: 1,
+            expectedItemsRevision: 1,
+            expectedNavigationGeneration: 1,
+            expectedNavigationRevision: 1,
+          }),
+        ).toMatchObject({ total });
+      }
+      for (const [revision, text] of [
+        [2, "替换短稿乙😀"],
+        [3, ""],
+      ] as const) {
+        db.exec("BEGIN IMMEDIATE");
+        db.prepare(
+          "UPDATE items SET data=json_set(data,'$.extra_field.__linguagacha_fe_v1.proofread_translation',?) WHERE id=1",
+        ).run(text);
+        write_items_revision(db, revision);
+        expect(refresh_fate_extra_preview_search_documents(db, [1], ["proofread"])).toBe(true);
+        db.prepare(
+          "UPDATE meta SET value=? WHERE key='fate_extra.text-unit-index.items-revision'",
+        ).run(String(revision));
+        db.exec("COMMIT");
+        const next_state = read_fate_extra_preview_search_index_state(db);
+        expect(next_state.document_count).toBe(
+          db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM fate_extra_preview_search_document WHERE generation=1",
+            )
+            .get()?.["count"],
+        );
+        expect(next_state.short_gram_count).toBe(
+          db
+            .prepare(
+              "SELECT COUNT(*) AS count FROM fate_extra_preview_search_short_gram WHERE generation=1",
+            )
+            .get()?.["count"],
+        );
+        expect(
+          query_fate_extra_preview_readonly({
+            projectPath: project_path,
+            search: "新校对",
+            viewMode: "occurrence",
+            filePath: "",
+            category: "",
+            position: 0,
+            limit: 20,
+            includeFiles: false,
+            includeTotal: true,
+            expectedGeneration: 1,
+            expectedItemsRevision: revision,
+            expectedNavigationGeneration: 1,
+            expectedNavigationRevision: revision,
+          }),
+        ).toMatchObject({ total: 0 });
+      }
+      expect(
+        db
+          .prepare("SELECT * FROM fate_extra_preview_search_mapping ORDER BY occurrence_id,field")
+          .all(),
+      ).toEqual(physical_before);
+    } finally {
+      db.close();
+    }
+  });
+
   it("结构 revision 间隔后拒绝把旧 generation 增量提升为当前 revision", () => {
     const project_path = create_project("stale-refresh");
     build_and_activate(project_path, 0);
@@ -77,8 +286,8 @@ describe("fate-extra preview search generation", () => {
     structurally_change_project(project_path, 1);
 
     let observed_inactive_generation = false;
-    const build = run_fate_extra_index_maintenance(project_path, 1, (completed) => {
-      if (completed <= 0 || observed_inactive_generation) return;
+    const build = run_fate_extra_index_maintenance(project_path, 1, ({ phase, completed }) => {
+      if (phase !== "search-mappings" || completed <= 0 || observed_inactive_generation) return;
       const concurrent_writer = new DatabaseSync(project_path);
       concurrent_writer.exec("PRAGMA busy_timeout=50");
       expect(read_meta_value(concurrent_writer, "fate_extra.preview-search.generation")).toBe("1");
@@ -148,8 +357,13 @@ describe("fate-extra preview search generation", () => {
     let changed_revision = false;
     let completed_reports = 0;
     expect(() =>
-      run_fate_extra_index_maintenance(project_path, 1, (completed) => {
-        if (completed <= 0 || changed_revision) return;
+      run_fate_extra_index_maintenance(project_path, 1, ({ phase, completed }) => {
+        if (
+          !["search-mappings", "search-documents"].includes(phase) ||
+          completed <= 0 ||
+          changed_revision
+        )
+          return;
         completed_reports += 1;
         if (completed_reports < 2) return;
         const writer = new DatabaseSync(project_path);
@@ -381,7 +595,7 @@ describe("fate-extra preview search generation", () => {
     const db = new DatabaseSync(project_path);
     const source_adapter_value = read_meta_value(db, "fate_extra.adapter.v1")!;
     expect(JSON.parse(read_meta_value(db, "fate_extra.preview-search.adapter")!)).toEqual({
-      format_version: 1,
+      format_version: 2,
       adapter_value: source_adapter_value,
     });
     const documents_before = db
@@ -483,8 +697,60 @@ describe("fate-extra preview search generation", () => {
         `)
         .get(),
     ).toEqual({ adapter_value, items_revision: 0 });
-    expect(FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION).toBe(1);
+    expect(FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION).toBe(2);
     db.close();
+  });
+
+  it("旧格式按表清理中断后仍不可用，重试发布完整新格式且保留项目事实", () => {
+    const project_path = create_project("upgrade-cleanup-retry");
+    build_and_activate(project_path, 0);
+    const db = new DatabaseSync(project_path);
+    const items_before = db.prepare("SELECT * FROM items ORDER BY id").all();
+    db.prepare("UPDATE meta SET value = '1' WHERE key = ?").run(
+      FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY,
+    );
+    db.close();
+    expect(() =>
+      run_fate_extra_index_maintenance(project_path, 0, (progress) => {
+        if (progress.phase === "cleanup" && progress.completed === 3)
+          throw new Error("cancel-upgrade");
+      }),
+    ).toThrow("cancel-upgrade");
+    const interrupted = new DatabaseSync(project_path);
+    expect(read_fate_extra_index_state(interrupted).ready).toBe(false);
+    expect(interrupted.prepare("SELECT * FROM items ORDER BY id").all()).toEqual(items_before);
+    interrupted.close();
+    expect(cleanup_fate_extra_inactive_preview_search_generations(project_path)).toBe(1);
+    build_and_activate(project_path, 0);
+    const restored = new DatabaseSync(project_path);
+    expect(read_fate_extra_index_state(restored)).toMatchObject({
+      ready: true,
+      search_ready: true,
+    });
+    expect(
+      restored
+        .prepare("SELECT COUNT(*) AS count FROM fate_extra_preview_search_generation")
+        .get()?.["count"],
+    ).toBe(1);
+    expect(restored.prepare("SELECT * FROM items ORDER BY id").all()).toEqual(items_before);
+    restored.close();
+    expect(
+      query_fate_extra_preview_readonly({
+        projectPath: project_path,
+        search: "月海原",
+        viewMode: "unique",
+        filePath: "",
+        category: "",
+        position: 0,
+        limit: 20,
+        includeFiles: false,
+        includeTotal: true,
+        expectedGeneration: 2,
+        expectedItemsRevision: 0,
+        expectedNavigationGeneration: 2,
+        expectedNavigationRevision: 0,
+      }),
+    ).toMatchObject({ total: 1 });
   });
 
   it("硬终止遗留的已索引文档由清理任务定点移除且不破坏 active FTS", () => {

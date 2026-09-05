@@ -57,6 +57,7 @@ describe("ProjectSchemaMigration", () => {
       "fate_extra_preview_search_generation",
       "fate_extra_preview_search_item",
       "fate_extra_preview_search_mapping",
+      "fate_extra_preview_search_shared_mapping",
       "fate_extra_preview_search_short_gram",
       "fate_extra_text_occurrence",
       "fate_extra_text_unit",
@@ -85,7 +86,7 @@ describe("ProjectSchemaMigration", () => {
     { kind: "plain" as const, label: "普通" },
     { kind: "fate-extra" as const, label: "FE" },
     { kind: "compact" as const, label: "FE 精简" },
-  ])("schema 9 打开旧 $label 项目时只创建空派生索引结构", ({ kind }) => {
+  ])("schema 10 打开旧 $label 项目时只创建空派生索引结构", ({ kind }) => {
     const db = open_database(`legacy-schema-6-${kind}.lg`);
     create_schema_6_fixture(db, kind);
     const facts_before = read_project_facts(db);
@@ -161,6 +162,36 @@ describe("ProjectSchemaMigration", () => {
       { path: "a.txt", sort_order: 1 },
     ]);
   });
+  it("已升级的精简工程重开连接只检查结构，不重新读取或改写 items", () => {
+    const db = open_database("current-compact.lg");
+    ProjectSchemaMigration.run(db);
+    db.prepare("INSERT OR REPLACE INTO meta(key,value) VALUES('fate_extra.compact.v1',?)").run(
+      JSON.stringify({ enabled: true }),
+    );
+    db.prepare("INSERT INTO items(data) VALUES(?)").run(
+      JSON.stringify({ src: "原文", dst: "", status: "NONE" }),
+    );
+    const item_accesses: number[] = [];
+    db.setAuthorizer((action, table) => {
+      if (
+        table === "items" &&
+        (action === sqlite_constants.SQLITE_READ || DERIVED_SEARCH_WRITE_ACTIONS.has(action))
+      )
+        item_accesses.push(action);
+      return sqlite_constants.SQLITE_OK;
+    });
+    try {
+      ProjectSchemaMigration.run(db);
+    } finally {
+      db.setAuthorizer(null);
+    }
+    expect(item_accesses).toEqual([]);
+    expect(JSON.parse(String(db.prepare("SELECT data FROM items").get()?.["data"]))).toMatchObject({
+      dst: "",
+      status: "NONE",
+    });
+  });
+
   it("fills blank compact machine drafts from source without changing status", () => {
     const db = open_database("compact-drafts.lg");
     ProjectSchemaMigration.run(db);
@@ -172,6 +203,7 @@ describe("ProjectSchemaMigration", () => {
       JsonTool.stringifyStrict({ src: "おやすみなさい", dst: "", status: "NONE" }),
     );
 
+    db.prepare("UPDATE meta SET value = '8' WHERE key = 'schema_version'").run();
     ProjectSchemaMigration.run(db);
 
     const item = JsonTool.parseStrict<Record<string, unknown>>(

@@ -1,4 +1,5 @@
 import type { DatabaseJsonValue } from "../../database/database-types";
+import type { FateExtraIndexProgressReporter } from "../../../shared/fate-extra/fate-extra-index-progress";
 import { query_fate_extra_preview_readonly } from "../../database/fate-extra-preview-readonly";
 import {
   cleanup_fate_extra_inactive_preview_search_generations,
@@ -38,7 +39,7 @@ export type FateExtraPreviewSearchWorkerTaskInput = {
  */
 export function run_fate_extra_preview_index_worker_task(
   input: FateExtraPreviewIndexWorkerTaskInput,
-  report_progress: (completed: number, total: number) => void = () => undefined,
+  report_progress: FateExtraIndexProgressReporter = () => undefined,
 ): DatabaseJsonValue {
   const record = run_fate_extra_index_maintenance(
     input.projectPath,
