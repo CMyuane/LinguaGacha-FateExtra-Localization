@@ -1,3 +1,4 @@
+import type { FateExtraIndexProgressReporter } from "../../shared/fate-extra/fate-extra-index-progress";
 import type { DatabaseSync } from "node:sqlite";
 
 import { JsonTool } from "../../shared/utils/json-tool";
@@ -7,7 +8,7 @@ export const FATE_EXTRA_PREVIEW_NAVIGATION_GENERATION_META_KEY =
 export const FATE_EXTRA_PREVIEW_NAVIGATION_ITEMS_REVISION_META_KEY =
   "fate_extra.preview-navigation.items-revision";
 export const FATE_EXTRA_PREVIEW_INDEX_FORMAT_META_KEY = "fate_extra.preview-index.format-version";
-export const FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION = 1;
+export const FATE_EXTRA_PREVIEW_INDEX_FORMAT_VERSION = 2;
 
 export function build_fate_extra_preview_index_identity(adapter_value: string): string {
   return JsonTool.stringifyStrict({
@@ -76,6 +77,7 @@ export function build_fate_extra_preview_navigation_generation(
     items_revision: number;
     item_count: number;
     compact: boolean;
+    report_progress?: FateExtraIndexProgressReporter;
   },
 ): void {
   db.prepare(`
@@ -85,10 +87,13 @@ export function build_fate_extra_preview_navigation_generation(
     ) VALUES (?, ?, ?, ?, 0, 0, 0, 0)
   `).run(args.generation, args.adapter_value, args.items_revision, args.item_count);
 
+  let step = 0;
+  const on_step = () =>
+    args.report_progress?.({ phase: "navigation", completed: ++step, total: 5 });
   if (args.compact) {
-    build_compact_navigation(db, args.generation);
+    build_compact_navigation(db, args.generation, on_step);
   } else {
-    build_standard_navigation(db, args.generation);
+    build_standard_navigation(db, args.generation, on_step);
   }
 
   db.prepare(`
@@ -109,6 +114,7 @@ export function build_fate_extra_preview_navigation_generation(
     WHERE occurrence.generation = ?
     GROUP BY occurrence.generation, occurrence.file_path
   `).run(args.generation, args.generation);
+  on_step();
 
   const unique_count = generation_count(db, "fate_extra_preview_navigation_unit", args.generation);
   const occurrence_count = generation_count(
@@ -126,9 +132,14 @@ export function build_fate_extra_preview_navigation_generation(
     SET unique_count = ?, occurrence_count = ?, file_count = ?, complete = 1
     WHERE generation = ? AND complete = 0
   `).run(unique_count, occurrence_count, file_count, args.generation);
+  on_step();
 }
 
-function build_standard_navigation(db: DatabaseSync, generation: number): void {
+function build_standard_navigation(
+  db: DatabaseSync,
+  generation: number,
+  on_step: () => void,
+): void {
   db.prepare(`
     INSERT INTO fate_extra_preview_navigation_unit (
       generation, position, unit_id, item_id, occurrence_count
@@ -146,6 +157,7 @@ function build_standard_navigation(db: DatabaseSync, generation: number): void {
     FROM visible_unit
     ORDER BY representative_item_id
   `).run(generation);
+  on_step();
   db.prepare(`
     INSERT INTO fate_extra_preview_navigation_occurrence (
       generation, occurrence_id, item_id, unit_id, file_path,
@@ -162,6 +174,7 @@ function build_standard_navigation(db: DatabaseSync, generation: number): void {
     WHERE COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
     ORDER BY item.id
   `).run(generation);
+  on_step();
   db.prepare(`
     INSERT INTO fate_extra_preview_navigation_unit_file (
       generation, file_path, position, unit_id, item_id, occurrence_id
@@ -181,9 +194,10 @@ function build_standard_navigation(db: DatabaseSync, generation: number): void {
     FROM first_in_file
     ORDER BY file_path, item_id
   `).run(generation);
+  on_step();
 }
 
-function build_compact_navigation(db: DatabaseSync, generation: number): void {
+function build_compact_navigation(db: DatabaseSync, generation: number, on_step: () => void): void {
   db.prepare(`
     INSERT INTO fate_extra_preview_navigation_unit (
       generation, position, unit_id, item_id, occurrence_count
@@ -204,6 +218,7 @@ function build_compact_navigation(db: DatabaseSync, generation: number): void {
     FROM visible_unit
     ORDER BY item_id
   `).run(generation);
+  on_step();
   const source = `
     FROM fate_extra_compact_occurrence AS occurrence
     JOIN fate_extra_compact_source AS compact_source
@@ -230,6 +245,7 @@ function build_compact_navigation(db: DatabaseSync, generation: number): void {
     ${source}
     ORDER BY occurrence.original_item_id
   `).run(generation);
+  on_step();
   db.prepare(`
     INSERT INTO fate_extra_preview_navigation_unit_file (
       generation, file_path, position, unit_id, item_id, occurrence_id
@@ -250,6 +266,7 @@ function build_compact_navigation(db: DatabaseSync, generation: number): void {
     FROM first_in_file
     ORDER BY file_path, first_row, occurrence_id
   `).run(generation);
+  on_step();
 }
 
 export function activate_fate_extra_preview_navigation_generation(

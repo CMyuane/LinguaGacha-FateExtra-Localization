@@ -608,7 +608,11 @@ function append_occurrence_index_conditions(
     parameters.push(generation, input.category);
   }
   if (input.search !== "") {
-    const filter = build_search_filter(input.search, item_expression, generation);
+    const filter = build_fate_extra_preview_search_filter(
+      input.search,
+      item_expression,
+      generation,
+    );
     conditions.push(filter.sql);
     parameters.push(...filter.parameters);
   }
@@ -669,7 +673,7 @@ function append_unique_index_conditions(
     parameters.push(generation, input.category);
   }
   if (input.search !== "") {
-    const filter = build_search_filter(
+    const filter = build_fate_extra_preview_search_filter(
       input.search,
       "unit.unit_id",
       generation,
@@ -690,6 +694,28 @@ function compact_occurrence_select_sql(): string {
     LEFT JOIN fate_extra_text_occurrence AS text_occurrence
       ON text_occurrence.item_id = item.id
   `;
+}
+
+/** 保存回执只投影一个已验证的物理位置，不扫描或加载页面集合。 */
+export function read_fate_extra_preview_occurrence(
+  db: DatabaseSync,
+  occurrence_id: number,
+): DatabaseJsonValue {
+  if (read_compact_enabled(db)) {
+    const row = db
+      .prepare(`${compact_occurrence_select_sql()} WHERE occurrence.original_item_id = ?`)
+      .get(occurrence_id);
+    return row === undefined ? null : (project_compact_row(row) as DatabaseJsonValue);
+  }
+  const row = db
+    .prepare(`
+    SELECT item.id, item.data, occurrence.unit_id, unit.occurrence_count
+    FROM items AS item LEFT JOIN fate_extra_text_occurrence AS occurrence ON occurrence.item_id = item.id
+    LEFT JOIN fate_extra_text_unit AS unit ON unit.unit_id = occurrence.unit_id
+    WHERE item.id = ?
+  `)
+    .get(occurrence_id);
+  return row === undefined ? null : (project_navigation_unit_row(row) as DatabaseJsonValue);
 }
 
 function compact_occurrence_select_columns_sql(): string {
@@ -994,7 +1020,11 @@ function scan_navigation_occurrence_matches(
   if (input.search !== "") {
     const filter = compact
       ? build_compact_search_filter(input.search, search_generation)
-      : build_search_filter(input.search, "navigation.item_id", search_generation);
+      : build_fate_extra_preview_search_filter(
+          input.search,
+          "navigation.item_id",
+          search_generation,
+        );
     conditions.push(filter.sql);
     parameters.push(...filter.parameters);
   }
@@ -1084,7 +1114,7 @@ function scan_navigation_unit_matches(
     parameters.push(search_generation, input.category);
   }
   if (input.search !== "") {
-    const filter = build_search_filter(
+    const filter = build_fate_extra_preview_search_filter(
       input.search,
       "navigation.unit_id",
       search_generation,
@@ -1121,7 +1151,7 @@ function scan_navigation_unit_matches(
   };
 }
 
-function build_search_filter(
+export function build_fate_extra_preview_search_filter(
   search: string,
   target_expression: string,
   generation: number,
@@ -1129,6 +1159,7 @@ function build_search_filter(
   field_condition = "search_mapping.field <> 'file-exact'",
 ): { sql: string; parameters: QueryValue[] } {
   const matched = build_fate_extra_preview_matched_document_query(search, generation);
+  // UNION 分支也固定连接顺序，避免 SQLite 把百万 navigation 行置于命中文档之前。
   const candidate_from = `
     FROM matched_document
     CROSS JOIN fate_extra_preview_search_mapping AS search_mapping
@@ -1147,8 +1178,23 @@ function build_search_filter(
       )
       SELECT ${candidate_expression}
       ${candidate_from}
+      UNION
+      SELECT ${candidate_expression === "search_mapping.occurrence_id" ? "navigation.occurrence_id" : candidate_expression}
+      FROM matched_document
+      CROSS JOIN fate_extra_preview_search_shared_mapping AS search_mapping
+        INDEXED BY idx_fate_extra_preview_search_shared_document
+      CROSS JOIN fate_extra_preview_search_item AS search_item
+        ON search_item.generation = search_mapping.generation AND search_item.item_id = search_mapping.item_id
+      ${
+        candidate_expression === "search_mapping.occurrence_id"
+          ? `CROSS JOIN fate_extra_preview_navigation_occurrence AS navigation
+        ON navigation.generation = search_mapping.generation AND navigation.item_id = search_mapping.item_id`
+          : ""
+      }
+      WHERE search_mapping.generation = ? AND search_mapping.document_id = matched_document.document_id
+        AND ${field_condition}
     )`,
-    parameters: [...matched.parameters, generation],
+    parameters: [...matched.parameters, generation, generation],
   };
 }
 
@@ -1197,7 +1243,7 @@ function build_compact_search_filter(
   search: string,
   generation: number,
 ): { sql: string; parameters: QueryValue[] } {
-  return build_search_filter(
+  return build_fate_extra_preview_search_filter(
     search,
     "occurrence.original_item_id",
     generation,

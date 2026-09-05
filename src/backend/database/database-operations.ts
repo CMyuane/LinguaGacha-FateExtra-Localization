@@ -1,6 +1,7 @@
 import path from "node:path";
 import { createHash } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
+import { read_fate_extra_preview_occurrence } from "./fate-extra-preview-readonly";
 
 import {
   build_current_project_database_meta,
@@ -290,11 +291,17 @@ export class ProjectDatabase {
           this.require_number(args, "expectedItemsRevision"),
           this.require_string(args, "expectedAdapterValue"),
         );
+      case "getFateExtraPreviewOccurrence":
+        return read_fate_extra_preview_occurrence(
+          this.open_project(this.require_string(args, "projectPath")),
+          this.require_number(args, "occurrenceId"),
+        );
       case "refreshFateExtraPreviewSearchDocuments":
         return this.refresh_fate_extra_preview_search_documents(
           this.require_string(args, "projectPath"),
           this.optional_number_array(args, "itemIds"),
           this.optional_number(args, "unitId"),
+          args["proofreadOnly"] === true,
         );
       case "advanceFateExtraPreviewRevisionIdentity":
         return this.advance_fate_extra_preview_revision_identity(
@@ -340,7 +347,7 @@ export class ProjectDatabase {
           this.require_number(args, "unitId"),
           this.require_number(args, "itemId"),
           this.require_number(args, "occurrenceId"),
-          this.require_string(args, "proofreadTranslation"),
+          this.require_string(args, "proofreadTranslation", true),
           this.require_string(args, "displayMode"),
         );
       case "patchFateExtraDisplayMode":
@@ -1154,6 +1161,7 @@ export class ProjectDatabase {
     project_path: string,
     requested_item_ids: number[] | null,
     unit_id: number | null,
+    proofread_only: boolean,
   ): boolean {
     const db = this.open_project(project_path);
     const item_ids =
@@ -1170,7 +1178,11 @@ export class ProjectDatabase {
               )
               .all(Math.trunc(unit_id))
               .map((row) => row_number(row, "item_id"));
-    const refreshed = refresh_fate_extra_preview_search_documents(db, item_ids);
+    const refreshed = refresh_fate_extra_preview_search_documents(
+      db,
+      item_ids,
+      proofread_only ? ["proofread"] : undefined,
+    );
     if (refreshed) {
       const items_revision = this.get_meta_from_db(db, "project_runtime_revision.items", 0);
       db.prepare(
@@ -2579,9 +2591,13 @@ export class ProjectDatabase {
   /**
    * 校验必填字符串，避免脏载荷进入数据库层
    */
-  private require_string(args: Record<string, DatabaseJsonValue>, key: string): string {
+  private require_string(
+    args: Record<string, DatabaseJsonValue>,
+    key: string,
+    allow_empty = false,
+  ): string {
     const value = args[key];
-    if (typeof value !== "string" || value === "") {
+    if (typeof value !== "string" || (!allow_empty && value === "")) {
       throw new AppErrors.RequestValidationError();
     }
     return value;

@@ -5,7 +5,9 @@ import type { MigrationDescriptor, ProjectDatabaseMigrationContext } from "../mi
 
 type SchemaRow = Record<string, unknown>;
 
-export const PROJECT_DATABASE_SCHEMA_VERSION = 9; // 只表达当前表结构能力，不承载业务写回完成状态
+const COMPACT_MACHINE_DRAFT_SCHEMA_VERSION = 9;
+
+export const PROJECT_DATABASE_SCHEMA_VERSION = 10; // 只表达当前表结构能力，不承载业务写回完成状态
 
 /**
  * 迁移背景：
@@ -42,7 +44,12 @@ export class ProjectSchemaMigration {
     this.ensure_asset_sort_order_column(db);
     this.ensure_compact_occurrence_translation_columns(db);
     this.ensure_compact_source_translation_authority_column(db);
-    this.ensure_compact_machine_drafts(db);
+    // 已升级工程再次打开 scoped connection 时不能重扫 items 或覆盖用户清空的初翻。
+    const previous_version = db
+      .prepare("SELECT value FROM meta WHERE key = 'schema_version'")
+      .get()?.["value"];
+    if (Number(previous_version ?? 0) < COMPACT_MACHINE_DRAFT_SCHEMA_VERSION)
+      this.ensure_compact_machine_drafts(db);
     this.write_meta_version(db, "schema_version", PROJECT_DATABASE_SCHEMA_VERSION);
   }
 
@@ -133,6 +140,15 @@ export class ProjectSchemaMigration {
         document_id INTEGER NOT NULL,
         PRIMARY KEY (generation, occurrence_id, field, document_id)
       ) WITHOUT ROWID;
+      CREATE TABLE IF NOT EXISTS fate_extra_preview_search_shared_mapping (
+        generation INTEGER NOT NULL,
+        item_id INTEGER NOT NULL,
+        field TEXT NOT NULL,
+        document_id INTEGER NOT NULL,
+        PRIMARY KEY (generation, item_id, field)
+      ) WITHOUT ROWID;
+      CREATE INDEX IF NOT EXISTS idx_fate_extra_preview_search_shared_document
+        ON fate_extra_preview_search_shared_mapping(generation, document_id, item_id);
       CREATE TABLE IF NOT EXISTS fate_extra_preview_search_file_summary (
         generation INTEGER NOT NULL,
         document_id INTEGER NOT NULL,

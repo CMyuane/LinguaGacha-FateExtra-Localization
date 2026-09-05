@@ -1,6 +1,7 @@
 import type { ApiJsonValue } from "../api/api-types";
 import {
   FateExtraJobCoordinator,
+  type FateExtraCommittedJobOutcome,
   type FateExtraJobProgress,
   type FateExtraJobSnapshot,
 } from "./fate-extra-job-coordinator";
@@ -14,7 +15,7 @@ type StartFateExtraIndexOptions = {
   run: (
     signal: AbortSignal,
     reportProgress: (progress: FateExtraJobProgress) => void,
-  ) => Promise<ApiJsonValue>;
+  ) => Promise<ApiJsonValue | FateExtraCommittedJobOutcome>;
 };
 
 /**
@@ -58,7 +59,7 @@ export class FateExtraIndexCoordinator {
       identityKey: identity_key,
       projectEpoch: options.projectEpoch,
       sourceRevision: options.itemsRevision,
-      phase: "building-preview-index",
+      phase: "checking",
       run: async (signal, report_progress) => {
         // 被取代任务必须先完成 worker 终止与 inactive generation 清理；否则旧任务的
         // 全局 cleanup 可能在新 generation 构建后、激活前把它删除。
