@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { parentPort } from "node:worker_threads";
 
 import { ProjectDatabase } from "../../src/backend/database/database-operations";
-import { build_fate_extra_preview_matched_document_query } from "../../src/backend/database/fate-extra-preview-readonly";
+import { build_fate_extra_preview_search_filter } from "../../src/backend/database/fate-extra-preview-readonly";
 import { normalize_fate_extra_preview_search_text } from "../../src/backend/database/fate-extra-preview-search-index";
 import { run_fate_extra_export_worker_task } from "../../src/backend/worker/tasks/fate-extra-compact-export-worker-task";
 import {
@@ -28,6 +28,7 @@ type WorkerCommand =
       projectPath: string;
       physicalCount: number;
       uniqueCount: number;
+      highRepeat?: boolean;
     }
   | {
       kind: "create-synthetic-scan";
@@ -124,10 +125,26 @@ async function execute(command: WorkerCommand): Promise<unknown> {
     case "create-synthetic-scan":
       return create_synthetic_scan_fixture(command);
     case "preview-index": {
-      const built = run_fate_extra_preview_index_worker_task({
-        projectPath: command.projectPath,
-        expectedItemsRevision: read_preview_identity(command.projectPath).items_revision,
-      }) as JsonRecord;
+      const schema_database = new ProjectDatabase();
+      schema_database.execute({ name: "getAllMeta", args: { projectPath: command.projectPath } });
+      schema_database.close();
+      const phase_wall_ms: Record<string, number> = {};
+      let previous_phase = "checking";
+      let phase_started = performance.now();
+      const built = run_fate_extra_preview_index_worker_task(
+        {
+          projectPath: command.projectPath,
+          expectedItemsRevision: read_preview_identity(command.projectPath).items_revision,
+        },
+        (progress) => {
+          if (progress.phase === previous_phase) return;
+          const now = performance.now();
+          phase_wall_ms[previous_phase] =
+            (phase_wall_ms[previous_phase] ?? 0) + now - phase_started;
+          previous_phase = progress.phase;
+          phase_started = now;
+        },
+      ) as JsonRecord;
       const database = new ProjectDatabase();
       try {
         const activated = database.execute({
@@ -139,7 +156,9 @@ async function execute(command: WorkerCommand): Promise<unknown> {
             expectedAdapterValue: String(built["built_adapter_value"] ?? ""),
           },
         }) as JsonRecord;
-        return { ...built, ...activated };
+        phase_wall_ms[previous_phase] =
+          (phase_wall_ms[previous_phase] ?? 0) + performance.now() - phase_started;
+        return { ...built, ...activated, phase_wall_ms };
       } finally {
         database.close();
       }
@@ -233,9 +252,13 @@ function create_synthetic_compact_project(
   create_empty_project(command.projectPath, "FE compact export benchmark");
   const database = new DatabaseSync(command.projectPath);
   try {
+    const source_index_at = (index: number): number =>
+      command.highRepeat === true && index >= command.uniqueCount && index % 2 === 0
+        ? 0
+        : index % command.uniqueCount;
     const occurrence_counts = Array.from({ length: command.uniqueCount }, () => 0);
     for (let index = 0; index < command.physicalCount; index += 1) {
-      occurrence_counts[index % command.uniqueCount] += 1;
+      occurrence_counts[source_index_at(index)] += 1;
     }
     const insert_item = database.prepare("INSERT INTO items (id, data) VALUES (?, ?)");
     const insert_source = database.prepare(`
@@ -270,11 +293,30 @@ function create_synthetic_compact_project(
             file_path: `route-${(index % 6).toString()}.txt`,
             row: index,
             status: "PROCESSED",
+            name_src: "",
+            name_dst: "",
+            tag: "",
+            file_type: "TXT",
+            text_type: "TXT",
+            retry_count: 0,
+            skip_internal_filter: false,
             extra_field: {
               __linguagacha_fe_v1: {
                 source_hash,
+                schema_version: 1,
+                path: `field/${Math.floor(index / 10_000)
+                  .toString()
+                  .padStart(3, "0")}.dat`,
+                char_offset: index * 4,
+                display_mode: "dialogue",
                 proofread_translation: index % 7 === 0 ? `精简校对${index.toString()}` : "",
-                classification: { category: "ordinary_independent_slot" },
+                classification: {
+                  category: "ordinary_independent_slot",
+                  format_handler: "direct",
+                  slot_capacity: 128,
+                  allow_overlength: false,
+                  confidence: "high",
+                },
               },
             },
           }),
@@ -282,7 +324,7 @@ function create_synthetic_compact_project(
         insert_source.run(
           source_hash,
           source,
-          item_id,
+          item_id + Math.floor(index / 997),
           item_id,
           occurrence_counts[index],
           1,
@@ -290,7 +332,7 @@ function create_synthetic_compact_project(
         );
       }
       for (let index = 0; index < command.physicalCount; index += 1) {
-        const source_index = index % command.uniqueCount;
+        const source_index = source_index_at(index);
         const original_item_id = index + 1 + Math.floor(index / 997);
         const resource_path = `field/${Math.floor(index / 10_000)
           .toString()
@@ -750,41 +792,15 @@ function explain_preview_search(project_path: string, search: string): JsonRecor
     const generation = read_json_meta_number(database, "fate_extra.preview-search.generation");
     const normalized = normalize_fate_extra_preview_search_text(search);
     const is_short = Array.from(normalized).length <= 2;
-    const matched = build_fate_extra_preview_matched_document_query(search, generation);
-    const common_table = `WITH matched_document(document_id, field) AS MATERIALIZED (
-      ${matched.sql}
-    )`;
-    const field_count = Number(
-      database
-        .prepare(`${common_table} SELECT COUNT(DISTINCT field) AS count FROM matched_document`)
-        .get(...matched.parameters)?.["count"] ?? 0,
+    const filter = build_fate_extra_preview_search_filter(
+      search,
+      "navigation.occurrence_id",
+      generation,
+      "search_mapping.occurrence_id",
     );
-    const count_sql =
-      field_count === 1
-        ? `${common_table}
-          SELECT COALESCE(SUM(summary.occurrence_count), 0)
-          FROM matched_document
-          JOIN fate_extra_preview_search_file_summary AS summary
-            ON summary.generation = ?
-            AND summary.document_id = matched_document.document_id`
-        : `${common_table}
-          SELECT COUNT(DISTINCT mapping.item_id)
-          FROM matched_document
-          CROSS JOIN fate_extra_preview_search_mapping AS mapping
-            INDEXED BY idx_fate_extra_preview_search_item_document
-          WHERE mapping.generation = ?
-            AND mapping.document_id = matched_document.document_id`;
-    const page_sql = `${common_table}
-      SELECT item.id
-      FROM fate_extra_preview_search_mapping AS mapping
-        INDEXED BY idx_fate_extra_preview_search_mapping_item
-      JOIN items AS item ON item.id = mapping.item_id
-      WHERE mapping.generation = ?
-        AND mapping.document_id IN (SELECT document_id FROM matched_document)
-      GROUP BY mapping.item_id
-      ORDER BY mapping.item_id
-      LIMIT 160`;
-    const query_parameters = [...matched.parameters, generation];
+    const count_sql = `SELECT COUNT(*) FROM fate_extra_preview_navigation_occurrence AS navigation WHERE navigation.generation = ? AND ${filter.sql}`;
+    const page_sql = `SELECT navigation.occurrence_id FROM fate_extra_preview_navigation_occurrence AS navigation WHERE navigation.generation = ? AND ${filter.sql} ORDER BY navigation.global_position LIMIT 160`;
+    const query_parameters = [generation, ...filter.parameters];
     const count_plan = database
       .prepare(`EXPLAIN QUERY PLAN ${count_sql}`)
       .all(...query_parameters)
@@ -880,6 +896,21 @@ function read_preview_state(project_path: string): JsonRecord {
       navigation_generations,
       item_count: Number(
         database.prepare("SELECT COUNT(*) AS count FROM items").get()?.["count"] ?? 0,
+      ),
+      compact_physical_count: Number(
+        database.prepare("SELECT COUNT(*) AS count FROM fate_extra_compact_occurrence").get()?.[
+          "count"
+        ] ?? 0,
+      ),
+      compact_visible_physical_count: Number(
+        database
+          .prepare(`
+          SELECT COALESCE(SUM(source.occurrence_count), 0) AS count
+          FROM fate_extra_compact_source AS source
+          JOIN items AS item ON item.id = source.compact_item_id
+          WHERE source.excluded_reason = '' AND COALESCE(json_extract(item.data, '$.status'), '') <> 'EXCLUDED'
+        `)
+          .get()?.["count"] ?? 0,
       ),
     };
   } finally {
