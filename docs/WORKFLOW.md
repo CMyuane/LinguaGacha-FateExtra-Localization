@@ -83,7 +83,8 @@ npm run format -- --check
 - FE 扫描与应用测试覆盖 golden fixture 等价、单项目至多一个 draft、精简工程入口拒绝、取消、过期、卸载、dispose、事务回滚，以及 pending manifest 在提交前/后的重启恢复和歧义状态误删保护。
 - 索引测试覆盖搜索/导航 generation 重复启动合并、取消、worker 崩溃、revision 变化、派生格式升级、旧 cleanup 与新构建串行化、非活动 generation 清理、原子切换和同路径 close/reopen epoch 隔离；导航语义覆盖普通/精简 FE 的 `EXCLUDED` 隐藏与恢复、重复组代表重选和出现数重算、唯一/物理模式、全局/文件位置、补漏去重、上下文、warning、远距离跳页和精确 total。旧格式及可见性变化期间只允许 `updating`，不得认证或显示旧集合。
 - 搜索与写入测试用旧 `includes` 语义作 oracle，覆盖 CJK 1/2/3 字、ASCII 大小写、Ruby、控制符、文件路径、精简组级译文冷建/增量替换、精确计数、跳转、伪造/迟到 `(item_id, unit_id, occurrence_id)` 回滚和 `AbortSignal` / latest-wins；两个 occurrence 共用代表 item 时，显示类型只改变目标位置并在自动重查后保持，display-only 不得改变状态/文本、刷新搜索或重建导航。查询计划必须证明 FTS 命中集驱动文档主键复核，导航计划必须无 `OFFSET`、无 `items` JSON 扫描。
-- schema 9 迁移测试覆盖旧普通、FE 与精简项目；组级译文识别只遍历代表组并通过主键读取代表 occurrence，项目打开只创建空派生结构，不同步触发全量索引重建。
+- schema 10 / 派生格式 2 升级覆盖旧普通、FE 与精简项目；保留组级初翻所有权识别，项目打开只创建空结构，worker 清理旧派生数据并重建。共享映射须覆盖位置初翻差异、短中文和 Unicode code point，校对保存须证明不读取完整 items、不展开整组物理映射、不重建导航、不全量统计搜索索引。
+- PSP 保存覆盖整组/当前位置、清空、显示类型、事务回滚、冲突、HTTP/SSE 到达顺序及迟到查询；等待保存无空白帧，编辑器节点、焦点、光标、滚动和后续草稿保持。首次加载覆盖七阶段、未知总量、取消重试、失败不自动重启及同路径重新打开。
 - 既有 FE 回归仍覆盖索引解析与双模式导出、18/19 全宽字边界、第四行溢出、所有从者/性别分支、字库映射/纹理/manifest 一致性、编码槽耗尽安全失败，以及六份当前译文主字库和 Ruby 字库零缺字。
 
 ### 7.2 正式数据一致性
@@ -102,6 +103,7 @@ npm run format -- --check
 | 精简导出 | 189 页时每个 JSON/CSV 流写入次数 ≤191；100k→1m 耗时增长 ≤12 倍；无二次 OFFSET 曲线                           |
 | FE 扫描  | 主进程 50ms 心跳最大漂移 ≤100ms；主进程 heap 增量 <128MiB；ready draft <5MiB；worker RSS 目标 <512MiB        |
 | 索引任务 | 启动/取消请求 ACK p95 ≤100ms；worker 完全退出 ≤500ms；冷建期间 `/health` p95 ≤100ms；取消后 1 秒内无 staging |
+| PSP 保存 | 正式精简副本保存 HTTP p95 ≤300ms，保存至恢复操作 p95 ≤500ms；同机同数据冷建较 v20 降低至少 50%，热开首次查询 p95 ≤200ms |
 | 预览导航 | generation 就绪后首次加载、文件切换和任意页跳转 p95 ≤200ms；同筛选前后条 p95 ≤100ms；查询计划无 OFFSET/JSON 扫描 |
 | 搜索     | ≥3 字 p95 ≤200ms、p99 ≤500ms；1～2 字 p95 ≤500ms；查询计划不得扫描 `items`/`filtered_item` JSON              |
 | 连续输入 | 十次快速输入只展示最后一次结果；队列不超过 1 active + 1 pending；取消 worker 在 500ms 内退出                 |
@@ -120,13 +122,15 @@ npm run build
 
 同时执行 FE 校对缓存、导出、扫描、索引与搜索基准。性能报告必须保存机器 CPU、内存、操作系统与运行时版本，数据来源和规模，预热与重复次数，p95/p99、wall time、主进程 heap、worker RSS、50ms 心跳漂移、文件写入次数、查询次数和 `EXPLAIN QUERY PLAN`。故障注入应记录触发点、可见旧状态、回滚和临时资源清理结果；前端验收应记录侧栏展开/折叠、任务阶段/进度/取消、十次快速输入、项目切换和组件卸载结果。
 
-四个 FE 基准的无参数默认配置即合成正式门禁：校对使用 28,433 items / 100 次热循环 / 160 行窗口，精简导出同时使用 100k、941,489 和 1m 物理位置，扫描使用 941,489 逻辑位置 / 28,433 有效文本的正式形状，预览使用 941,489 物理位置 / 28,433 文本单元 / 20 次搜索与取消采样。门禁失败或显式缩小正式配置会返回非零退出码；`--self-check` 只验证缩小 fixture、生产入口、报告结构和清理，不构成性能证据，导出、扫描和预览基准的 `--allow-partial` 仅用于有意拆分的探索性测量。报告中的 `not-executed` / `not-independently-evaluable` 必须在交付中继续列为未执行，不能由其余布尔门禁代替。
+四个 FE 基准的无参数默认配置覆盖既有合成门禁：校对使用 28,433 items / 100 次热循环 / 160 行窗口，精简导出同时使用 100k、941,489 和 1m 物理位置，扫描使用 941,489 逻辑位置 / 28,433 有效文本的正式形状，预览使用 941,489 物理位置 / 28,433 文本单元 / 20 次搜索与取消采样。门禁失败或显式缩小正式配置会返回非零退出码；`--self-check` 只验证缩小 fixture、生产入口、报告结构和清理，不构成性能证据，导出、扫描和预览基准的 `--allow-partial` 仅用于有意拆分的探索性测量。预览基准另以 `--compact` 测量 28,433 代表项 / 941,489 物理位置的分阶段冷建与真实 HTTP 保存（含会话缓存和后台重查），须先构建桌面 worker；`--high-repeat` 将约半数位置集中到一组，检验保存对组大小的依赖。`--baseline-cold-ms` 只接收同机同数据同采样方式的 v20 基线；缺少可比基线时不能认定减半门禁通过。报告中的 `not-executed` / `not-independently-evaluable` 必须在交付中继续列为未执行，不能由其余布尔门禁代替。
 
 ```powershell
 npm run benchmark:fe:proofreading -- --output build/benchmark-reports/fe-proofreading.json
 npm run benchmark:fe:compact -- --output build/benchmark-reports/fe-compact.json
 npm run benchmark:fe:scan -- --output build/benchmark-reports/fe-scan.json
 npm run benchmark:fe:preview -- --output build/benchmark-reports/fe-preview.json
+npm run benchmark:fe:preview -- --compact --output build/benchmark-reports/fe-preview-compact.json
+npm run benchmark:fe:preview -- --compact --high-repeat --output build/benchmark-reports/fe-preview-high-repeat.json
 ```
 
 未达到任一门禁时不得标记完成。无法执行、失败或只执行部分时，交付必须逐项写明原因、影响范围、剩余风险以及正式数据还是合成数据；不能以单元测试通过代替量化证据。
