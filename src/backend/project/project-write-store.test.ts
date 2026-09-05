@@ -153,77 +153,7 @@ describe("ProjectWriteStore", () => {
 
   it("精简 FE 代表项初翻提交后统一覆盖物理预览与搜索文档", async () => {
     const { database, project_path, store } = create_store("translation-compact-index");
-    database.execute({
-      name: "setMeta",
-      args: {
-        projectPath: project_path,
-        key: "fate_extra.adapter.v1",
-        value: { enabled: true, schema_version: 1, logical_text_count: 1 },
-      },
-    });
-    database.execute({
-      name: "setMeta",
-      args: {
-        projectPath: project_path,
-        key: "fate_extra.compact.v1",
-        value: { enabled: true, schema_version: 2, physical_item_count: 2 },
-      },
-    });
-    database.execute({
-      name: "setItems",
-      args: {
-        projectPath: project_path,
-        items: [
-          {
-            id: 1,
-            src: "同一原文",
-            dst: "旧译甲",
-            status: "NONE",
-            file_path: "route-a.txt",
-            row: 0,
-            extra_field: {
-              __linguagacha_fe_v1: {
-                schema_version: 1,
-                path: "route-a.bin",
-                char_offset: 16,
-                original_prefix: "",
-                source_hash: "same-source",
-                source_line_numbers: [1],
-                pass_through: [],
-                proofread_translation: "",
-                display_mode: "auto",
-                classification: { category: "ordinary_independent_slot" },
-              },
-            },
-          },
-        ],
-      },
-    });
-    const fixture = new DatabaseSync(project_path);
-    fixture.exec(`
-      INSERT INTO fate_extra_compact_source (
-        source_hash, source, representative_original_item_id, compact_item_id,
-        occurrence_count, excluded_reason
-      ) VALUES ('same-source', '同一原文', 10, 1, 2, '');
-      INSERT INTO fate_extra_compact_occurrence (
-        original_item_id, source_hash, file_path, row_number, resource_path,
-        char_offset, original_prefix, source_line_numbers, pass_through,
-        original_machine_translation
-      ) VALUES
-        (10, 'same-source', 'route-a.txt', 0, 'route-a.bin', 16, '', '[1]', '[]', '旧译甲'),
-        (20, 'same-source', 'route-b.txt', 0, 'route-b.bin', 24, '', '[1]', '[]', '旧译乙');
-    `);
-    fixture.close();
-    const build = run_fate_extra_index_maintenance(project_path, 0);
-    database.execute({
-      name: "activateFateExtraPreviewSearchGeneration",
-      args: {
-        projectPath: project_path,
-        generation: build.generation,
-        expectedItemsRevision: build.items_revision,
-        expectedAdapterValue: build.adapter_value,
-      },
-    });
+    seed_compact_preview_project(database, project_path);
 
     await store.apply_translation_item_patches({
       projectPath: project_path,
@@ -264,6 +194,65 @@ describe("ProjectWriteStore", () => {
       ],
     });
     expect(query("旧译乙")).toMatchObject({ total: 0, items: [] });
+  });
+
+  it("精简整组校对与清空仅发布代表项 delta，并保留物理初翻和索引 generation", async () => {
+    const { database, project_path, store, published_changes } =
+      create_store("compact-review-delta");
+    seed_compact_preview_project(database, project_path);
+    const occurrence = database.execute({
+      name: "getFateExtraPreviewOccurrence",
+      args: { projectPath: project_path, occurrenceId: 10 },
+    }) as MutableJsonRecord;
+    const execute = vi.spyOn(database, "execute");
+    for (const [revision, text] of [
+      [0, "新校对稿"],
+      [1, ""],
+    ] as const) {
+      const result = await store.apply_fate_extra_text_unit_review({
+        projectPath: project_path,
+        expectedSectionRevisions: { items: revision, proofreading: revision },
+        compact: true,
+        itemId: 1,
+        unitId: Number(occurrence["fe_text_unit_id"]),
+        occurrenceId: 10,
+        proofreadTranslation: text,
+        displayMode: "dialogue",
+      });
+      expect(result.changes).toHaveLength(1);
+      expect(published_changes.at(-1)).toMatchObject({
+        source: "fate_extra_text_unit_review_save",
+        items: { payloadMode: "canonical-delta", changedIds: [1] },
+      });
+    }
+    expect(execute.mock.calls.some(([operation]) => operation.name === "getAllItems")).toBe(false);
+    expect(read_items(database, project_path)).toMatchObject([
+      { dst: "旧译甲", extra_field: { __linguagacha_fe_v1: { proofread_translation: "" } } },
+    ]);
+    expect(
+      database.execute({
+        name: "getFateExtraTextUnitIndexState",
+        args: { projectPath: project_path },
+      }),
+    ).toMatchObject({
+      ready: true,
+      search_ready: true,
+      navigation_generation: 1,
+      items_revision: 2,
+    });
+    await expect(
+      store.apply_fate_extra_text_unit_review({
+        projectPath: project_path,
+        expectedSectionRevisions: { items: 0, proofreading: 0 },
+        compact: true,
+        itemId: 1,
+        unitId: Number(occurrence["fe_text_unit_id"]),
+        occurrenceId: 10,
+        proofreadTranslation: "迟到稿",
+        displayMode: "dialogue",
+      }),
+    ).rejects.toMatchObject({ code: "data.revision_conflict" });
+    expect(published_changes).toHaveLength(2);
   });
 
   it("校对字段 patch 会推进 proofreading revision 并更新翻译统计", async () => {
@@ -583,6 +572,7 @@ describe("ProjectWriteStore", () => {
         projectPath: project_path,
         expectedSectionRevisions: { items: 0, proofreading: 0 },
         unitId: mismatched_unit_id,
+        compact: false,
         itemId: 3,
         occurrenceId: 3,
         proofreadTranslation: "不得写入",
@@ -1202,6 +1192,80 @@ describe("ProjectWriteStore", () => {
         };
       }),
     } as unknown as ProjectChangePublisher;
+  }
+
+  function seed_compact_preview_project(database: ProjectDatabase, project_path: string): void {
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.adapter.v1",
+        value: { enabled: true, schema_version: 1, logical_text_count: 1 },
+      },
+    });
+    database.execute({
+      name: "setMeta",
+      args: {
+        projectPath: project_path,
+        key: "fate_extra.compact.v1",
+        value: { enabled: true, schema_version: 2, physical_item_count: 2 },
+      },
+    });
+    database.execute({
+      name: "setItems",
+      args: {
+        projectPath: project_path,
+        items: [
+          {
+            id: 1,
+            src: "同一原文",
+            dst: "旧译甲",
+            status: "NONE",
+            file_path: "route-a.txt",
+            row: 0,
+            extra_field: {
+              __linguagacha_fe_v1: {
+                schema_version: 1,
+                path: "route-a.bin",
+                char_offset: 16,
+                original_prefix: "",
+                source_hash: "same-source",
+                source_line_numbers: [1],
+                pass_through: [],
+                proofread_translation: "",
+                display_mode: "auto",
+                classification: { category: "ordinary_independent_slot" },
+              },
+            },
+          },
+        ],
+      },
+    });
+    const fixture = new DatabaseSync(project_path);
+    fixture.exec(`
+      INSERT INTO fate_extra_compact_source (
+        source_hash, source, representative_original_item_id, compact_item_id,
+        occurrence_count, excluded_reason
+      ) VALUES ('same-source', '同一原文', 10, 1, 2, '');
+      INSERT INTO fate_extra_compact_occurrence (
+        original_item_id, source_hash, file_path, row_number, resource_path,
+        char_offset, original_prefix, source_line_numbers, pass_through,
+        original_machine_translation
+      ) VALUES
+        (10, 'same-source', 'route-a.txt', 0, 'route-a.bin', 16, '', '[1]', '[]', '旧译甲'),
+        (20, 'same-source', 'route-b.txt', 0, 'route-b.bin', 24, '', '[1]', '[]', '旧译乙');
+    `);
+    fixture.close();
+    const build = run_fate_extra_index_maintenance(project_path, 0);
+    database.execute({
+      name: "activateFateExtraPreviewSearchGeneration",
+      args: {
+        projectPath: project_path,
+        generation: build.generation,
+        expectedItemsRevision: build.items_revision,
+        expectedAdapterValue: build.adapter_value,
+      },
+    });
   }
 
   function seed_items(database: ProjectDatabase, project_path: string): void {
