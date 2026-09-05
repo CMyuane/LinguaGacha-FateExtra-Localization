@@ -41,6 +41,11 @@ import {
   PROOFREADING_WARNING_LABEL_KEY_BY_CODE,
   type ProofreadingManualStatusCode,
 } from "@shared/proofreading/proofreading-types";
+import {
+  FATE_EXTRA_INDEX_PHASES,
+  is_fate_extra_index_phase,
+  type FateExtraIndexPhase,
+} from "@shared/fate-extra/fate-extra-index-progress";
 import "@frontend/pages/fate-extra-preview-page/fate-extra-preview-page.css";
 
 const PREVIEW_PAGE_SIZE = 120;
@@ -88,6 +93,8 @@ type PreviewItem = {
 };
 
 type PreviewList = {
+  sectionRevisions: Record<string, number>;
+  index_job?: PreviewIndexJobSnapshot;
   query_id?: number;
   total?: number;
   items?: PreviewItem[];
@@ -158,11 +165,9 @@ type ContextPayload = {
   items?: ContextItem[];
 };
 
-type ProjectManifest = {
-  sectionRevisions?: Record<string, number>;
-};
-
 type ProjectWritePayload = {
+  item?: PreviewItem | null;
+  sectionRevisions?: Record<string, number>;
   accepted?: unknown;
   changes?: unknown;
 };
@@ -290,6 +295,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const { t } = useI18n();
   const {
     project_snapshot,
+    project_epoch,
     project_change_signal,
     task_snapshot,
     commit_project_write,
@@ -301,6 +307,15 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [file_counts, set_file_counts] = useState<Record<string, number>>({});
   const [total, set_total] = useState(0);
   const [settled_query_identity, set_settled_query_identity] = useState("");
+  const [settled_query_parameters, set_settled_query_parameters] = useState("");
+  const revisions_ref = useRef<Record<string, number>>({});
+  const write_failed_ref = useRef(false);
+  const draft_source_ref = useRef<{ key: string; proofread: string; display_mode: string } | null>(
+    null,
+  );
+  const supplied_index_job_ref = useRef<PreviewIndexJobSnapshot | null>(null);
+  const [index_elapsed_seconds, set_index_elapsed_seconds] = useState(0);
+  const last_index_phase_ref = useRef<FateExtraIndexPhase>("checking");
   const [file_summary_project_path, set_file_summary_project_path] = useState("");
   const [position, set_position] = useState(0);
   const [selected, set_selected] = useState(0);
@@ -345,6 +360,9 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const [context_error, set_context_error] = useState("");
   const [context_payload, set_context_payload] = useState<ContextPayload | null>(null);
   const project_path = project_snapshot.loaded ? project_snapshot.path : "";
+  const project_identity = JSON.stringify([project_path, project_epoch]);
+  const project_identity_ref = useRef(project_identity);
+  project_identity_ref.current = project_identity;
   const readonly = is_project_write_locked(task_snapshot);
   useEffect(() => {
     const timeout = window.setTimeout(() => set_debounced_search(search), 120);
@@ -355,7 +373,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const preview_query_identity = useMemo(
     () =>
       JSON.stringify([
-        project_path,
+        project_identity,
         project_change_signal.seq,
         reload_seq,
         debounced_search,
@@ -370,15 +388,37 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       file_path,
       position,
       project_change_signal.seq,
-      project_path,
+      project_identity,
       reload_seq,
       debounced_search,
       view_mode,
       warning,
     ],
   );
+  const preview_query_parameters = JSON.stringify([
+    project_identity,
+    debounced_search,
+    view_mode,
+    file_path,
+    warning,
+    category,
+    position,
+  ]);
+  const preserve_during_refresh =
+    settled_query_parameters === preview_query_parameters &&
+    search === debounced_search &&
+    search_state === "ready" &&
+    (project_change_signal.results?.length ?? 0) > 0 &&
+    project_change_signal.results.every((result) =>
+      [
+        "fate_extra_proofread_save",
+        "fate_extra_text_unit_review_save",
+        "fate_extra_display_mode_save",
+      ].includes(result.source),
+    );
   const results_are_current =
-    project_path !== "" && settled_query_identity === preview_query_identity;
+    project_path !== "" &&
+    (settled_query_identity === preview_query_identity || preserve_during_refresh);
   const visible_items = results_are_current ? items : [];
   const visible_total = results_are_current ? total : 0;
   const file_summary_is_current = project_path !== "" && file_summary_project_path === project_path;
@@ -387,6 +427,15 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
 
   useEffect(() => {
     set_settled_query_identity("");
+    set_settled_query_parameters("");
+    revisions_ref.current = {};
+    write_failed_ref.current = false;
+    set_busy("");
+    draft_source_ref.current = null;
+    supplied_index_job_ref.current = null;
+    last_index_phase_ref.current = "checking";
+    set_draft_proofread("");
+    set_draft_display_mode("auto");
     set_file_summary_project_path("");
     set_items([]);
     set_files([]);
@@ -408,7 +457,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     set_context_payload(null);
     set_feedback("");
     set_error("");
-  }, [project_path]);
+  }, [project_identity]);
 
   useEffect(() => {
     let alive = true;
@@ -418,6 +467,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       set_items([]);
       return;
     }
+    if (busy !== "") return;
     const query_id = ++preview_query_sequence_ref.current;
     void api_fetch<PreviewList>(
       "/api/toolbox/fate-extra/items",
@@ -436,7 +486,14 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     )
       .then((payload) => {
         if (!alive || payload.query_id !== query_id) return;
-        if (payload.search_state === "updating") {
+        if (
+          (payload.sectionRevisions.items ?? 0) < (revisions_ref.current.items ?? 0) ||
+          (payload.sectionRevisions.proofreading ?? 0) < (revisions_ref.current.proofreading ?? 0)
+        )
+          return;
+        revisions_ref.current = payload.sectionRevisions;
+        if (payload.search_state === "updating" || payload.navigation_state === "updating") {
+          supplied_index_job_ref.current = payload.index_job ?? null;
           set_settled_query_identity(preview_query_identity);
           set_items([]);
           set_total(0);
@@ -447,12 +504,13 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           set_context_payload(null);
           set_search_state("updating");
           set_index_ready(false);
-          set_error("");
+          if (!write_failed_ref.current) set_error("");
           return;
         }
         set_search_state("ready");
         const next_items = payload.items ?? [];
         set_settled_query_identity(preview_query_identity);
+        set_settled_query_parameters(preview_query_parameters);
         set_items(next_items);
         set_total(Number(payload.total ?? 0));
         set_review_scope(
@@ -466,11 +524,15 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           set_file_counts(payload.file_counts ?? {});
         }
         set_selected((value) => Math.min(value, Math.max(0, next_items.length - 1)));
-        set_error("");
+        if (!write_failed_ref.current) set_error("");
       })
       .catch((reason: unknown) => {
         if (abort_controller.signal.aborted) return;
         if (alive) {
+          if (revisions_ref.current.items === undefined) {
+            set_index_ready(false);
+            set_index_retry_available(true);
+          }
           set_error(error_message(reason, t("fate_extra_preview_page.load_failed")));
         }
       });
@@ -482,8 +544,10 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       }
     };
   }, [
+    busy,
     category,
     debounced_search,
+    preview_query_parameters,
     file_path,
     position,
     project_change_signal.seq,
@@ -498,9 +562,9 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   useEffect(() => {
     if (
       project_path === "" ||
-      (view_mode !== "unique" && search_state !== "updating") ||
       index_ready !== false ||
-      index_rebuild_project_ref.current === project_path
+      index_retry_available ||
+      index_rebuild_project_ref.current === project_identity
     ) {
       return;
     }
@@ -508,15 +572,18 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     let terminal = false;
     let started_job_id = "";
     const abort_controller = new AbortController();
-    index_rebuild_project_ref.current = project_path;
+    index_rebuild_project_ref.current = project_identity;
     set_index_building(true);
     set_index_retry_available(false);
     void (async () => {
-      let snapshot = await api_fetch<PreviewIndexJobSnapshot>(
-        "/api/toolbox/fate-extra/index/rebuild",
-        { project_path },
-        { signal: abort_controller.signal },
-      );
+      let snapshot =
+        supplied_index_job_ref.current ??
+        (await api_fetch<PreviewIndexJobSnapshot>(
+          "/api/toolbox/fate-extra/index/rebuild",
+          { project_path },
+          { signal: abort_controller.signal },
+        ));
+      supplied_index_job_ref.current = null;
       started_job_id = snapshot.job_id ?? "";
       index_job_id_ref.current = started_job_id;
       if (alive) set_index_job(snapshot);
@@ -558,7 +625,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       } else {
         index_rebuild_project_ref.current = "";
         set_index_retry_available(true);
-        set_error("FE 严格去重索引未能完整建立，可继续使用物理位置视图。");
+        set_error(t("fate_extra_preview_page.index_failed"));
       }
     })()
       .catch((reason: unknown) => {
@@ -566,7 +633,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         if (!alive) return;
         index_rebuild_project_ref.current = "";
         set_index_retry_available(true);
-        set_error(error_message(reason, "FE 严格去重索引建立失败。"));
+        set_error(error_message(reason, t("fate_extra_preview_page.index_failed")));
       })
       .finally(() => {
         if (alive) set_index_building(false);
@@ -580,11 +647,26 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       }
       index_job_id_ref.current = "";
       abort_controller.abort();
-      if (index_rebuild_project_ref.current === project_path) {
+      if (index_rebuild_project_ref.current === project_identity) {
         index_rebuild_project_ref.current = "";
       }
     };
-  }, [index_ready, index_retry_seq, project_path, search_state, view_mode]);
+  }, [index_ready, index_retry_seq, project_path, project_identity, index_retry_available, t]);
+
+  const raw_index_phase = index_job?.phase ?? "";
+  if (is_fate_extra_index_phase(raw_index_phase)) last_index_phase_ref.current = raw_index_phase;
+  const index_phase = last_index_phase_ref.current;
+  const index_loading = project_path !== "" && (index_ready === null || index_building);
+  useEffect(() => {
+    if (!index_loading) return;
+    const started = Date.now();
+    set_index_elapsed_seconds(0);
+    const interval = window.setInterval(
+      () => set_index_elapsed_seconds(Math.floor((Date.now() - started) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(interval);
+  }, [index_loading, project_identity]);
 
   async function cancel_preview_index_job(): Promise<void> {
     const job_id = index_job_id_ref.current;
@@ -594,15 +676,18 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         "/api/toolbox/fate-extra/jobs/cancel",
         { job_id },
       );
-      set_index_job(snapshot);
+      if (project_identity_ref.current === project_identity && index_job_id_ref.current === job_id)
+        set_index_job(snapshot);
     } catch (reason) {
-      set_error(error_message(reason, "FE 索引任务取消失败。"));
+      if (project_identity_ref.current === project_identity && index_job_id_ref.current === job_id)
+        set_error(error_message(reason, "FE 索引任务取消失败。"));
     }
   }
 
   function retry_preview_index_job(): void {
     index_rebuild_project_ref.current = "";
     set_index_job(null);
+    last_index_phase_ref.current = "checking";
     set_index_retry_available(false);
     set_error("");
     set_index_retry_seq((value) => value + 1);
@@ -611,17 +696,29 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const current = visible_items[selected] ?? null;
   const current_position = current === null ? 0 : position + selected + 1;
   useEffect(() => {
-    set_draft_proofread(current?.proofread_translation ?? "");
-    set_draft_display_mode(current?.display_mode ?? "auto");
-    set_feedback("");
-    set_error("");
-    set_draft_encoded_bytes(current?.proofread_encoded_bytes ?? 0);
-  }, [
-    current?.display_mode,
-    current?.item_id,
-    current?.occurrence_id,
-    current?.proofread_translation,
-  ]);
+    if (current === null) return;
+    const key = JSON.stringify([project_identity, current.occurrence_id]);
+    const previous = draft_source_ref.current;
+    if (previous?.key !== key) {
+      set_draft_proofread(current.proofread_translation);
+      set_draft_display_mode(current.display_mode);
+      set_feedback("");
+      set_error("");
+      set_draft_encoded_bytes(current.proofread_encoded_bytes);
+    } else {
+      set_draft_proofread((draft) =>
+        draft === previous.proofread ? current.proofread_translation : draft,
+      );
+      set_draft_display_mode((draft) =>
+        draft === previous.display_mode ? current.display_mode : draft,
+      );
+    }
+    draft_source_ref.current = {
+      key,
+      proofread: current.proofread_translation,
+      display_mode: current.display_mode,
+    };
+  }, [current, project_identity]);
 
   useEffect(() => {
     if (!context_open || current === null || project_path === "") return;
@@ -663,7 +760,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
   const proofread_dirty = current !== null && draft_proofread !== current.proofread_translation;
   const display_mode_dirty = current !== null && draft_display_mode !== current.display_mode;
   const dirty = proofread_dirty || display_mode_dirty;
-  const writing = busy !== "" || readonly || index_building;
+  const writing = busy !== "" || readonly || index_loading || index_ready === false;
   const navigation_blocked = proofread_dirty || writing;
   const text =
     current === null
@@ -797,17 +894,13 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     on_trigger: save_translation,
   });
 
-  async function read_revisions(): Promise<Record<string, number>> {
-    const manifest = await api_fetch<ProjectManifest>("/api/session/project/manifest", {});
-    return manifest.sectionRevisions ?? {};
-  }
-
   async function run_item_write(
     operation: string,
     path: string,
     body: Record<string, unknown>,
   ): Promise<void> {
-    const revisions = await read_revisions();
+    const revisions = revisions_ref.current;
+    write_failed_ref.current = false;
     await commit_project_write<ProjectWritePayload>({
       operation,
       run: async () =>
@@ -819,6 +912,21 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
             proofreading: revisions["proofreading"] ?? 0,
           },
         }),
+      prepare: ({ payload }) => {
+        if (project_identity_ref.current !== project_identity) return;
+        if (payload.sectionRevisions !== undefined)
+          revisions_ref.current = payload.sectionRevisions;
+        const saved = payload.item;
+        if (saved !== undefined && saved !== null) {
+          set_items((previous) =>
+            previous.map((item) =>
+              item.occurrence_id === saved.occurrence_id
+                ? { ...saved, occurrence_count: item.occurrence_count }
+                : item,
+            ),
+          );
+        }
+      },
     });
   }
 
@@ -840,24 +948,16 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         proofread_translation: next_proofread,
         display_mode: next_display_mode,
       });
-      set_items((previous) =>
-        previous.map((item) =>
-          item.occurrence_id === target_occurrence_id
-            ? {
-                ...item,
-                proofread_translation: next_proofread,
-                effective_translation: next_proofread || item.machine_translation,
-                display_mode: next_display_mode,
-                status: "PROCESSED",
-              }
-            : item,
-        ),
-      );
-      set_feedback(t("app.feedback.save_success"));
+
+      if (project_identity_ref.current === project_identity)
+        set_feedback(t("app.feedback.save_success"));
     } catch (reason) {
-      set_error(error_message(reason, t("proofreading_page.feedback.save_failed")));
+      if (project_identity_ref.current === project_identity) {
+        write_failed_ref.current = true;
+        set_error(error_message(reason, t("proofreading_page.feedback.save_failed")));
+      }
     } finally {
-      set_busy("");
+      if (project_identity_ref.current === project_identity) set_busy("");
     }
   }
 
@@ -888,19 +988,17 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           display_mode: next_display_mode,
         },
       );
-      set_items((previous) =>
-        previous.map((item) =>
-          item.occurrence_id === target_occurrence_id
-            ? { ...item, display_mode: next_display_mode }
-            : item,
-        ),
-      );
-      set_feedback(t("app.feedback.save_success"));
+
+      if (project_identity_ref.current === project_identity)
+        set_feedback(t("app.feedback.save_success"));
     } catch (reason) {
-      set_draft_display_mode(previous_display_mode);
-      set_error(error_message(reason, t("proofreading_page.feedback.save_failed")));
+      if (project_identity_ref.current === project_identity) {
+        set_draft_display_mode(previous_display_mode);
+        write_failed_ref.current = true;
+        set_error(error_message(reason, t("proofreading_page.feedback.save_failed")));
+      }
     } finally {
-      set_busy("");
+      if (project_identity_ref.current === project_identity) set_busy("");
     }
   }
 
@@ -913,13 +1011,6 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       proofread_translation: "",
       display_mode: current?.display_mode ?? "auto",
     });
-    set_items((previous) =>
-      previous.map((item) =>
-        item.occurrence_id === target_occurrence_id
-          ? { ...item, proofread_translation: "", effective_translation: item.machine_translation }
-          : item,
-      ),
-    );
   }
 
   async function set_translation_status(status: ProofreadingManualStatusCode): Promise<void> {
@@ -979,11 +1070,12 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
     try {
       if (confirmation.kind === "clear-translations") {
         await clear_translation(target_id, target_occurrence_id);
+        if (project_identity_ref.current !== project_identity) return;
         set_feedback(
           t("proofreading_page.feedback.clear_translation_success").replace("{COUNT}", "1"),
         );
       } else {
-        const revisions = await read_revisions();
+        const revisions = revisions_ref.current;
         await api_fetch("/api/tasks/start", {
           task_type: "translation",
           mode: "new",
@@ -996,10 +1088,13 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
           },
         });
         await refresh_task("translation");
+        if (project_identity_ref.current !== project_identity) return;
         set_feedback(t("fate_extra_preview_page.retranslate_started"));
       }
       set_pending_confirmation(null);
     } catch (reason) {
+      if (project_identity_ref.current !== project_identity) return;
+      write_failed_ref.current = true;
       const fallback =
         confirmation.kind === "clear-translations"
           ? t("proofreading_page.feedback.clear_translation_failed")
@@ -1007,7 +1102,7 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
       set_error(error_message(reason, fallback));
       set_pending_confirmation({ ...confirmation, submitting: false });
     } finally {
-      set_busy("");
+      if (project_identity_ref.current === project_identity) set_busy("");
     }
   }
 
@@ -1178,29 +1273,52 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         </select>
       </div>
 
-      {index_building ? (
-        <div className="fate-extra-preview__index-status" role="status">
-          <span>
-            {t("fate_extra_preview_page.index_building")}
-            {index_job?.phase === undefined || index_job.phase === "" ? "" : ` ${index_job.phase}`}
-            {index_job?.total === null || index_job?.total === undefined
-              ? ""
-              : ` ${Number(index_job.completed ?? 0).toLocaleString()}/${Number(index_job.total).toLocaleString()}`}
-          </span>
+      {index_loading || index_ready === false ? (
+        <div className="fate-extra-preview__index-status" role="status" aria-live="polite">
+          <div className="fate-extra-preview__index-copy">
+            <strong>
+              {t(
+                index_job?.status === "cancelled"
+                  ? "fate_extra_preview_page.index_cancelled"
+                  : index_job?.status === "cancelling"
+                    ? "fate_extra_preview_page.index_cancelling"
+                    : index_retry_available
+                      ? "fate_extra_preview_page.index_failed"
+                      : "fate_extra_preview_page.index_building",
+              )}
+            </strong>
+            <span>
+              {t(`fate_extra_preview_page.index_phase.${index_phase}`)}
+              {index_job?.phase && is_fate_extra_index_phase(index_job.phase)
+                ? ` (${FATE_EXTRA_INDEX_PHASES.indexOf(index_job.phase) + 1}/${FATE_EXTRA_INDEX_PHASES.length})`
+                : ""}
+            </span>
+            <progress
+              aria-label={t("fate_extra_preview_page.index_progress")}
+              max={index_job?.total ?? 1}
+              value={
+                index_job?.total === null || index_job?.total === undefined
+                  ? undefined
+                  : (index_job.completed ?? 0)
+              }
+            />
+            <span>
+              {index_job?.total === null || index_job?.total === undefined
+                ? ""
+                : `${Number(index_job.completed ?? 0).toLocaleString()}/${index_job.total.toLocaleString()} · `}
+              {t("fate_extra_preview_page.index_elapsed", {
+                seconds: String(index_elapsed_seconds),
+              })}
+            </span>
+          </div>
           {index_job?.cancellable === true &&
           index_job.status !== "cancelling" &&
-          index_job.status !== "cancelled" ? (
+          index_building ? (
             <AppButton size="sm" variant="outline" onClick={() => void cancel_preview_index_job()}>
               {t("fate_extra_preview_page.index_cancel")}
             </AppButton>
           ) : null}
-        </div>
-      ) : view_mode === "unique" && index_ready === false ? (
-        <div className="fate-extra-preview__index-status" role="status">
-          <span>{t("fate_extra_preview_page.index_fallback")}</span>
-          {index_retry_available ||
-          index_job?.status === "failed" ||
-          index_job?.status === "cancelled" ? (
+          {index_retry_available ? (
             <AppButton size="sm" variant="outline" onClick={retry_preview_index_job}>
               {t("fate_extra_preview_page.index_retry")}
             </AppButton>
@@ -1208,7 +1326,11 @@ export function FateExtraPreviewPage(_props: ScreenComponentProps): JSX.Element 
         </div>
       ) : null}
 
-      <main className="fate-extra-preview__main">
+      <main
+        className="fate-extra-preview__main"
+        aria-busy={index_loading}
+        data-index-loading={index_loading || index_ready === false ? "true" : undefined}
+      >
         <section className="fate-extra-preview__stage">
           {current === null ? null : (
             <div className="fate-extra-preview__identity">

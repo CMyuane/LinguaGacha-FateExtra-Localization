@@ -57,6 +57,13 @@
 }
 
 .fate-extra-preview__index-status {
+  grid-row: 3;
+  grid-column: 1;
+  align-self: center;
+  padding: 24px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius-current);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -78,6 +85,8 @@
 }
 
 .fate-extra-preview__main {
+  grid-row: 3;
+  grid-column: 1;
   display: grid;
   min-height: 0;
   min-width: 0;
@@ -533,4 +542,33 @@
     order: -1;
     width: 100%;
   }
+}
+
+.fate-extra-preview__index-copy {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fate-extra-preview__index-copy progress {
+  appearance: none;
+  width: 100%;
+  height: 10px;
+  accent-color: var(--primary);
+}
+
+.fate-extra-preview__index-copy progress::-webkit-progress-bar {
+  background: var(--muted);
+  border-radius: var(--ui-radius-button);
+}
+
+.fate-extra-preview__index-copy progress::-webkit-progress-value {
+  background: var(--primary);
+  border-radius: var(--ui-radius-button);
+}
+
+.fate-extra-preview__main[data-index-loading="true"] {
+  visibility: hidden;
 }

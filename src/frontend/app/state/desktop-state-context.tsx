@@ -79,6 +79,7 @@ type DesktopStateContextValue = {
   initial_state_error: string | null;
   settings_snapshot: SettingsSnapshot;
   project_snapshot: ProjectSnapshot;
+  project_epoch: number;
   task_snapshot: TaskSnapshot;
   project_change_signal: ProjectChangeSignal;
   project_session_status: ProjectSessionStatus;
@@ -819,12 +820,14 @@ export function DesktopStateProvider(props: { children: ReactNode }): JSX.Elemen
     },
   });
 
+  const project_epoch = project_state_identity_ref.current.epoch;
   const context_value = useMemo<DesktopStateContextValue>(() => {
     return {
       initial_state_ready,
       initial_state_error,
       settings_snapshot,
       project_snapshot,
+      project_epoch,
       task_snapshot,
       project_change_signal,
       project_session_status,
@@ -847,6 +850,7 @@ export function DesktopStateProvider(props: { children: ReactNode }): JSX.Elemen
     initial_state_error,
     settings_snapshot,
     project_snapshot,
+    project_epoch,
     task_snapshot,
     project_change_signal,
     project_session_status,
